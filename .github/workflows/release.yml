@@ -125,42 +125,94 @@ jobs:
           retention-days: 7
 
   docker:
+    name: docker-${{ matrix.arch }}
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [meta, build]
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and publish Docker image
+      - name: Build and publish platform image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ env.DOCKER_IMAGE }}:${{ needs.meta.outputs.version }}
-            ${{ env.DOCKER_IMAGE }}:latest
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.DOCKER_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             KAVLA_VERSION=${{ needs.meta.outputs.version }}
             KAVLA_COMMIT=${{ needs.meta.outputs.commit }}
             KAVLA_BUILD_DATE=${{ needs.meta.outputs.build_date }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=docker-${{ matrix.arch }}-v2
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}-v2
+      - name: Export image digest
+        shell: bash
+        run: |
+          mkdir -p /tmp/docker-digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/docker-digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-digest-${{ matrix.arch }}
+          path: /tmp/docker-digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  docker-manifest:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [meta, docker]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: docker-digest-*
+          path: /tmp/docker-digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Create and publish multi-platform manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          refs=()
+          for digest_file in /tmp/docker-digests/*; do
+            refs+=("${DOCKER_IMAGE}@sha256:$(basename "$digest_file")")
+          done
+          docker buildx imagetools create \
+            --tag "${DOCKER_IMAGE}:${{ needs.meta.outputs.version }}" \
+            --tag "${DOCKER_IMAGE}:latest" \
+            "${refs[@]}"
+      - name: Inspect multi-platform manifest
+        run: docker buildx imagetools inspect "${DOCKER_IMAGE}:${{ needs.meta.outputs.version }}"
 
   release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [meta, build, docker]
+    needs: [meta, build, docker-manifest]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
+          pattern: release-*
           path: dist
           merge-multiple: true
       - name: Create checksums

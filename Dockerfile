@@ -7,7 +7,8 @@ WORKDIR /src/app
 RUN corepack enable
 
 COPY app/package.json app/yarn.lock ./
-RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
+ARG TARGETARCH
+RUN --mount=type=cache,id=yarn-v2-${TARGETARCH},target=/usr/local/share/.cache/yarn,sharing=locked \
     yarn install --frozen-lockfile
 
 COPY app/ ./
