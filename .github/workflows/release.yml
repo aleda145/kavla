@@ -10,6 +10,11 @@ on:
         description: Version label for manual build artifacts
         required: false
         type: string
+      publish_release:
+        description: Publish Docker images and GitHub release artifacts
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -34,6 +39,10 @@ jobs:
             version="${GITHUB_REF_NAME}"
           else
             version="${{ github.event.inputs.version }}"
+            if [[ "${{ inputs.publish_release }}" == "true" && -z "$version" ]]; then
+              echo "version is required when publish_release is enabled" >&2
+              exit 1
+            fi
             if [[ -z "$version" ]]; then
               version="manual-${GITHUB_SHA::7}"
             fi
@@ -126,7 +135,9 @@ jobs:
 
   docker:
     name: docker-${{ matrix.arch }}
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_release)
     needs: [meta, build]
     strategy:
       fail-fast: false
@@ -174,7 +185,9 @@ jobs:
           retention-days: 1
 
   docker-manifest:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_release)
     needs: [meta, docker]
     runs-on: ubuntu-24.04
     steps:
@@ -205,7 +218,9 @@ jobs:
         run: docker buildx imagetools inspect "${DOCKER_IMAGE}:${{ needs.meta.outputs.version }}"
 
   release:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_release)
     needs: [meta, build, docker-manifest]
     runs-on: ubuntu-24.04
     steps:
