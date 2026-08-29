@@ -1,0 +1,11 @@
+.git
+.github
+.agents
+.codex
+**/.DS_Store
+**/node_modules
+**/dist
+cli/build
+cli/kavla
+cli/.kavla.new
+docker-data

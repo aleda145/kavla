@@ -1,0 +1,10 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "Kavla",
+  "outputfilename": "kavla",
+  "frontend:dir": "../app",
+  "wailsjsdir": "../app/wailsjs",
+  "author": {
+    "name": "Kavla contributors"
+  }
+}

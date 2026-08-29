@@ -1,0 +1,63 @@
+{
+  "name": "kavla-app",
+  "private": true,
+  "version": "0.0.0",
+  "author": "Kavla contributors",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/lint": "^6.9.7",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.9",
+    "@duckdb/duckdb-wasm": "1.32.0",
+    "@lezer/highlight": "^1.2.3",
+    "@polyglot-sql/sdk": "^0.9.2",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-table": "^9.1.2",
+    "@tanstack/react-virtual": "^3.14.10",
+    "@tldraw/assets": "3.15.4",
+    "@uiw/react-codemirror": "^4.25.11",
+    "apache-arrow": "^21.2.0",
+    "echarts": "^6.1.0",
+    "echarts-for-react": "^3.0.6",
+    "lodash.throttle": "^4.1.1",
+    "lucide-react": "^1.33.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-is": "^19.2.8",
+    "simple-icons": "^16.28.0",
+    "sql-formatter": "^15.8.2",
+    "tailwindcss": "^4.3.3",
+    "tldraw": "^3.15.4"
+  },
+  "devDependencies": {
+    "@types/lodash.throttle": "^4.1.9",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@typescript-eslint/eslint-plugin": "^8.67.0",
+    "@typescript-eslint/parser": "^8.67.0",
+    "@vitejs/plugin-react-swc": "^4.3.3",
+    "eslint": "^10.9.0",
+    "prettier": "^3.9.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e",
+  "resolutions": {
+    "@codemirror/language": "6.12.4",
+    "@codemirror/state": "6.7.1",
+    "@codemirror/view": "6.43.9",
+    "apache-arrow": "21.2.0"
+  }
+}

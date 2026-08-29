@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -gt 0 ] && [ -n "$1" ]; then
+  exec /usr/bin/kavla open "$1"
+fi
+
+exec /usr/bin/kavla run

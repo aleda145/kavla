@@ -1,0 +1,20 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+  - repo: local
+    hooks:
+      - id: gofmt
+        name: Run gofmt
+        entry: gofmt -s -w
+        language: system
+        files: ^cli/.*\.go$
+      - id: prettier
+        name: Run prettier
+        entry: npx prettier --write --config ./.prettierrc.json
+        language: system
+        files: ^app/.*\.(js|jsx|ts|tsx|json|css|scss|html)$

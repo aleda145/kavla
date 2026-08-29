@@ -1,0 +1,12 @@
+services:
+  kavla:
+    image: aleda145/kavla:latest
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${KAVLA_PORT:-40743}:40743"
+    volumes:
+      - kavla-data:/data
+
+volumes:
+  kavla-data:
