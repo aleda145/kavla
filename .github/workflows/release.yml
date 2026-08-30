@@ -106,7 +106,7 @@ jobs:
           COMMIT: ${{ needs.meta.outputs.commit }}
           BUILD_DATE: ${{ needs.meta.outputs.build_date }}
         run: ./scripts/build-release.sh "${{ needs.meta.outputs.version }}" "${{ matrix.goos }}" "${{ matrix.goarch }}" build
-      - name: Package archive
+      - name: Package CLI release assets
         working-directory: cli
         run: ./scripts/package-release.sh "${{ needs.meta.outputs.version }}" "${{ matrix.goos }}" "${{ matrix.goarch }}" build dist
       - name: Build Wails desktop binary
@@ -121,15 +121,13 @@ jobs:
           COMMIT: ${{ needs.meta.outputs.commit }}
           BUILD_DATE: ${{ needs.meta.outputs.build_date }}
         run: ./cli/scripts/build-linux-app.sh "${{ needs.meta.outputs.version }}" "${{ github.workspace }}/cli/desktop-build/kavla"
-      - name: Package Wails archive
+      - name: Package desktop release assets
         working-directory: cli
         run: ./scripts/package-wails-release.sh "${{ needs.meta.outputs.version }}" "${{ matrix.goos }}" "${{ matrix.goarch }}" desktop-build dist
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: |
-            cli/dist/*.tar.gz
-            cli/dist/*.deb
+          path: cli/dist/kavla*
           if-no-files-found: error
           retention-days: 7
 
@@ -230,9 +228,11 @@ jobs:
           pattern: release-*
           path: dist
           merge-multiple: true
+      - name: Add license notices
+        run: cp LICENSE THIRD_PARTY_LICENSES.md TLDRAW_LICENSE.md dist/
       - name: Create checksums
         working-directory: dist
-        run: sha256sum ./*.tar.gz ./*.deb > kavla_${{ needs.meta.outputs.version }}_checksums.txt
+        run: sha256sum ./* > kavla_${{ needs.meta.outputs.version }}_checksums.txt
       - name: Ensure GitHub release exists
         env:
           GH_TOKEN: ${{ github.token }}
@@ -240,7 +240,16 @@ jobs:
           if ! gh release view "${{ needs.meta.outputs.version }}" >/dev/null 2>&1; then
             gh release create "${{ needs.meta.outputs.version }}" --verify-tag --generate-notes --title "${{ needs.meta.outputs.version }}"
           fi
-      - name: Upload archives and checksums
+      - name: Remove legacy release archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "${{ needs.meta.outputs.version }}" --json assets --jq '.assets[].name | select(endswith(".tar.gz"))' |
+            while IFS= read -r asset; do
+              gh release delete-asset "${{ needs.meta.outputs.version }}" "$asset" --yes
+            done
+      - name: Upload release assets and checksums
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ needs.meta.outputs.version }}" dist/* --clobber

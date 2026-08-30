@@ -1,9 +1,6 @@
 package updater
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,8 +18,8 @@ import (
 
 func TestCheckUsesCacheAndNotifiesOnce(t *testing.T) {
 	now := time.Date(2026, time.March, 24, 12, 0, 0, 0, time.UTC)
-	archive := makeArchive(t, []byte("new-binary"))
-	checksum := sha256Hex(archive)
+	binary := []byte("new-binary")
+	checksum := sha256Hex(binary)
 
 	var manifestHits atomic.Int32
 	var serverURL string
@@ -35,15 +32,15 @@ func TestCheckUsesCacheAndNotifiesOnce(t *testing.T) {
 				NotesURL: "https://example.com/release",
 				Assets: map[string]Asset{
 					"linux-amd64": {
-						URL:           serverURL + "/archive",
-						SHA256:        checksum,
-						ArchiveFormat: "tar.gz",
-						BinaryName:    "kavla",
+						URL:        serverURL + "/binary",
+						SHA256:     checksum,
+						Format:     "binary",
+						BinaryName: "kavla",
 					},
 				},
 			})
-		case "/archive":
-			_, _ = w.Write(archive)
+		case "/binary":
+			_, _ = w.Write(binary)
 		default:
 			http.NotFound(w, r)
 		}
@@ -102,7 +99,7 @@ func TestAssetForCurrentPlatformUnsupported(t *testing.T) {
 	updater := &Updater{goos: "freebsd", goarch: "amd64"}
 	_, err := updater.assetForCurrentPlatform(Manifest{
 		Assets: map[string]Asset{
-			"linux-amd64": {URL: "https://example.com", SHA256: "abc", ArchiveFormat: "tar.gz", BinaryName: "kavla"},
+			"linux-amd64": {URL: "https://example.com", SHA256: "abc", Format: "binary", BinaryName: "kavla"},
 		},
 	})
 	if !errors.Is(err, ErrUnsupportedPlatform) {
@@ -111,8 +108,8 @@ func TestAssetForCurrentPlatformUnsupported(t *testing.T) {
 }
 
 func TestUpdateReplacesExecutable(t *testing.T) {
-	archive := makeArchive(t, []byte("new-binary"))
-	checksum := sha256Hex(archive)
+	binary := []byte("new-binary")
+	checksum := sha256Hex(binary)
 
 	execPath := filepath.Join(t.TempDir(), "kavla")
 	if err := os.WriteFile(execPath, []byte("old-binary"), 0755); err != nil {
@@ -128,15 +125,15 @@ func TestUpdateReplacesExecutable(t *testing.T) {
 				NotesURL: "https://example.com/release",
 				Assets: map[string]Asset{
 					"linux-amd64": {
-						URL:           serverURL + "/archive",
-						SHA256:        checksum,
-						ArchiveFormat: "tar.gz",
-						BinaryName:    "kavla",
+						URL:        serverURL + "/binary",
+						SHA256:     checksum,
+						Format:     "binary",
+						BinaryName: "kavla",
 					},
 				},
 			})
-		case "/archive":
-			_, _ = w.Write(archive)
+		case "/binary":
+			_, _ = w.Write(binary)
 		default:
 			http.NotFound(w, r)
 		}
@@ -172,7 +169,7 @@ func TestUpdateReplacesExecutable(t *testing.T) {
 }
 
 func TestUpdateRejectsChecksumMismatch(t *testing.T) {
-	archive := makeArchive(t, []byte("new-binary"))
+	binary := []byte("new-binary")
 
 	var serverURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -182,15 +179,15 @@ func TestUpdateRejectsChecksumMismatch(t *testing.T) {
 				Version: "v0.2.0",
 				Assets: map[string]Asset{
 					"linux-amd64": {
-						URL:           serverURL + "/archive",
-						SHA256:        strings.Repeat("0", 64),
-						ArchiveFormat: "tar.gz",
-						BinaryName:    "kavla",
+						URL:        serverURL + "/binary",
+						SHA256:     strings.Repeat("0", 64),
+						Format:     "binary",
+						BinaryName: "kavla",
 					},
 				},
 			})
-		case "/archive":
-			_, _ = w.Write(archive)
+		case "/binary":
+			_, _ = w.Write(binary)
 		default:
 			http.NotFound(w, r)
 		}
@@ -213,34 +210,6 @@ func TestUpdateRejectsChecksumMismatch(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("expected checksum mismatch error, got %v", err)
 	}
-}
-
-func makeArchive(t *testing.T, binary []byte) []byte {
-	t.Helper()
-
-	var buffer bytes.Buffer
-	gzipWriter := gzip.NewWriter(&buffer)
-	tarWriter := tar.NewWriter(gzipWriter)
-
-	header := &tar.Header{
-		Name: "kavla",
-		Mode: 0755,
-		Size: int64(len(binary)),
-	}
-	if err := tarWriter.WriteHeader(header); err != nil {
-		t.Fatalf("write tar header: %v", err)
-	}
-	if _, err := tarWriter.Write(binary); err != nil {
-		t.Fatalf("write tar body: %v", err)
-	}
-	if err := tarWriter.Close(); err != nil {
-		t.Fatalf("close tar writer: %v", err)
-	}
-	if err := gzipWriter.Close(); err != nil {
-		t.Fatalf("close gzip writer: %v", err)
-	}
-
-	return buffer.Bytes()
 }
 
 func sha256Hex(data []byte) string {

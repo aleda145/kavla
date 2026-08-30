@@ -11,9 +11,7 @@ goos="$2"
 goarch="$3"
 input_dir="$4"
 dist_dir="$5"
-archive_name="kavla_${version}_${goos}_${goarch}.tar.gz"
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_dir="$(cd "$script_dir/../.." && pwd)"
+binary_name="kavla_${version}_${goos}_${goarch}"
 
 if [[ ! -f "$input_dir/kavla" ]]; then
   echo "expected $input_dir/kavla to exist" >&2
@@ -21,7 +19,5 @@ if [[ ! -f "$input_dir/kavla" ]]; then
 fi
 
 mkdir -p "$dist_dir"
-rm -f "$dist_dir/$archive_name"
-tar -czf "$dist_dir/$archive_name" \
-  -C "$input_dir" kavla \
-  -C "$repo_dir" LICENSE THIRD_PARTY_LICENSES.md TLDRAW_LICENSE.md
+rm -f "$dist_dir/$binary_name"
+install -m 0755 "$input_dir/kavla" "$dist_dir/$binary_name"

@@ -1,8 +1,6 @@
 package updater
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -40,10 +37,10 @@ type Manifest struct {
 }
 
 type Asset struct {
-	URL           string `json:"url"`
-	SHA256        string `json:"sha256"`
-	ArchiveFormat string `json:"archive_format"`
-	BinaryName    string `json:"binary_name"`
+	URL        string `json:"url"`
+	SHA256     string `json:"sha256"`
+	Format     string `json:"format"`
+	BinaryName string `json:"binary_name"`
 }
 
 type State struct {
@@ -177,22 +174,17 @@ func (u *Updater) Update(ctx context.Context, currentVersion string) (UpdateResu
 		return UpdateResult{}, err
 	}
 
-	archivePath, tempDir, err := u.downloadArchive(ctx, asset)
+	binaryPath, tempDir, err := u.downloadBinary(ctx, asset)
 	if err != nil {
 		return UpdateResult{}, err
 	}
 	defer os.RemoveAll(tempDir)
 
-	extractedBinary, err := extractBinary(archivePath, tempDir, asset.BinaryName)
-	if err != nil {
-		return UpdateResult{}, err
-	}
-
 	targetPath, err := u.resolveExecutablePath()
 	if err != nil {
 		return UpdateResult{}, err
 	}
-	if err := replaceExecutable(targetPath, extractedBinary); err != nil {
+	if err := replaceExecutable(targetPath, binaryPath); err != nil {
 		return UpdateResult{}, err
 	}
 
@@ -282,8 +274,8 @@ func (u *Updater) assetForCurrentPlatform(manifest Manifest) (Asset, error) {
 	if asset.URL == "" || asset.SHA256 == "" {
 		return Asset{}, fmt.Errorf("release asset for %s is incomplete", key)
 	}
-	if asset.ArchiveFormat != "tar.gz" {
-		return Asset{}, fmt.Errorf("unsupported archive format %q", asset.ArchiveFormat)
+	if asset.Format != "binary" {
+		return Asset{}, fmt.Errorf("unsupported release asset format %q", asset.Format)
 	}
 	if asset.BinaryName == "" {
 		asset.BinaryName = "kavla"
@@ -294,7 +286,7 @@ func (u *Updater) assetForCurrentPlatform(manifest Manifest) (Asset, error) {
 	return asset, nil
 }
 
-func (u *Updater) downloadArchive(ctx context.Context, asset Asset) (string, string, error) {
+func (u *Updater) downloadBinary(ctx context.Context, asset Asset) (string, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.URL, nil)
 	if err != nil {
 		return "", "", err
@@ -308,7 +300,7 @@ func (u *Updater) downloadArchive(ctx context.Context, asset Asset) (string, str
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", "", fmt.Errorf("failed to download release archive: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return "", "", fmt.Errorf("failed to download release binary: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	tempDir, err := os.MkdirTemp("", "kavla-update-*")
@@ -316,8 +308,8 @@ func (u *Updater) downloadArchive(ctx context.Context, asset Asset) (string, str
 		return "", "", err
 	}
 
-	archivePath := filepath.Join(tempDir, "kavla.tar.gz")
-	file, err := os.Create(archivePath)
+	binaryPath := filepath.Join(tempDir, asset.BinaryName)
+	file, err := os.Create(binaryPath)
 	if err != nil {
 		os.RemoveAll(tempDir)
 		return "", "", err
@@ -340,58 +332,7 @@ func (u *Updater) downloadArchive(ctx context.Context, asset Asset) (string, str
 		return "", "", fmt.Errorf("checksum mismatch: expected %s, got %s", asset.SHA256, actual)
 	}
 
-	return archivePath, tempDir, nil
-}
-
-func extractBinary(archivePath, tempDir, binaryName string) (string, error) {
-	file, err := os.Open(archivePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	gzipReader, err := gzip.NewReader(file)
-	if err != nil {
-		return "", err
-	}
-	defer gzipReader.Close()
-
-	tarReader := tar.NewReader(gzipReader)
-	outputPath := filepath.Join(tempDir, binaryName)
-
-	for {
-		header, err := tarReader.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return "", err
-		}
-		if header.FileInfo().IsDir() {
-			continue
-		}
-		if path.Base(header.Name) != binaryName {
-			continue
-		}
-
-		outputFile, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
-		if err != nil {
-			return "", err
-		}
-		if _, err := io.Copy(outputFile, tarReader); err != nil {
-			outputFile.Close()
-			return "", err
-		}
-		if err := outputFile.Close(); err != nil {
-			return "", err
-		}
-		if err := os.Chmod(outputPath, 0755); err != nil {
-			return "", err
-		}
-		return outputPath, nil
-	}
-
-	return "", fmt.Errorf("release archive did not contain %s", binaryName)
+	return binaryPath, tempDir, nil
 }
 
 func (u *Updater) resolveExecutablePath() (string, error) {

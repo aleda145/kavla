@@ -35,14 +35,14 @@ def main() -> None:
     assets: dict[str, dict[str, str]] = {}
 
     for goos, goarch in TARGETS:
-        filename = f"kavla_{args.version}_{goos}_{goarch}.tar.gz"
+        filename = f"kavla_{args.version}_{goos}_{goarch}"
         path = dist_dir / filename
         if not path.is_file():
-            raise SystemExit(f"missing release archive: {path}")
+            raise SystemExit(f"missing release binary: {path}")
         assets[f"{goos}-{goarch}"] = {
             "url": f"https://github.com/{args.repo}/releases/download/{args.version}/{filename}",
             "sha256": sha256_file(path),
-            "archive_format": "tar.gz",
+            "format": "binary",
             "binary_name": "kavla",
         }
 
