@@ -17,7 +17,8 @@ export const getColumnHoverSource = (
   validTableNames: Set<string>,
   upstreamTableNames: string[],
   onTooltipActive?: (active: boolean) => void,
-  remoteSourceMap?: Map<string, RemoteSourceInfo>
+  remoteSourceMap?: Map<string, RemoteSourceInfo>,
+  localTableLoaders?: Map<string, () => Promise<void>>
 ): HoverSource => {
   const tableNames = createSqlNameLookup(validTableNames);
   const upstreamTables = new Set(upstreamTableNames);
@@ -71,6 +72,7 @@ export const getColumnHoverSource = (
                 type={type}
                 tableName={candidate.tableName}
                 remoteSource={remoteSourceMap?.get(candidate.tableName) ?? null}
+                prepareLocalTable={localTableLoaders?.get(candidate.tableName) ?? null}
               />
             ))}
           </div>

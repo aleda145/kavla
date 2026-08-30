@@ -21,6 +21,7 @@ export interface RemoteSourceInfo {
   sourceName: string;
   sourceType?: string | null;
   fullTableRef: string;
+  tableSql?: string;
   runRemoteQuery: RunRemoteQueryFn;
   cancelRemoteQuery: CancelRemoteQueryFn;
 }
@@ -85,7 +86,8 @@ export function getCachedRemoteColumnStats(
   fullTableRef: string,
   columnName: string,
   colType: string,
-  requestShapeId: string
+  requestShapeId: string,
+  tableSql?: string
 ): Promise<ColumnStats> {
   const cacheKey = getRemoteStatsCacheKey(sourceName, fullTableRef, columnName);
 
@@ -102,7 +104,8 @@ export function getCachedRemoteColumnStats(
     fullTableRef,
     columnName,
     colType,
-    requestShapeId
+    requestShapeId,
+    tableSql
   )
     .then((result) => {
       remoteStatsCache.set(cacheKey, result);
@@ -125,10 +128,11 @@ async function getRemoteColumnStats(
   fullTableRef: string,
   columnName: string,
   colType: string,
-  requestShapeId: string
+  requestShapeId: string,
+  tableSql?: string
 ): Promise<ColumnStats> {
   const quotedCol = quoteIdentifier(columnName);
-  const quotedTable = quoteDottedIdentifier(fullTableRef);
+  const quotedTable = tableSql ? `(${tableSql.replace(/;+\s*$/, "")})` : quoteDottedIdentifier(fullTableRef);
   const { analysisType, sql } = buildColumnStatsQuery({
     quotedTable,
     quotedColumn: quotedCol,

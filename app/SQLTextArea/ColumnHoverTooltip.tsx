@@ -19,6 +19,7 @@ interface ColumnHoverTooltipProps {
   tableName: string;
   precomputedStats?: ColumnStats | null;
   remoteSource?: RemoteSourceInfo | null;
+  prepareLocalTable?: (() => Promise<void>) | null;
 }
 
 const ctaButtonClass =
@@ -30,6 +31,7 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
   tableName,
   precomputedStats,
   remoteSource,
+  prepareLocalTable,
 }) => {
   // Primitive dependencies avoid re-fetching when only the source object identity changes.
   const remoteSourceName = remoteSource?.sourceName;
@@ -114,7 +116,8 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
         remoteTableRef,
         columnName,
         type,
-        requestShapeId
+        requestShapeId,
+        remoteSource.tableSql
       )
         .then((data) => {
           if (mounted) {
@@ -142,8 +145,9 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
         });
     } else {
       setActiveRemoteRequestId(null);
-      DuckDBService.getInstance()
-        .getColumnStats(tableName, columnName, type)
+      Promise.resolve()
+        .then(() => prepareLocalTable?.())
+        .then(() => DuckDBService.getInstance().getColumnStats(tableName, columnName, type))
         .then((data) => {
           if (mounted) {
             setStats(data);
@@ -173,6 +177,7 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
     remoteTableRef,
     remoteQueryFn,
     remoteCancelQueryFn,
+    prepareLocalTable,
     analysisRequested,
     refreshVersion,
   ]);

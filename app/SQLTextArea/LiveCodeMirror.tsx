@@ -38,6 +38,9 @@ import {
   type SqlColumnDefinition,
 } from "./sql-identifiers";
 import { buildSqlSchemaIndex } from "./schema-index";
+import type { SQLTextAreaShape } from "./sql-text-area-types";
+import { ensureLocalQueryView } from "./sqlDagDependencies";
+import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
 
 const spatialMark = Decoration.mark({
   class: "cm-spatial-link",
@@ -374,26 +377,51 @@ export const LiveCodeMirror = ({
   const { schemaConfig, tableNames, fullSchemaConfig, allColumns, sources, queries, columnMapping, tableNameToId } =
     useMemo(() => buildSqlSchemaIndex(registry), [registry]);
 
-  const remoteSourceMap = useMemo(() => {
+  const { remoteSourceMap, localTableLoaders } = useMemo(() => {
     const remoteMap = new Map<string, RemoteSourceInfo>();
+    const localLoaders = new Map<string, () => Promise<void>>();
 
     for (const [shapeId, entry] of Object.entries(registry)) {
-      if (entry.type !== "data-source") continue;
+      if (entry.type === "data-source") {
+        const shape = editor.getShape<DataSourceShape>(shapeId as TLShapeId);
+        const remoteSource = getRemoteSourceMetadata(shape);
+        if (remoteSource) {
+          remoteMap.set(entry.tableName, {
+            sourceName: remoteSource.sourceName,
+            sourceType: remoteSource.sourceType,
+            fullTableRef: remoteSource.remoteTableRef,
+            runRemoteQuery,
+            cancelRemoteQuery,
+          });
+        }
+        continue;
+      }
 
-      const shape = editor.getShape<DataSourceShape>(shapeId as TLShapeId);
-      const remoteSource = getRemoteSourceMetadata(shape);
-      if (remoteSource) {
+      const queryShape = editor.getShape<SQLTextAreaShape>(shapeId as TLShapeId);
+      if (!queryShape) continue;
+
+      const dagWalk = walkSQLDag(editor, queryShape.props.text);
+      if (!dagWalk.ok) continue;
+
+      if (!dagWalk.plan.executionState.isRemoteExecution) {
+        localLoaders.set(entry.tableName, () => ensureLocalQueryView(editor, queryShape));
+        continue;
+      }
+
+      const { executionState, mountedFileSources, orderedDependencies } = dagWalk.plan;
+      if (executionState.sourceName && executionState.sourceNativePreview && mountedFileSources.length === 0) {
         remoteMap.set(entry.tableName, {
-          sourceName: remoteSource.sourceName,
-          sourceType: remoteSource.sourceType,
-          fullTableRef: remoteSource.remoteTableRef,
+          sourceName: executionState.sourceName,
+          sourceType: executionState.sourceType,
+          fullTableRef: `query:${queryShape.id}:${queryShape.props.text}`,
+          tableSql: buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies),
           runRemoteQuery,
           cancelRemoteQuery,
         });
       }
     }
 
-    return remoteMap;
+    return { remoteSourceMap: remoteMap, localTableLoaders: localLoaders };
   }, [registry, editor, runRemoteQuery, cancelRemoteQuery]);
 
   const onNavigate = useCallback(
@@ -607,7 +635,14 @@ export const LiveCodeMirror = ({
       gracePeriodHoverTooltip(
         [
           getErrorHoverSource(onTooltipActive), // Error takes precedence
-          getColumnHoverSource(columnMapping, tableNames, upstreamTableNames, onTooltipActive, remoteSourceMap),
+          getColumnHoverSource(
+            columnMapping,
+            tableNames,
+            upstreamTableNames,
+            onTooltipActive,
+            remoteSourceMap,
+            localTableLoaders
+          ),
           getSchemaHoverSource(fullSchemaConfig, onTooltipActive, remoteSourceMap),
         ],
         { hoverTime: 0, hideDelay: 300 }
@@ -717,6 +752,7 @@ export const LiveCodeMirror = ({
     shapeId,
     editor,
     remoteSourceMap,
+    localTableLoaders,
     language,
   ]);
 
