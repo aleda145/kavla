@@ -358,7 +358,6 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         y: shape.y,
         props: {
           text: `SELECT\n  *\nFROM\n  ${shape.props.name}`,
-          _isProgrammatic: true,
         },
       });
       connectShapes(this.editor, shape.id, newShapeId);

@@ -232,8 +232,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
             return nextShape;
           }
 
-          const props = nextShape.props as SQLTextAreaShape["props"] & { _isProgrammatic?: boolean };
-          const { _isProgrammatic, ...sqlProps } = props;
+          const sqlProps = nextShape.props as SQLTextAreaShape["props"];
           return {
             ...nextShape,
             props: {
@@ -241,8 +240,8 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
               linkedTableId: null,
               error: null,
               isRunning: false,
-              downstreamShapeIds: _isProgrammatic ? (sqlProps.downstreamShapeIds ?? null) : null,
-              upstreamShapeIds: _isProgrammatic ? (sqlProps.upstreamShapeIds ?? null) : null,
+              downstreamShapeIds: null,
+              upstreamShapeIds: null,
               stale: false,
             },
           };

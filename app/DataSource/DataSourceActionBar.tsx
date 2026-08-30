@@ -151,7 +151,6 @@ export function DataSourceActionBar({
       props: {
         w: newWidth,
         text: query,
-        _isProgrammatic: true,
       },
     });
     connectShapes(editor, shape.id, newShapeId);
