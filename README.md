@@ -8,11 +8,11 @@ It's built with tldraw and duckdb. It can connect to a few databases, see list b
 
 ## Running
 
-Download here: https://github.com/aleda145/kavla/releases
+See the release page on github or go to https://kavla.dev/download
 
 ### Desktop App
 
-See release page. Simply install the desktop app as you would normally on your system. Double click works on debian! (I dont have a Mac so I don't know if that works. Please let me know in an issue!)
+Simply install the desktop app as you would normally on your system. Double click works on debian! (I dont have a Mac so I don't know if that works. Please let me know in an issue!)
 
 ### CLI
 
