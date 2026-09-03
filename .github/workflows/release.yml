@@ -21,6 +21,9 @@ permissions:
 
 env:
   DOCKER_IMAGE: aleda145/kavla
+  LINUXDEPLOY_VERSION: 1-alpha-20251107-1
+  LINUXDEPLOY_GTK_COMMIT: 7a3fbc31a9e5075073ff8790f26effbac5f84453
+  APPIMAGE_RUNTIME_VERSION: "20251108"
 
 jobs:
   meta:
@@ -94,7 +97,7 @@ jobs:
           cache-dependency-path: app/yarn.lock
       - name: Install Wails Linux dependencies
         if: matrix.goos == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+        run: sudo apt-get update && sudo apt-get install -y file libgirepository1.0-dev libgtk-3-dev librsvg2-dev libwebkit2gtk-4.0-dev
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
       - name: Install app dependencies
@@ -115,13 +118,52 @@ jobs:
           COMMIT: ${{ needs.meta.outputs.commit }}
           BUILD_DATE: ${{ needs.meta.outputs.build_date }}
         run: ./scripts/build-wails-release.sh "${{ needs.meta.outputs.version }}" "${{ matrix.goos }}" "${{ matrix.goarch }}" desktop-build
-      - name: Build Linux desktop package
+      - name: Download AppImage packaging tools
+        if: matrix.goos == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.goarch }}" in
+            amd64)
+              tool_arch=x86_64
+              tool_sha256=c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d
+              runtime_sha256=2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+              ;;
+            arm64)
+              tool_arch=aarch64
+              tool_sha256=620095110d693282b8ebeb244a95b5e911cf8f65f76c88b4b47d16ae6346fcff
+              runtime_sha256=00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444
+              ;;
+            *) echo "unsupported AppImage architecture: ${{ matrix.goarch }}" >&2; exit 1 ;;
+          esac
+          tools_dir="${{ github.workspace }}/cli/build/appimage-tools"
+          mkdir -p "$tools_dir"
+          curl --fail --location --retry 3 \
+            "https://github.com/linuxdeploy/linuxdeploy/releases/download/${LINUXDEPLOY_VERSION}/linuxdeploy-${tool_arch}.AppImage" \
+            --output "$tools_dir/linuxdeploy.AppImage"
+          curl --fail --location --retry 3 \
+            "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/${LINUXDEPLOY_GTK_COMMIT}/linuxdeploy-plugin-gtk.sh" \
+            --output "$tools_dir/linuxdeploy-plugin-gtk.sh"
+          curl --fail --location --retry 3 \
+            "https://github.com/AppImage/type2-runtime/releases/download/${APPIMAGE_RUNTIME_VERSION}/runtime-${tool_arch}" \
+            --output "$tools_dir/runtime"
+          printf '%s  %s\n' "$tool_sha256" "$tools_dir/linuxdeploy.AppImage" | sha256sum --check -
+          printf '%s  %s\n' b0f4cbc684a0103a9651f0955b635eaea0096b3a66c0f5a2c2aa337960375171 "$tools_dir/linuxdeploy-plugin-gtk.sh" | sha256sum --check -
+          printf '%s  %s\n' "$runtime_sha256" "$tools_dir/runtime" | sha256sum --check -
+          chmod +x "$tools_dir/linuxdeploy.AppImage" "$tools_dir/linuxdeploy-plugin-gtk.sh"
+      - name: Build Linux AppImage
         if: matrix.goos == 'linux'
         env:
           COMMIT: ${{ needs.meta.outputs.commit }}
           BUILD_DATE: ${{ needs.meta.outputs.build_date }}
-        run: ./cli/scripts/build-linux-app.sh "${{ needs.meta.outputs.version }}" "${{ github.workspace }}/cli/desktop-build/kavla"
-      - name: Package desktop release assets
+        run: >-
+          ./cli/scripts/build-linux-appimage.sh
+          "${{ needs.meta.outputs.version }}"
+          "${{ github.workspace }}/cli/desktop-build/kavla"
+          "${{ github.workspace }}/cli/build/appimage-tools/linuxdeploy.AppImage"
+          "${{ github.workspace }}/cli/build/appimage-tools/runtime"
+      - name: Package macOS desktop release asset
+        if: matrix.goos == 'darwin'
         working-directory: cli
         run: ./scripts/package-wails-release.sh "${{ needs.meta.outputs.version }}" "${{ matrix.goos }}" "${{ matrix.goarch }}" desktop-build dist
       - uses: actions/upload-artifact@v4

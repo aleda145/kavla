@@ -1,8 +1,10 @@
 #!/bin/sh
 set -eu
 
+launcher_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
 if [ "$#" -gt 0 ] && [ -n "$1" ]; then
-  exec /usr/bin/kavla open "$1"
+  exec "$launcher_dir/kavla" open "$1"
 fi
 
-exec /usr/bin/kavla run
+exec "$launcher_dir/kavla" run

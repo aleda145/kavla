@@ -1,4 +1,4 @@
-.PHONY: build build-app docker-push release run
+.PHONY: build build-app build-appimage docker-push release run
 
 APP_SOURCES := $(shell find app -type f -not -path 'app/node_modules/*' -not -path 'app/dist/*')
 CLI_SOURCES := $(shell find cli -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -name 'wails.json' \))
@@ -21,7 +21,10 @@ $(BINARY): $(CLI_SOURCES) $(DEMO_ARCHIVE) $(EMBED_STAMP) Makefile
 	mv cli/.kavla.new $(BINARY)
 
 build-app: $(EMBED_STAMP)
-	./cli/scripts/build-linux-app.sh "$(VERSION)"
+	./cli/scripts/build-linux-appimage.sh "$(VERSION)"
+
+build-appimage: $(EMBED_STAMP)
+	./cli/scripts/build-linux-appimage.sh "$(VERSION)"
 
 docker-push:
 	docker build --build-arg KAVLA_VERSION="$(DOCKER_TAG)" --tag "$(DOCKER_REF)" .
