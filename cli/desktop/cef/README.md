@@ -4,7 +4,9 @@ This builds Kavla with a Chromium Embedded Framework window instead of Wails.
 The frontend, Go HTTP server, DuckDB, and `.kavla` document format are shared.
 The CEF build uses the `cef` Go build tag; ordinary CLI and Wails builds retain
 their existing behavior. The release workflow builds both Linux variants and
-smoke tests each on Ubuntu 22.04 and 24.04, on amd64 and arm64. CEF assets are
+smoke tests the Wails variant on Ubuntu 22.04 and 24.04, on amd64 and arm64.
+CEF smoke tests are paused because startup under Xvfb times out without a
+diagnosed cause; CEF builds and release uploads remain enabled. CEF assets are
 named `kavla-cef_*`; the CLI updater continues to use the ordinary CLI binaries.
 
 From the repository root:
@@ -56,10 +58,10 @@ The chosen backend must be available in the desktop session. No backend or
 software-rendering mode is forced by default. Chromium's user-namespace sandbox
 remains enabled; the AppImage does not require a root-owned setuid helper.
 Ubuntu 24.04's AppArmor restrictions can require an application-specific
-`userns` permission for unpackaged Chromium. The CI jobs load
-`.github/ci/kavla-cef.apparmor`, which permits only the temporary test executable;
-they do not disable Chromium's sandbox or change the system-wide user namespace
-policy.
+`userns` permission for unpackaged Chromium. The retained CEF test setup uses
+`.github/ci/kavla-cef.apparmor`, which permits only the temporary test executable
+without disabling Chromium's sandbox or changing the system-wide user namespace
+policy. This setup is inactive while the CEF smoke tests are paused.
 
 CEF/Chromium versions and main-frame load results are printed to the terminal.
 Chromium writes additional logs to `$XDG_CACHE_HOME/kavla/cef/chromium.log`
