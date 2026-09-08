@@ -89,16 +89,21 @@ def cef_helpers(root_pid):
     return helpers
 
 
-def check_startup(process, log_path, engine="webkit"):
+def check_startup(process, log_path, engine="webkit", chromium_log=None):
     deadline = time.monotonic() + STARTUP_TIMEOUT
     stable_since = None
     previous_helpers = {}
+    last_report = 0
+    readiness = "No startup checks completed"
     http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise RuntimeError(f"AppImage exited during startup with code {process.returncode}")
         output = log_path.read_text(errors="replace")
-        failure = FATAL_LOG.search(output)
+        diagnostic_output = output
+        if chromium_log is not None and chromium_log.is_file():
+            diagnostic_output += "\n" + chromium_log.read_text(errors="replace")
+        failure = FATAL_LOG.search(diagnostic_output)
         if failure:
             raise RuntimeError(f"AppImage reported {failure[0]}")
 
@@ -117,7 +122,15 @@ def check_startup(process, log_path, engine="webkit"):
             except (urllib.error.URLError, TimeoutError):
                 pass  # The server can still be starting; the deadline remains in effect.
 
-        page_loaded = engine != "cef" or (address and f"CEF loaded {address[1]} (HTTP 200)" in output)
+        page_loaded = engine != "cef" or bool(address and f"CEF loaded {address[1]} (HTTP 200)" in output)
+        readiness = (
+            f"HTTP ready={server_ready}, visible window={window.returncode == 0}, "
+            f"page loaded={page_loaded}, helpers={helpers}, "
+            f"missing helpers={sorted(required_helpers - helpers.keys())}"
+        )
+        if time.monotonic() - last_report >= 10:
+            print(f"Waiting for {engine}: {readiness}", flush=True)
+            last_report = time.monotonic()
         if server_ready and page_loaded and window.returncode == 0 and required_helpers <= helpers.keys():
             if stable_since is None or helpers != previous_helpers:
                 stable_since = time.monotonic()
@@ -128,7 +141,7 @@ def check_startup(process, log_path, engine="webkit"):
             stable_since = None
         previous_helpers = helpers
         time.sleep(0.5)
-    raise RuntimeError(f"Timed out waiting for the HTTP server, visible Kavla window, and stable {engine} helpers")
+    raise RuntimeError(f"Timed out waiting for stable {engine} startup: {readiness}")
 
 
 def main():
@@ -158,11 +171,12 @@ def main():
         # Exercise the packaged launcher's environment setup without inherited fixes.
         for variable in ["APPDIR", "LD_LIBRARY_PATH", "LD_PRELOAD", "GIO_MODULE_DIR", "GIO_EXTRA_MODULES"]:
             env.pop(variable, None)
+        chromium_log = Path(env["XDG_CACHE_HOME"]) / "kavla/cef/chromium.log"
         with log_path.open("w") as log:
             process = subprocess.Popen([str(appimage)], cwd=work_dir, env=env,
                                        stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             try:
-                check_startup(process, log_path, args.engine)
+                check_startup(process, log_path, args.engine, chromium_log)
             finally:
                 with (args.log_dir / "processes.log").open("w") as snapshot:
                     subprocess.run(["ps", "-eo", "pid,ppid,stat,args", "--forest"], stdout=snapshot, check=True)
@@ -177,10 +191,11 @@ def main():
                     except ProcessLookupError:
                         pass
                     process.wait()
-                chromium_log = Path(env["XDG_CACHE_HOME"]) / "kavla/cef/chromium.log"
+                print(log_path.read_text(errors="replace"), flush=True)
                 if chromium_log.is_file():
                     shutil.copy2(chromium_log, args.log_dir / "chromium.log")
-                print(log_path.read_text(errors="replace"))
+                    print("CEF Chromium log:", flush=True)
+                    print(chromium_log.read_text(errors="replace"), flush=True)
 
 
 if __name__ == "__main__":
