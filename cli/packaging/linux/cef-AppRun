@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+app_dir="${APPDIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}"
+export APPDIR="$app_dir"
+
+# CEF uses its own Chromium libraries beside the executable and the host's
+# desktop/graphics libraries. Do not load the Wails GTK packaging hooks.
+if [ "$#" -gt 0 ]; then
+  exec "$app_dir/usr/bin/kavla" open "$@"
+fi
+exec "$app_dir/usr/bin/kavla" run

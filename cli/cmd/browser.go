@@ -1,4 +1,4 @@
-//go:build !production && !dev
+//go:build !production && !dev && (!cef || !linux)
 
 package cmd
 

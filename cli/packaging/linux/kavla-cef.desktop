@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Kavla CEF
+Comment=Kavla desktop with Chromium rendering (local prototype)
+Exec=kavla-cef-desktop %f
+Icon=kavla
+Terminal=false
+Categories=Office;Database;
+MimeType=application/x-kavla;
+StartupNotify=true
+StartupWMClass=kavla-cef

@@ -5,6 +5,7 @@ import argparse
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -16,13 +17,15 @@ import urllib.request
 STARTUP_TIMEOUT = 60
 STABLE_SECONDS = 10
 HELPERS = {"WebKitWebProcess", "WebKitNetworkProcess"}
+CEF_HELPERS = {"renderer", "gpu-process"}
 FATAL_LOG = re.compile(
     r"error while loading shared libraries|undefined symbol:|Failed to load module:"
-    r"|readPIDFromPeer:|SIGTRAP|SIGSEGV|Unable to spawn a new child process"
+    r"|readPIDFromPeer:|SIGTRAP|SIGSEGV|SIGABRT|Unable to spawn a new child process"
+    r"|CEF renderer exited:|CEF failed to load |No usable sandbox|FATAL:"
 )
 
 
-def webkit_helpers(root_pid):
+def descendant_processes(root_pid):
     processes = {}
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
@@ -40,11 +43,12 @@ def webkit_helpers(root_pid):
         if children <= descendants:
             break
         descendants.update(children)
+    return descendants
 
+
+def webkit_helpers(root_pid):
     helpers = {}
-    for pid in descendants:
-        if pid not in processes:
-            continue
+    for pid in descendant_processes(root_pid):
         try:
             executable = (Path("/proc") / str(pid) / "exe").resolve(strict=True)
         except (FileNotFoundError, ProcessLookupError, PermissionError):
@@ -68,7 +72,24 @@ def webkit_helpers(root_pid):
     return helpers
 
 
-def check_startup(process, log_path):
+def cef_helpers(root_pid):
+    helpers = {}
+    for pid in descendant_processes(root_pid):
+        try:
+            arguments = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+        # Chromium's sandbox can restrict /proc/exe and /proc/maps access. Its
+        # command line still identifies the packaged helper and process role.
+        if not arguments or not arguments[0].endswith(b"/usr/lib/kavla-cef/kavla-cef"):
+            continue
+        for role in CEF_HELPERS:
+            if f"--type={role}".encode() in arguments:
+                helpers[role] = pid
+    return helpers
+
+
+def check_startup(process, log_path, engine="webkit"):
     deadline = time.monotonic() + STARTUP_TIMEOUT
     stable_since = None
     previous_helpers = {}
@@ -81,7 +102,8 @@ def check_startup(process, log_path):
         if failure:
             raise RuntimeError(f"AppImage reported {failure[0]}")
 
-        helpers = webkit_helpers(process.pid)
+        helpers = cef_helpers(process.pid) if engine == "cef" else webkit_helpers(process.pid)
+        required_helpers = CEF_HELPERS if engine == "cef" else HELPERS
         window = subprocess.run(
             ["xdotool", "search", "--onlyvisible", "--name", "^Kavla"],
             capture_output=True, timeout=5,
@@ -95,22 +117,24 @@ def check_startup(process, log_path):
             except (urllib.error.URLError, TimeoutError):
                 pass  # The server can still be starting; the deadline remains in effect.
 
-        if server_ready and window.returncode == 0 and HELPERS <= helpers.keys():
+        page_loaded = engine != "cef" or (address and f"CEF loaded {address[1]} (HTTP 200)" in output)
+        if server_ready and page_loaded and window.returncode == 0 and required_helpers <= helpers.keys():
             if stable_since is None or helpers != previous_helpers:
                 stable_since = time.monotonic()
             if time.monotonic() - stable_since >= STABLE_SECONDS:
-                print(f"AppImage passed: HTTP server, visible window, and bundled WebKit helpers stable for {STABLE_SECONDS}s.")
+                print(f"{engine} AppImage passed: HTTP server, visible window, and helpers stable for {STABLE_SECONDS}s.")
                 return
         else:
             stable_since = None
         previous_helpers = helpers
         time.sleep(0.5)
-    raise RuntimeError("Timed out waiting for the HTTP server, visible Kavla window, and stable WebKit helpers")
+    raise RuntimeError(f"Timed out waiting for the HTTP server, visible Kavla window, and stable {engine} helpers")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("appimage", type=Path)
+    parser.add_argument("--engine", choices=["webkit", "cef"], default="webkit")
     parser.add_argument("--log-dir", type=Path, required=True)
     args = parser.parse_args()
     appimage = args.appimage.resolve(strict=True)
@@ -118,7 +142,7 @@ def main():
     args.log_dir.mkdir(parents=True, exist_ok=True)
     log_path = args.log_dir / "appimage.log"
 
-    with tempfile.TemporaryDirectory(prefix="kavla-appimage-test-") as work_dir:
+    with tempfile.TemporaryDirectory(prefix="kavla-appimage-test-", dir="/tmp") as work_dir:
         env = dict(os.environ)
         # First-run startup must use only bundled demo data and isolated settings.
         for variable, directory in [("HOME", "home"), ("XDG_CONFIG_HOME", "config"),
@@ -129,6 +153,8 @@ def main():
             env[variable] = str(path)
         env.update(APPIMAGE_EXTRACT_AND_RUN="1", LIBGL_ALWAYS_SOFTWARE="1",
                    XDG_DATA_DIRS="/usr/local/share:/usr/share")
+        if args.engine == "cef":
+            env.update(TMPDIR=work_dir, KAVLA_CEF_OZONE_PLATFORM="x11")
         # Exercise the packaged launcher's environment setup without inherited fixes.
         for variable in ["APPDIR", "LD_LIBRARY_PATH", "LD_PRELOAD", "GIO_MODULE_DIR", "GIO_EXTRA_MODULES"]:
             env.pop(variable, None)
@@ -136,13 +162,13 @@ def main():
             process = subprocess.Popen([str(appimage)], cwd=work_dir, env=env,
                                        stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             try:
-                check_startup(process, log_path)
+                check_startup(process, log_path, args.engine)
             finally:
                 with (args.log_dir / "processes.log").open("w") as snapshot:
                     subprocess.run(["ps", "-eo", "pid,ppid,stat,args", "--forest"], stdout=snapshot, check=True)
                 try:
                     os.killpg(process.pid, signal.SIGTERM)
-                    process.wait(timeout=5)
+                    process.wait(timeout=45)
                 except (ProcessLookupError, subprocess.TimeoutExpired):
                     pass
                 finally:
@@ -151,6 +177,9 @@ def main():
                     except ProcessLookupError:
                         pass
                     process.wait()
+                chromium_log = Path(env["XDG_CACHE_HOME"]) / "kavla/cef/chromium.log"
+                if chromium_log.is_file():
+                    shutil.copy2(chromium_log, args.log_dir / "chromium.log")
                 print(log_path.read_text(errors="replace"))
 
 

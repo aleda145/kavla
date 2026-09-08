@@ -1,0 +1,5 @@
+# Ubuntu 24.04 requires an explicit userns permission for unpackaged Chromium.
+# The smoke harness sets TMPDIR to its temporary kavla-appimage-test directory.
+profile kavla-cef-smoke "/tmp/kavla-appimage-test-*/**/usr/lib/kavla-cef/kavla-cef" flags=(unconfined) {
+  userns,
+}

@@ -64,6 +64,9 @@ jobs:
       - name: Test CLI
         working-directory: cli
         run: go test ./...
+      - name: Test CEF backend
+        working-directory: cli
+        run: go test -tags cef ./cmd ./internal/localapp
 
   build:
     name: build-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -95,9 +98,9 @@ jobs:
           node-version: 22
           cache: yarn
           cache-dependency-path: app/yarn.lock
-      - name: Install Wails Linux dependencies
+      - name: Install Linux desktop build dependencies
         if: matrix.goos == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y file libgirepository1.0-dev libgtk-3-dev librsvg2-dev libwebkit2gtk-4.0-dev
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake file libgirepository1.0-dev libgtk-3-dev libnss3-dev librsvg2-dev libwebkit2gtk-4.0-dev
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
       - name: Install app dependencies
@@ -162,6 +165,13 @@ jobs:
           "${{ github.workspace }}/cli/desktop-build/kavla"
           "${{ github.workspace }}/cli/build/appimage-tools/linuxdeploy.AppImage"
           "${{ github.workspace }}/cli/build/appimage-tools/runtime"
+      - name: Build Linux CEF AppImage
+        if: matrix.goos == 'linux'
+        env:
+          COMMIT: ${{ needs.meta.outputs.commit }}
+          BUILD_DATE: ${{ needs.meta.outputs.build_date }}
+          CEF_SKIP_WEB_BUILD: "1"
+        run: bash ./cli/scripts/build-linux-cef-appimage.sh "${{ needs.meta.outputs.version }}"
       - name: Package macOS desktop release asset
         if: matrix.goos == 'darwin'
         working-directory: cli
@@ -174,22 +184,25 @@ jobs:
           retention-days: 7
 
   test-appimage:
-    name: test-appimage-${{ matrix.runner }}-${{ matrix.goarch }}
+    name: test-appimage-${{ matrix.engine }}-ubuntu-${{ matrix.ubuntu }}-${{ matrix.goarch }}
     needs: build
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
+        ubuntu: ["22.04", "24.04"]
+        goarch: [amd64, arm64]
+        engine: [webkit, cef]
         include:
-          - runner: ubuntu-22.04
-            goarch: amd64
-          - runner: ubuntu-24.04
-            goarch: amd64
-          - runner: ubuntu-22.04-arm
-            goarch: arm64
-          - runner: ubuntu-24.04-arm
-            goarch: arm64
-    runs-on: ${{ matrix.runner }}
+          - goarch: amd64
+            runner_suffix: ""
+          - goarch: arm64
+            runner_suffix: "-arm"
+          - engine: webkit
+            artifact_prefix: kavla_
+          - engine: cef
+            artifact_prefix: kavla-cef_
+    runs-on: ${{ format('ubuntu-{0}{1}', matrix.ubuntu, matrix.runner_suffix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -198,20 +211,35 @@ jobs:
           path: dist
       - name: Install desktop test dependencies
         # WebKit loads GLES at runtime; Mesa drivers and EGL do not provide it.
-        run: >-
-          sudo apt-get update && sudo apt-get install -y
-          dbus-x11 xvfb xauth xdotool libgl1-mesa-dri libegl1 libgles2
+        run: |
+          if [[ "${{ matrix.ubuntu }}" == "24.04" ]]; then
+            gtk_package=libgtk-3-0t64
+            audio_package=libasound2t64
+            cups_package=libcups2t64
+          else
+            gtk_package=libgtk-3-0
+            audio_package=libasound2
+            cups_package=libcups2
+          fi
+          sudo apt-get update && sudo apt-get install -y \
+            dbus-x11 xvfb xauth xdotool libgl1-mesa-dri libegl1 libgles2 \
+            libgbm1 libnss3 "$gtk_package" "$audio_package" "$cups_package"
+      - name: Allow CEF's namespace sandbox on Ubuntu 24.04
+        if: matrix.engine == 'cef' && matrix.ubuntu == '24.04'
+        # Scope the exception to the temporary CEF test executable.
+        run: sudo apparmor_parser --replace .github/ci/kavla-cef.apparmor
       - name: Smoke test packaged AppImage
         run: >-
           dbus-run-session -- xvfb-run -a -s "-screen 0 1440x900x24"
           python3 cli/scripts/test-linux-appimage.py
-          dist/*_linux_${{ matrix.goarch }}.AppImage
+          dist/${{ matrix.artifact_prefix }}*_linux_${{ matrix.goarch }}.AppImage
+          --engine ${{ matrix.engine }}
           --log-dir appimage-test-logs
       - name: Upload AppImage test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: appimage-test-logs-${{ matrix.runner }}-${{ matrix.goarch }}
+          name: appimage-test-logs-${{ matrix.engine }}-ubuntu-${{ matrix.ubuntu }}-${{ matrix.goarch }}
           path: appimage-test-logs
           if-no-files-found: warn
           retention-days: 7

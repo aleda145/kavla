@@ -1,4 +1,4 @@
-.PHONY: build build-app build-appimage docker-push release run
+.PHONY: build build-app build-appimage build-cef-appimage docker-push release run
 
 APP_SOURCES := $(shell find app -type f -not -path 'app/node_modules/*' -not -path 'app/dist/*')
 CLI_SOURCES := $(shell find cli -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -name 'wails.json' \))
@@ -25,6 +25,9 @@ build-app: $(EMBED_STAMP)
 
 build-appimage: $(EMBED_STAMP)
 	./cli/scripts/build-linux-appimage.sh "$(VERSION)"
+
+build-cef-appimage:
+	bash ./cli/scripts/build-linux-cef-appimage.sh "$(VERSION)"
 
 docker-push:
 	docker build --build-arg KAVLA_VERSION="$(DOCKER_TAG)" --tag "$(DOCKER_REF)" .
