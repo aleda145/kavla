@@ -12,6 +12,12 @@ if [ -d "$app_dir/apprun-hooks" ]; then
   done
 fi
 
+# WebKit helper processes must inherit the bundled library search path.
+export LD_LIBRARY_PATH="$app_dir/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Host GIO modules may require a newer GLib than the one in the AppImage.
+export GIO_MODULE_DIR="$app_dir/usr/lib/gio/modules"
+unset GIO_EXTRA_MODULES
+
 if [ "$#" -gt 0 ] && [ "${1#/}" = "$1" ] && [ -e "$1" ]; then
   document_dir=$(CDPATH= cd -- "$(dirname -- "$1")" && pwd)
   set -- "$document_dir/$(basename -- "$1")"

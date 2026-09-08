@@ -145,15 +145,18 @@ fi
 # copy at the matching relative path and make the /usr prefix relocatable.
 webkit_lib_dir="$(pkg-config --variable=libdir webkit2gtk-4.0)"
 webkit_process_dir="$webkit_lib_dir/webkit2gtk-4.0"
+runtime_dependencies=()
 for helper in WebKitWebProcess WebKitNetworkProcess; do
   if [[ ! -x "$webkit_process_dir/$helper" ]]; then
     echo "missing WebKitGTK helper: $webkit_process_dir/$helper" >&2
     exit 1
   fi
   install -Dm755 "$webkit_process_dir/$helper" "$app_dir/${webkit_process_dir#/}/$helper"
+  runtime_dependencies+=("--deploy-deps-only=$app_dir/${webkit_process_dir#/}/$helper")
 done
 if [[ -x "$webkit_process_dir/WebKitGPUProcess" ]]; then
   install -Dm755 "$webkit_process_dir/WebKitGPUProcess" "$app_dir/${webkit_process_dir#/}/WebKitGPUProcess"
+  runtime_dependencies+=("--deploy-deps-only=$app_dir/${webkit_process_dir#/}/WebKitGPUProcess")
 fi
 
 injected_bundle="$webkit_process_dir/injected-bundle/libwebkit2gtkinjectedbundle.so"
@@ -162,6 +165,21 @@ if [[ ! -f "$injected_bundle" ]]; then
   exit 1
 fi
 install -Dm644 "$injected_bundle" "$app_dir/${injected_bundle#/}"
+runtime_dependencies+=("--deploy-deps-only=$app_dir/${injected_bundle#/}")
+
+# Bundle GIO modules from the same system as GLib, including the TLS backend
+# needed by WebKit HTTPS requests. AppRun prevents loading host GIO modules.
+gio_module_dir="$(pkg-config --variable=giomoduledir gio-2.0)"
+if [[ -z "$gio_module_dir" || ! -f "$gio_module_dir/libgiognutls.so" ]]; then
+  echo "missing GIO TLS module; install glib-networking before building the AppImage" >&2
+  exit 1
+fi
+for module in "$gio_module_dir"/*.so; do
+  bundled_module="$app_dir/usr/lib/gio/modules/$(basename "$module")"
+  install -Dm644 "$module" "$bundled_module"
+  runtime_dependencies+=("--deploy-deps-only=$bundled_module")
+done
+gio-querymodules "$app_dir/usr/lib/gio/modules"
 
 bundled_webkit="$app_dir/usr/lib/$(basename "$webkit_library")"
 install -Dm644 "$webkit_library" "$bundled_webkit"
@@ -184,6 +202,7 @@ fi
 env "${linuxdeploy_env[@]}" "$linuxdeploy" \
   --appdir "$app_dir" \
   --executable "$app_dir/usr/bin/kavla" \
+  "${runtime_dependencies[@]}" \
   --desktop-file "$cli_dir/packaging/linux/kavla.desktop" \
   --icon-file "$repo_dir/app/public/kavla.svg" \
   --custom-apprun "$cli_dir/packaging/linux/AppRun" \
