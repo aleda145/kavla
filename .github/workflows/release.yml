@@ -173,12 +173,55 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  test-appimage:
+    name: test-appimage-${{ matrix.runner }}-${{ matrix.goarch }}
+    needs: build
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            goarch: amd64
+          - runner: ubuntu-24.04
+            goarch: amd64
+          - runner: ubuntu-22.04-arm
+            goarch: arm64
+          - runner: ubuntu-24.04-arm
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-linux-${{ matrix.goarch }}
+          path: dist
+      - name: Install desktop test dependencies
+        # WebKit loads GLES at runtime; Mesa drivers and EGL do not provide it.
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          dbus-x11 xvfb xauth xdotool libgl1-mesa-dri libegl1 libgles2
+      - name: Smoke test packaged AppImage
+        run: >-
+          dbus-run-session -- xvfb-run -a -s "-screen 0 1440x900x24"
+          python3 cli/scripts/test-linux-appimage.py
+          dist/*_linux_${{ matrix.goarch }}.AppImage
+          --log-dir appimage-test-logs
+      - name: Upload AppImage test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage-test-logs-${{ matrix.runner }}-${{ matrix.goarch }}
+          path: appimage-test-logs
+          if-no-files-found: warn
+          retention-days: 7
+
   docker:
     name: docker-${{ matrix.arch }}
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && inputs.publish_release)
-    needs: [meta, build]
+    needs: [meta, build, test-appimage]
     strategy:
       fail-fast: false
       matrix:
@@ -261,7 +304,7 @@ jobs:
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && inputs.publish_release)
-    needs: [meta, build, docker-manifest]
+    needs: [meta, build, test-appimage, docker-manifest]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
