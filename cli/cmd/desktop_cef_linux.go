@@ -9,7 +9,7 @@ import (
 )
 
 func cefExecutable(executable string) string {
-	return filepath.Join(filepath.Dir(executable), "..", "lib", "kavla-cef", "kavla-cef")
+	return filepath.Join(filepath.Dir(executable), "..", "lib", "kavla-desktop", "kavla-desktop")
 }
 
 func configureCEFCommand(command *exec.Cmd) {

@@ -73,13 +73,13 @@ native_build="$cli_dir/build/cef-native"
 cmake -S "$cli_dir/desktop/cef" -B "$native_build" \
   -DCEF_ROOT="$cef_root" -DPROJECT_ARCH="$cef_project_arch" \
   -DCMAKE_BUILD_TYPE=Release -DUSE_SANDBOX=ON
-cmake --build "$native_build" --target kavla-cef --parallel "${CEF_BUILD_JOBS:-4}"
+cmake --build "$native_build" --target kavla-desktop --parallel "${CEF_BUILD_JOBS:-4}"
 
-app_dir="$cli_dir/build/Kavla-CEF.AppDir"
+app_dir="$cli_dir/build/Kavla-Desktop.AppDir"
 rm -rf "$app_dir"
-mkdir -p "$app_dir/usr/bin" "$app_dir/usr/lib/kavla-cef" \
+mkdir -p "$app_dir/usr/bin" "$app_dir/usr/lib/kavla-desktop" \
   "$app_dir/usr/share/applications" "$app_dir/usr/share/icons/hicolor/scalable/apps" \
-  "$app_dir/usr/share/mime/packages" "$app_dir/usr/share/doc/kavla-cef" "$cli_dir/dist"
+  "$app_dir/usr/share/mime/packages" "$app_dir/usr/share/doc/kavla-desktop" "$cli_dir/dist"
 
 (
   cd "$cli_dir"
@@ -91,21 +91,21 @@ mkdir -p "$app_dir/usr/bin" "$app_dir/usr/lib/kavla-cef" \
     -o "$app_dir/usr/bin/kavla" .
 )
 
-install -m 0755 "$native_build/Release/kavla-cef" "$app_dir/usr/lib/kavla-cef/kavla-cef"
-cp -a "$cef_root/Release/." "$app_dir/usr/lib/kavla-cef/"
-cp -a "$cef_root/Resources/." "$app_dir/usr/lib/kavla-cef/"
+install -m 0755 "$native_build/Release/kavla-desktop" "$app_dir/usr/lib/kavla-desktop/kavla-desktop"
+cp -a "$cef_root/Release/." "$app_dir/usr/lib/kavla-desktop/"
+cp -a "$cef_root/Resources/." "$app_dir/usr/lib/kavla-desktop/"
 install -m 0755 "$cli_dir/packaging/linux/cef-AppRun" "$app_dir/AppRun"
-install -m 0755 "$cli_dir/packaging/linux/kavla-launcher" "$app_dir/usr/bin/kavla-cef-desktop"
-install -m 0644 "$cli_dir/packaging/linux/kavla-cef.desktop" "$app_dir/usr/share/applications/kavla-cef.desktop"
+install -m 0755 "$cli_dir/packaging/linux/kavla-launcher" "$app_dir/usr/bin/kavla-desktop"
+install -m 0644 "$cli_dir/packaging/linux/kavla-desktop.desktop" "$app_dir/usr/share/applications/kavla-desktop.desktop"
 install -m 0644 "$cli_dir/packaging/linux/kavla.xml" "$app_dir/usr/share/mime/packages/kavla.xml"
 install -m 0644 "$repo_dir/app/public/kavla.svg" "$app_dir/usr/share/icons/hicolor/scalable/apps/kavla.svg"
-ln -s usr/share/applications/kavla-cef.desktop "$app_dir/kavla-cef.desktop"
+ln -s usr/share/applications/kavla-desktop.desktop "$app_dir/kavla-desktop.desktop"
 ln -s usr/share/icons/hicolor/scalable/apps/kavla.svg "$app_dir/kavla.svg"
 for notice in LICENSE THIRD_PARTY_LICENSES.md TLDRAW_LICENSE.md; do
-  install -m 0644 "$repo_dir/$notice" "$app_dir/usr/share/doc/kavla-cef/$notice"
+  install -m 0644 "$repo_dir/$notice" "$app_dir/usr/share/doc/kavla-desktop/$notice"
 done
-install -m 0644 "$cef_root/LICENSE.txt" "$app_dir/usr/share/doc/kavla-cef/CEF-LICENSE.txt"
-printf 'CEF %s\nBuild host: %s\n' "$cef_version" "$(uname -m)" > "$app_dir/usr/share/doc/kavla-cef/runtime-version.txt"
+install -m 0644 "$cef_root/LICENSE.txt" "$app_dir/usr/share/doc/kavla-desktop/CEF-LICENSE.txt"
+printf 'CEF %s\nBuild host: %s\n' "$cef_version" "$(uname -m)" > "$app_dir/usr/share/doc/kavla-desktop/runtime-version.txt"
 
 # Use only the AppImage output tool. CEF supplies its Chromium/ANGLE libraries;
 # copying this build machine's GLib/GTK stack would interfere with host drivers.
@@ -122,7 +122,7 @@ if [[ ! -x "$appimagetool" ]]; then
   mkdir -p "$tool_extract"
   (cd "$tool_extract" && "$tools_dir/linuxdeploy.AppImage" --appimage-extract >/dev/null)
 fi
-output="$cli_dir/dist/kavla-cef_${package_version}_linux_${architecture}.AppImage"
+output="$cli_dir/dist/kavla-desktop_${package_version}_linux_${architecture}.AppImage"
 ARCH="$tool_arch" "$appimagetool" "$app_dir" "$output" --runtime-file "$tools_dir/runtime"
 (cd "$cli_dir/dist" && sha256sum "$(basename "$output")" > "$(basename "$output").sha256")
 printf '\nBuilt %s\n' "$output"

@@ -7,13 +7,13 @@ system browser. The release workflow builds CLI binaries and CEF desktop
 packages on Linux (amd64 and arm64) and macOS (Apple Silicon arm64 only).
 AppImage smoke tests are disabled because startup under Xvfb times out without
 a diagnosed cause. Go tests and native CEF compilation remain enabled. CEF assets are
-named `kavla-cef_*`; the CLI updater continues to use the ordinary CLI binaries.
+named `kavla-desktop_*`; the CLI updater continues to use the ordinary CLI binaries.
 
 From the repository root:
 
 ```sh
 make build-app VERSION=local
-./cli/dist/kavla-cef_local_linux_amd64.AppImage
+./cli/dist/kavla-desktop_local_linux_amd64.AppImage
 ```
 
 Pass a `.kavla` path to open an existing document. Closing the last CEF window
@@ -22,7 +22,7 @@ Use a copy of a document when comparing builds, and close one build before
 opening the same document in the other.
 
 On macOS, `make build-app VERSION=local` produces
-`cli/dist/kavla-cef_local_darwin_arm64.zip`. Extract `Kavla.app` and
+`cli/dist/kavla-desktop_local_darwin_arm64.zip`. Extract `Kavla.app` and
 launch it in Finder. To open a specific document from a terminal, run
 `Kavla.app/Contents/MacOS/Kavla open /path/to/document.kavla`.
 The bundle includes the CEF framework and its sandboxed helper applications.
@@ -61,8 +61,8 @@ panning or zooming the same canvas at the same window size and display scale.
 Use these optional launch settings to compare display backends:
 
 ```sh
-KAVLA_CEF_OZONE_PLATFORM=wayland ./cli/dist/kavla-cef_local_linux_amd64.AppImage
-KAVLA_CEF_OZONE_PLATFORM=x11 ./cli/dist/kavla-cef_local_linux_amd64.AppImage
+KAVLA_CEF_OZONE_PLATFORM=wayland ./cli/dist/kavla-desktop_local_linux_amd64.AppImage
+KAVLA_CEF_OZONE_PLATFORM=x11 ./cli/dist/kavla-desktop_local_linux_amd64.AppImage
 ```
 
 These display backend settings apply to Linux. The chosen backend must be available in the desktop session. No backend or
@@ -70,7 +70,7 @@ software-rendering mode is forced by default. Chromium's user-namespace sandbox
 remains enabled; the AppImage does not require a root-owned setuid helper.
 Ubuntu 24.04's AppArmor restrictions can require an application-specific
 `userns` permission for unpackaged Chromium. The retained AppArmor test profile is
-`.github/ci/kavla-cef.apparmor`, which permits only the temporary test executable
+`.github/ci/kavla-desktop.apparmor`, which permits only the temporary test executable
 without disabling Chromium's sandbox or changing the system-wide user namespace
 policy. No smoke tests or AppArmor changes run in CI while smoke tests are disabled.
 

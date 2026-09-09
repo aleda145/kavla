@@ -16,7 +16,7 @@ func init() {
 }
 
 func cefExecutable(executable string) string {
-	return filepath.Join(filepath.Dir(executable), "kavla-cef")
+	return filepath.Join(filepath.Dir(executable), "kavla-desktop")
 }
 
 func configureCEFCommand(command *exec.Cmd) {

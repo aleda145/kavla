@@ -2,10 +2,10 @@
 Type=Application
 Name=Kavla
 Comment=Local infinite canvas for exploratory analysis
-Exec=kavla-cef-desktop %f
+Exec=kavla-desktop %f
 Icon=kavla
 Terminal=false
 Categories=Office;Database;
 MimeType=application/x-kavla;
 StartupNotify=true
-StartupWMClass=kavla-cef
+StartupWMClass=kavla-desktop

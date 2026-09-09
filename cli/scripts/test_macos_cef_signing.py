@@ -19,7 +19,7 @@ class SigningTests(unittest.TestCase):
             framework = app / "Contents/Frameworks/Chromium Embedded Framework.framework"
             helper = app / "Contents/Frameworks/Kavla Helper (Renderer).app"
             binaries = [app / "Contents/MacOS/Kavla",
-                        app / "Contents/MacOS/kavla-cef",
+                        app / "Contents/MacOS/kavla-desktop",
                         framework / "Versions/A/Chromium Embedded Framework",
                         helper / "Contents/MacOS/Kavla Helper (Renderer)"]
             for binary in binaries:

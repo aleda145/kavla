@@ -54,7 +54,7 @@ def cef_helpers(root_pid):
             continue
         # Chromium's sandbox can restrict /proc/exe and /proc/maps access. Its
         # command line still identifies the packaged helper and process role.
-        if not arguments or not arguments[0].endswith(b"/usr/lib/kavla-cef/kavla-cef"):
+        if not arguments or not arguments[0].endswith(b"/usr/lib/kavla-desktop/kavla-desktop"):
             continue
         for role in CEF_HELPERS:
             if f"--type={role}".encode() in arguments:

@@ -41,7 +41,7 @@ func runDesktop(server *localapp.Server, launchURL, _ string, _ func(string, str
 	}
 	// A separate profile per server avoids Chromium's singleton redirecting a
 	// second document window to another process and closing its Go backend.
-	profile, err := os.MkdirTemp("", "kavla-cef-profile-")
+	profile, err := os.MkdirTemp("", "kavla-desktop-profile-")
 	if err != nil {
 		return fmt.Errorf("create CEF profile: %w", err)
 	}

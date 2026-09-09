@@ -57,14 +57,14 @@ native_build="$cli_dir/build/cef-native-macos-$architecture"
 cmake -S "$cli_dir/desktop/cef" -B "$native_build" \
   -DCEF_ROOT="$cef_root" -DPROJECT_ARCH="$cef_project_arch" \
   -DCMAKE_BUILD_TYPE=Release -DUSE_SANDBOX=ON -DKAVLA_BUNDLE_VERSION="$bundle_version"
-cmake --build "$native_build" --target kavla-cef --parallel "${CEF_BUILD_JOBS:-4}"
+cmake --build "$native_build" --target kavla-desktop --parallel "${CEF_BUILD_JOBS:-4}"
 
 # Stage a fresh bundle so no files or signatures survive from an older build.
 staging_dir="$(mktemp -d "$cli_dir/build/cef-macos-package.XXXXXX")"
 trap 'rm -rf "$staging_dir"' EXIT
 app_dir="$staging_dir/Kavla.app"
 ditto "$native_build/Release/Kavla.app" "$app_dir"
-mv "$app_dir/Contents/MacOS/Kavla" "$app_dir/Contents/MacOS/kavla-cef"
+mv "$app_dir/Contents/MacOS/Kavla" "$app_dir/Contents/MacOS/kavla-desktop"
 (
   cd "$cli_dir"
   export GOCACHE="${GOCACHE:-$cli_dir/build/go-cache}"
@@ -85,7 +85,7 @@ install -m 0644 "$cef_root/LICENSE.txt" "$app_dir/Contents/Resources/licenses/CE
 python3 "$script_dir/sign-macos-cef-app.py" "$app_dir"
 codesign --verify --deep --strict "$app_dir"
 mkdir -p "$cli_dir/dist"
-output="$cli_dir/dist/kavla-cef_${package_version}_darwin_${architecture}.zip"
+output="$cli_dir/dist/kavla-desktop_${package_version}_darwin_${architecture}.zip"
 ditto -c -k --sequesterRsrc --keepParent "$app_dir" "$output"
 (cd "$cli_dir/dist" && shasum -a 256 "$(basename "$output")" > "$(basename "$output").sha256")
 printf '\nBuilt %s\n' "$output"
