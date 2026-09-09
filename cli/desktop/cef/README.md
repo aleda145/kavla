@@ -4,7 +4,7 @@ Kavla uses a Chromium Embedded Framework window on Linux and macOS.
 The frontend, Go HTTP server, DuckDB, and `.kavla` document format are shared.
 The desktop build uses the `cef` Go build tag; ordinary CLI builds open the
 system browser. The release workflow builds CLI binaries and CEF desktop
-packages on Linux and macOS, on amd64 and arm64.
+packages on Linux (amd64 and arm64) and macOS (Apple Silicon arm64 only).
 AppImage smoke tests are disabled because startup under Xvfb times out without
 a diagnosed cause. Go tests and native CEF compilation remain enabled. CEF assets are
 named `kavla-cef_*`; the CLI updater continues to use the ordinary CLI binaries.
@@ -22,7 +22,7 @@ Use a copy of a document when comparing builds, and close one build before
 opening the same document in the other.
 
 On macOS, `make build-app VERSION=local` produces
-`cli/dist/kavla-cef_local_darwin_<architecture>.zip`. Extract `Kavla.app` and
+`cli/dist/kavla-cef_local_darwin_arm64.zip`. Extract `Kavla.app` and
 launch it in Finder. To open a specific document from a terminal, run
 `Kavla.app/Contents/MacOS/Kavla open /path/to/document.kavla`.
 The bundle includes the CEF framework and its sandboxed helper applications.
@@ -36,8 +36,9 @@ the pinned AppImage packaging tools if they are not already cached. Downloads
 and native build outputs live under `cli/build`; the AppImage and its SHA-256
 checksum live under `cli/dist`. Build requirements are CMake 3.21+, a C++20
 compiler, Go, Yarn with the app dependencies installed, curl, and tar with bzip2.
-The build supports the local machine's amd64 or arm64 architecture. macOS builds
-also require Xcode command line tools, Python 3, and the system signing tools.
+Linux builds support the local machine's amd64 or arm64 architecture. macOS
+builds require Apple Silicon, Xcode command line tools, Python 3, and the system
+signing tools.
 
 For repeated native-only changes after building the frontend:
 

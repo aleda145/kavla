@@ -18,19 +18,13 @@ if [[ "$package_version" =~ ^([0-9]+\.[0-9]+\.[0-9]+) ]]; then
 fi
 cef_version='152.0.6+g708dc14+chromium-152.0.7977.83'
 case "$(uname -m)" in
-  x86_64)
-    architecture=amd64
-    cef_project_arch=x86_64
-    cef_platform=macosx64
-    cef_sha1=fed74cac2af95dec716000e9a35ebed8eb4f9a25
-    ;;
   arm64)
     architecture=arm64
     cef_project_arch=arm64
     cef_platform=macosarm64
     cef_sha1=426836139b0ea7b7278aa0915cfae90eb460551f
     ;;
-  *) echo "unsupported CEF architecture: $(uname -m)" >&2; exit 1 ;;
+  *) echo "macOS desktop builds require Apple Silicon (arm64); got $(uname -m)" >&2; exit 1 ;;
 esac
 
 for command_name in cmake clang++ go yarn curl shasum tar ditto codesign python3; do

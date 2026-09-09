@@ -80,9 +80,6 @@ jobs:
           - runner: ubuntu-22.04-arm
             goos: linux
             goarch: arm64
-          - runner: macos-15-intel
-            goos: darwin
-            goarch: amd64
           - runner: macos-15
             goos: darwin
             goarch: arm64
