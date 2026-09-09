@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Kavla CEF
-Comment=Kavla desktop with Chromium rendering (local prototype)
+Name=Kavla
+Comment=Local infinite canvas for exploratory analysis
 Exec=kavla-cef-desktop %f
 Icon=kavla
 Terminal=false

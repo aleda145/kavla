@@ -36,5 +36,5 @@ release:
 	@git tag "$(VERSION)"
 	@git push origin "$(VERSION)"
 	@echo "Created and pushed $(VERSION)"
-	@echo "GitHub Actions will publish CLI and Wails artifacts."
+	@echo "GitHub Actions will publish CLI and CEF desktop artifacts."
 	@echo "Release page: https://github.com/$(GITHUB_REPOSITORY)/releases/tag/$(VERSION)"

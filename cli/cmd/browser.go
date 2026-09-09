@@ -1,4 +1,4 @@
-//go:build !production && !dev && (!cef || !linux)
+//go:build !cef || (!linux && !darwin)
 
 package cmd
 
@@ -18,7 +18,7 @@ func openBrowser(url string) error {
 }
 
 // A regular Go build retains the original CLI/browser development workflow.
-// Wails builds select desktop.go through their production or dev build tag.
+// CEF builds select desktop_cef.go on Linux and macOS.
 func runDesktop(server *localapp.Server, launchURL, _ string, _ func(string, string)) error {
 	if err := openBrowser(launchURL); err != nil {
 		fmt.Printf("Could not open the browser automatically. Open this URL:\n%s\n", launchURL)

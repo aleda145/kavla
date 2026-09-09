@@ -16,11 +16,3 @@ func Files() (fs.FS, error) {
 	}
 	return files, nil
 }
-
-func Icon() ([]byte, error) {
-	icon, err := embedded.ReadFile("dist/kavla.svg")
-	if err != nil {
-		return nil, fmt.Errorf("open embedded Kavla icon: %w", err)
-	}
-	return icon, nil
-}

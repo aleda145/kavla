@@ -21,9 +21,6 @@ permissions:
 
 env:
   DOCKER_IMAGE: aleda145/kavla
-  LINUXDEPLOY_VERSION: 1-alpha-20251107-1
-  LINUXDEPLOY_GTK_COMMIT: 7a3fbc31a9e5075073ff8790f26effbac5f84453
-  APPIMAGE_RUNTIME_VERSION: "20251108"
 
 jobs:
   meta:
@@ -67,6 +64,8 @@ jobs:
       - name: Test CEF backend
         working-directory: cli
         run: go test -tags cef ./cmd ./internal/localapp
+      - name: Test desktop signing script
+        run: python3 -m unittest discover -s cli/scripts -p 'test_macos_cef_signing.py'
 
   build:
     name: build-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -100,12 +99,14 @@ jobs:
           cache-dependency-path: app/yarn.lock
       - name: Install Linux desktop build dependencies
         if: matrix.goos == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential cmake file libgirepository1.0-dev libgtk-3-dev libnss3-dev librsvg2-dev libwebkit2gtk-4.0-dev
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake file libgtk-3-dev libnss3-dev
       - name: Install app dependencies
         working-directory: app
         run: yarn install --frozen-lockfile
+      - name: Test macOS CEF backend
+        if: matrix.goos == 'darwin'
+        working-directory: cli
+        run: go test -tags cef ./cmd ./internal/localapp
       - name: Build self-contained CLI binary
         working-directory: cli
         env:
@@ -115,56 +116,6 @@ jobs:
       - name: Package CLI release assets
         working-directory: cli
         run: ./scripts/package-release.sh "${{ needs.meta.outputs.version }}" "${{ matrix.goos }}" "${{ matrix.goarch }}" build dist
-      - name: Build Wails desktop binary
-        working-directory: cli
-        env:
-          COMMIT: ${{ needs.meta.outputs.commit }}
-          BUILD_DATE: ${{ needs.meta.outputs.build_date }}
-        run: ./scripts/build-wails-release.sh "${{ needs.meta.outputs.version }}" "${{ matrix.goos }}" "${{ matrix.goarch }}" desktop-build
-      - name: Download AppImage packaging tools
-        if: matrix.goos == 'linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          case "${{ matrix.goarch }}" in
-            amd64)
-              tool_arch=x86_64
-              tool_sha256=c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d
-              runtime_sha256=2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
-              ;;
-            arm64)
-              tool_arch=aarch64
-              tool_sha256=620095110d693282b8ebeb244a95b5e911cf8f65f76c88b4b47d16ae6346fcff
-              runtime_sha256=00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444
-              ;;
-            *) echo "unsupported AppImage architecture: ${{ matrix.goarch }}" >&2; exit 1 ;;
-          esac
-          tools_dir="${{ github.workspace }}/cli/build/appimage-tools"
-          mkdir -p "$tools_dir"
-          curl --fail --location --retry 3 \
-            "https://github.com/linuxdeploy/linuxdeploy/releases/download/${LINUXDEPLOY_VERSION}/linuxdeploy-${tool_arch}.AppImage" \
-            --output "$tools_dir/linuxdeploy.AppImage"
-          curl --fail --location --retry 3 \
-            "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/${LINUXDEPLOY_GTK_COMMIT}/linuxdeploy-plugin-gtk.sh" \
-            --output "$tools_dir/linuxdeploy-plugin-gtk.sh"
-          curl --fail --location --retry 3 \
-            "https://github.com/AppImage/type2-runtime/releases/download/${APPIMAGE_RUNTIME_VERSION}/runtime-${tool_arch}" \
-            --output "$tools_dir/runtime"
-          printf '%s  %s\n' "$tool_sha256" "$tools_dir/linuxdeploy.AppImage" | sha256sum --check -
-          printf '%s  %s\n' b0f4cbc684a0103a9651f0955b635eaea0096b3a66c0f5a2c2aa337960375171 "$tools_dir/linuxdeploy-plugin-gtk.sh" | sha256sum --check -
-          printf '%s  %s\n' "$runtime_sha256" "$tools_dir/runtime" | sha256sum --check -
-          chmod +x "$tools_dir/linuxdeploy.AppImage" "$tools_dir/linuxdeploy-plugin-gtk.sh"
-      - name: Build Linux AppImage
-        if: matrix.goos == 'linux'
-        env:
-          COMMIT: ${{ needs.meta.outputs.commit }}
-          BUILD_DATE: ${{ needs.meta.outputs.build_date }}
-        run: >-
-          ./cli/scripts/build-linux-appimage.sh
-          "${{ needs.meta.outputs.version }}"
-          "${{ github.workspace }}/cli/desktop-build/kavla"
-          "${{ github.workspace }}/cli/build/appimage-tools/linuxdeploy.AppImage"
-          "${{ github.workspace }}/cli/build/appimage-tools/runtime"
       - name: Build Linux CEF AppImage
         if: matrix.goos == 'linux'
         env:
@@ -172,10 +123,13 @@ jobs:
           BUILD_DATE: ${{ needs.meta.outputs.build_date }}
           CEF_SKIP_WEB_BUILD: "1"
         run: bash ./cli/scripts/build-linux-cef-appimage.sh "${{ needs.meta.outputs.version }}"
-      - name: Package macOS desktop release asset
+      - name: Build macOS CEF app bundle
         if: matrix.goos == 'darwin'
-        working-directory: cli
-        run: ./scripts/package-wails-release.sh "${{ needs.meta.outputs.version }}" "${{ matrix.goos }}" "${{ matrix.goarch }}" desktop-build dist
+        env:
+          COMMIT: ${{ needs.meta.outputs.commit }}
+          BUILD_DATE: ${{ needs.meta.outputs.build_date }}
+          CEF_SKIP_WEB_BUILD: "1"
+        run: bash ./cli/scripts/build-macos-cef-app.sh "${{ needs.meta.outputs.version }}"
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -183,73 +137,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  test-appimage:
-    name: test-appimage-${{ matrix.engine }}-ubuntu-${{ matrix.ubuntu }}-${{ matrix.goarch }}
-    needs: build
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        ubuntu: ["22.04", "24.04"]
-        goarch: [amd64, arm64]
-        # CEF smoke tests are paused while the Xvfb startup timeout is unresolved.
-        # CEF AppImages are still built and included in release artifacts.
-        engine: [webkit]
-        include:
-          - goarch: amd64
-            runner_suffix: ""
-          - goarch: arm64
-            runner_suffix: "-arm"
-          - engine: webkit
-            artifact_prefix: kavla_
-    runs-on: ${{ format('ubuntu-{0}{1}', matrix.ubuntu, matrix.runner_suffix) }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-linux-${{ matrix.goarch }}
-          path: dist
-      - name: Install desktop test dependencies
-        # WebKit loads GLES at runtime; Mesa drivers and EGL do not provide it.
-        run: |
-          if [[ "${{ matrix.ubuntu }}" == "24.04" ]]; then
-            gtk_package=libgtk-3-0t64
-            audio_package=libasound2t64
-            cups_package=libcups2t64
-          else
-            gtk_package=libgtk-3-0
-            audio_package=libasound2
-            cups_package=libcups2
-          fi
-          sudo apt-get update && sudo apt-get install -y \
-            dbus-x11 xvfb xauth xdotool libgl1-mesa-dri libegl1 libgles2 \
-            libgbm1 libnss3 "$gtk_package" "$audio_package" "$cups_package"
-      - name: Allow CEF's namespace sandbox on Ubuntu 24.04
-        if: matrix.engine == 'cef' && matrix.ubuntu == '24.04'
-        # Scope the exception to the temporary CEF test executable.
-        run: sudo apparmor_parser --replace .github/ci/kavla-cef.apparmor
-      - name: Smoke test packaged AppImage
-        run: >-
-          dbus-run-session -- xvfb-run -a -s "-screen 0 1440x900x24"
-          python3 cli/scripts/test-linux-appimage.py
-          dist/${{ matrix.artifact_prefix }}*_linux_${{ matrix.goarch }}.AppImage
-          --engine ${{ matrix.engine }}
-          --log-dir appimage-test-logs
-      - name: Upload AppImage test logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: appimage-test-logs-${{ matrix.engine }}-ubuntu-${{ matrix.ubuntu }}-${{ matrix.goarch }}
-          path: appimage-test-logs
-          if-no-files-found: warn
-          retention-days: 7
-
   docker:
     name: docker-${{ matrix.arch }}
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && inputs.publish_release)
-    needs: [meta, build, test-appimage]
+    needs: [meta, build]
     strategy:
       fail-fast: false
       matrix:
@@ -332,7 +225,7 @@ jobs:
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && inputs.publish_release)
-    needs: [meta, build, test-appimage, docker-manifest]
+    needs: [meta, build, docker-manifest]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

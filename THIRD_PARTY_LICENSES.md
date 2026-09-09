@@ -46,12 +46,13 @@ Kavla's direct Go dependencies include:
 | DuckDB Go client and DuckDB | MIT |
 | Google UUID | BSD-3-Clause |
 | Cobra | Apache-2.0 |
-| Wails | MIT |
 | Go terminal packages | BSD-3-Clause |
 | yaml.v3 | MIT and Apache-2.0 |
 | nhooyr WebSocket | ISC |
 
 These modules have transitive dependencies under their own licenses. Consult `cli/go.sum`, the corresponding module source distributions, and their included license files for the complete terms of a given build.
+
+Desktop builds also bundle Chromium Embedded Framework (CEF), distributed under its BSD license, and Chromium components under their respective licenses. The pinned SDK version is recorded in the desktop build scripts; its license is included in desktop packages as `CEF-LICENSE.txt`.
 
 ## Distribution
 

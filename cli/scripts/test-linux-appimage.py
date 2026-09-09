@@ -16,7 +16,6 @@ import urllib.request
 
 STARTUP_TIMEOUT = 60
 STABLE_SECONDS = 10
-HELPERS = {"WebKitWebProcess", "WebKitNetworkProcess"}
 CEF_HELPERS = {"renderer", "gpu-process"}
 FATAL_LOG = re.compile(
     r"error while loading shared libraries|undefined symbol:|Failed to load module:"
@@ -46,32 +45,6 @@ def descendant_processes(root_pid):
     return descendants
 
 
-def webkit_helpers(root_pid):
-    helpers = {}
-    for pid in descendant_processes(root_pid):
-        try:
-            executable = (Path("/proc") / str(pid) / "exe").resolve(strict=True)
-        except (FileNotFoundError, ProcessLookupError, PermissionError):
-            continue
-        if executable.name not in HELPERS:
-            continue
-        try:
-            environment = (Path("/proc") / str(pid) / "environ").read_bytes().split(b"\0")
-            app_dir = next(item[7:].decode() for item in environment if item.startswith(b"APPDIR="))
-            bundled_library = str(Path(app_dir) / "usr/lib/libwebkit2gtk-4.0.so")
-            mappings = (Path("/proc") / str(pid) / "maps").read_text()
-        except (FileNotFoundError, ProcessLookupError):
-            continue
-        except StopIteration:
-            raise RuntimeError(f"{executable.name} did not inherit APPDIR")
-        if bundled_library not in mappings:
-            if "libwebkit2gtk-4.0.so" in mappings:
-                raise RuntimeError(f"{executable.name} is not using bundled WebKitGTK")
-            continue  # The dynamic loader may not have mapped WebKitGTK yet.
-        helpers[executable.name] = pid
-    return helpers
-
-
 def cef_helpers(root_pid):
     helpers = {}
     for pid in descendant_processes(root_pid):
@@ -89,7 +62,7 @@ def cef_helpers(root_pid):
     return helpers
 
 
-def check_startup(process, log_path, engine="webkit", chromium_log=None):
+def check_startup(process, log_path, engine="cef", chromium_log=None):
     deadline = time.monotonic() + STARTUP_TIMEOUT
     stable_since = None
     previous_helpers = {}
@@ -107,8 +80,8 @@ def check_startup(process, log_path, engine="webkit", chromium_log=None):
         if failure:
             raise RuntimeError(f"AppImage reported {failure[0]}")
 
-        helpers = cef_helpers(process.pid) if engine == "cef" else webkit_helpers(process.pid)
-        required_helpers = CEF_HELPERS if engine == "cef" else HELPERS
+        helpers = cef_helpers(process.pid)
+        required_helpers = CEF_HELPERS
         window = subprocess.run(
             ["xdotool", "search", "--onlyvisible", "--name", "^Kavla"],
             capture_output=True, timeout=5,
@@ -122,7 +95,7 @@ def check_startup(process, log_path, engine="webkit", chromium_log=None):
             except (urllib.error.URLError, TimeoutError):
                 pass  # The server can still be starting; the deadline remains in effect.
 
-        page_loaded = engine != "cef" or bool(address and f"CEF loaded {address[1]} (HTTP 200)" in output)
+        page_loaded = bool(address and f"CEF loaded {address[1]} (HTTP 200)" in output)
         readiness = (
             f"HTTP ready={server_ready}, visible window={window.returncode == 0}, "
             f"page loaded={page_loaded}, helpers={helpers}, "
@@ -147,7 +120,7 @@ def check_startup(process, log_path, engine="webkit", chromium_log=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("appimage", type=Path)
-    parser.add_argument("--engine", choices=["webkit", "cef"], default="webkit")
+    parser.add_argument("--engine", choices=["cef"], default="cef")
     parser.add_argument("--log-dir", type=Path, required=True)
     args = parser.parse_args()
     appimage = args.appimage.resolve(strict=True)

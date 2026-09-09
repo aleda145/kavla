@@ -1,4 +1,4 @@
-//go:build cef && linux && !production && !dev
+//go:build cef && (linux || darwin)
 
 package cmd
 
@@ -34,7 +34,7 @@ func runDesktop(server *localapp.Server, launchURL, _ string, _ func(string, str
 	if err != nil {
 		return fmt.Errorf("locate CEF desktop installation: %w", err)
 	}
-	cefBinary := filepath.Join(filepath.Dir(executable), "..", "lib", "kavla-cef", "kavla-cef")
+	cefBinary := cefExecutable(executable)
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		return fmt.Errorf("locate CEF cache directory: %w", err)
@@ -56,7 +56,7 @@ func runDesktop(server *localapp.Server, launchURL, _ string, _ func(string, str
 	)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
-	command.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
+	configureCEFCommand(command)
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)

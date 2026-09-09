@@ -1,7 +1,7 @@
 .PHONY: build build-app build-appimage build-cef-appimage docker-push release run
 
 APP_SOURCES := $(shell find app -type f -not -path 'app/node_modules/*' -not -path 'app/dist/*')
-CLI_SOURCES := $(shell find cli -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -name 'wails.json' \))
+CLI_SOURCES := $(shell find cli -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \))
 DEMO_ARCHIVE := cli/internal/demo/titanic.kavla
 EMBED_STAMP := cli/internal/webapp/dist/.build-stamp
 BINARY := cli/kavla
@@ -20,11 +20,14 @@ $(BINARY): $(CLI_SOURCES) $(DEMO_ARCHIVE) $(EMBED_STAMP) Makefile
 	cd cli && go build -trimpath -o .kavla.new .
 	mv cli/.kavla.new $(BINARY)
 
-build-app: $(EMBED_STAMP)
-	./cli/scripts/build-linux-appimage.sh "$(VERSION)"
+build-app:
+	@case "$$(uname -s)" in \
+		Linux) bash ./cli/scripts/build-linux-cef-appimage.sh "$(VERSION)" ;; \
+		Darwin) bash ./cli/scripts/build-macos-cef-app.sh "$(VERSION)" ;; \
+		*) echo "CEF desktop builds support Linux and macOS" >&2; exit 1 ;; \
+	esac
 
-build-appimage: $(EMBED_STAMP)
-	./cli/scripts/build-linux-appimage.sh "$(VERSION)"
+build-appimage: build-cef-appimage
 
 build-cef-appimage:
 	bash ./cli/scripts/build-linux-cef-appimage.sh "$(VERSION)"

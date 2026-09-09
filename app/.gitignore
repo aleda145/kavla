@@ -3,6 +3,5 @@ node_modules
 .yarn/
 .wrangler/
 dist/
-wailsjs/
 .tanstack
 .dev.vars

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>@helper_name@</string>
+  <key>CFBundleIdentifier</key><string>dev.kavla.desktop.helper@bundle_suffix@</string>
+  <key>CFBundleName</key><string>@helper_name@</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleVersion</key><string>@KAVLA_BUNDLE_VERSION@</string>
+  <key>LSMinimumSystemVersion</key><string>@CEF_TARGET_SDK@</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>

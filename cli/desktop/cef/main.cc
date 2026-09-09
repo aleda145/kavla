@@ -1,11 +1,16 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <vector>
+#include <algorithm>
 
 #include "include/cef_app.h"
 #include "include/cef_client.h"
 #include "include/cef_command_line.h"
 #include "include/cef_version.h"
+#if defined(OS_MAC)
+#include "include/cef_path_util.h"
+#endif
 #include "include/views/cef_browser_view.h"
 #include "include/views/cef_window.h"
 #include "include/wrapper/cef_helpers.h"
@@ -13,13 +18,14 @@
 namespace {
 
 int application_exit_code = 0;
+std::vector<CefRefPtr<CefBrowser>> open_browsers;
 
 class KavlaWindow : public CefWindowDelegate {
  public:
   explicit KavlaWindow(CefRefPtr<CefBrowserView> view) : view_(view) {}
 
   void OnWindowCreated(CefRefPtr<CefWindow> window) override {
-    window->SetTitle("Kavla — CEF");
+    window->SetTitle("Kavla");
     window->AddChildView(view_);
     window->Show();
     view_->RequestFocus();
@@ -86,10 +92,12 @@ class KavlaClient : public CefClient,
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     CEF_REQUIRE_UI_THREAD();
     ++browsers_;
+    open_browsers.push_back(browser);
   }
 
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
     CEF_REQUIRE_UI_THREAD();
+    std::erase_if(open_browsers, [&](const auto& item) { return item->IsSame(browser); });
     if (--browsers_ == 0) {
       CefQuitMessageLoop();
     }
@@ -98,7 +106,7 @@ class KavlaClient : public CefClient,
   void OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString& title) override {
     auto view = CefBrowserView::GetForBrowser(browser);
     if (view && view->GetWindow()) {
-      view->GetWindow()->SetTitle(title.ToString() + " — CEF");
+      view->GetWindow()->SetTitle(title);
     }
   }
 
@@ -170,12 +178,14 @@ class KavlaApp : public CefApp, public CefBrowserProcessHandler {
   void OnBeforeCommandLineProcessing(const CefString& process_type,
                                      CefRefPtr<CefCommandLine> command_line) override {
     if (process_type.empty()) {
+#if defined(OS_LINUX)
       // AppImages cannot install a root-owned setuid helper. Keep Chromium's
       // user-namespace sandbox enabled instead.
       command_line->AppendSwitch("disable-setuid-sandbox");
       if (const char* platform = std::getenv("KAVLA_CEF_OZONE_PLATFORM")) {
         command_line->AppendSwitchWithValue("ozone-platform", platform);
       }
+#endif
     }
   }
 
@@ -195,23 +205,43 @@ class KavlaApp : public CefApp, public CefBrowserProcessHandler {
 
 }  // namespace
 
+void CloseKavlaBrowsers() {
+  CEF_REQUIRE_UI_THREAD();
+  const auto browsers = open_browsers;
+  for (const auto& browser : browsers) {
+    browser->GetHost()->CloseBrowser(false);
+  }
+}
+
 NO_STACK_PROTECTOR
-int main(int argc, char* argv[]) {
+int RunKavla(int argc, char* argv[]) {
   CefMainArgs main_args(argc, argv);
   CefRefPtr<KavlaApp> app(new KavlaApp());
+#if !defined(OS_MAC)
   int exit_code = CefExecuteProcess(main_args, app, nullptr);
   if (exit_code >= 0) {
     return exit_code;
   }
+#endif
 
   auto command_line = CefCommandLine::CreateCommandLine();
   command_line->InitFromArgv(argc, argv);
   if (!command_line->HasSwitch("url") || !command_line->HasSwitch("cache-path")) {
-    std::cerr << "Launch the Kavla AppImage, or supply --url and --cache-path." << std::endl;
+    std::cerr << "Launch the Kavla desktop package, or supply --url and --cache-path." << std::endl;
     return 1;
   }
 
   CefSettings settings;
+#if defined(OS_MAC)
+  CefString executable_dir;
+  if (!CefGetPath(PK_DIR_EXE, executable_dir)) {
+    std::cerr << "Could not locate the Kavla app bundle." << std::endl;
+    return 1;
+  }
+  CefString(&settings.browser_subprocess_path) = executable_dir.ToString() +
+      "/../Frameworks/Kavla Helper.app/Contents/MacOS/Kavla Helper";
+  CefString(&settings.main_bundle_path) = executable_dir.ToString() + "/../..";
+#endif
   CefString(&settings.root_cache_path) = command_line->GetSwitchValue("cache-path");
   CefString(&settings.cache_path) = command_line->GetSwitchValue("cache-path");
   CefString(&settings.log_file) = command_line->GetSwitchValue("log-file");
@@ -226,3 +256,10 @@ int main(int argc, char* argv[]) {
   CefShutdown();
   return application_exit_code;
 }
+
+#if !defined(OS_MAC)
+NO_STACK_PROTECTOR
+int main(int argc, char* argv[]) {
+  return RunKavla(argc, argv);
+}
+#endif
