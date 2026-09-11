@@ -10,6 +10,7 @@ import {
   useToasts,
 } from "tldraw";
 import { ChartUtil } from "../../Chart/ChartUtil";
+import { CodexAgentUtil } from "../../AgentBlob/CodexAgentUtil";
 import { CLITerminalUtil } from "../../CLITerminal/CLITerminalUtil";
 import { DataSourceUtil } from "../../DataSource/DataSourceUtil";
 import { SQLResultTableUtil } from "../../SQLResultArea/SQLResultAreaUtil";
@@ -47,6 +48,7 @@ const customShapeUtils = [
   DataSourceUtil,
   ChartUtil,
   CLITerminalUtil,
+  CodexAgentUtil,
   KavlaArrowShapeUtil,
 ];
 

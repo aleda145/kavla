@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aleda145/kavla/cli/internal/codex"
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/runner"
 	"github.com/aleda145/kavla/cli/internal/session"
@@ -71,6 +72,21 @@ type Server struct {
 	reconfiguring         bool
 	sourceConfigMu        sync.Mutex
 	shutdownOnce          sync.Once
+
+	codexMu            sync.Mutex
+	codexClient        *codex.Client
+	codexStatus        codex.Status
+	codexContext       context.Context
+	codexCancel        context.CancelFunc
+	codexStarting      bool
+	codexActiveThread  string
+	codexActiveTurn    string
+	codexToolRequests  map[string]json.RawMessage
+	codexModels        []codex.Model
+	codexThreads       map[string]struct{}
+	codexToolCallCount int
+	codexEventMu       sync.Mutex
+	codexSubscribers   map[chan cliRuntimeEvent]struct{}
 }
 
 // SetDocumentChangeHandler registers a callback for successful document
@@ -104,13 +120,17 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 	}
 	querySession := session.NewWithAllowedDirectories(sources, []string{transientDir})
 	server := &Server{
-		document:         document,
-		assets:           assets,
-		verbose:          verbose,
-		queries:          querySession,
-		transientDir:     transientDir,
-		transientResults: make(map[string]transientResult),
-		eventSubscribers: make(map[chan cliRuntimeEvent]struct{}),
+		document:          document,
+		assets:            assets,
+		verbose:           verbose,
+		queries:           querySession,
+		transientDir:      transientDir,
+		transientResults:  make(map[string]transientResult),
+		eventSubscribers:  make(map[chan cliRuntimeEvent]struct{}),
+		codexStatus:       codex.Status{State: "checking", Message: "Checking for Codex CLI…"},
+		codexToolRequests: make(map[string]json.RawMessage),
+		codexThreads:      make(map[string]struct{}),
+		codexSubscribers:  make(map[chan cliRuntimeEvent]struct{}),
 	}
 	querySession.SetLogger(server.logCLIOutput)
 	if verbose {
@@ -120,6 +140,7 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		_ = os.RemoveAll(transientDir)
 		return nil, fmt.Errorf("start local query session: %w", err)
 	}
+	server.startCodexDetection()
 	return server, nil
 }
 
@@ -230,6 +251,8 @@ func (s *Server) Close(ctx context.Context) error {
 		s.workerMu.Unlock()
 
 		s.closeRuntimeSubscribers()
+		s.closeCodexSubscribers()
+		s.closeCodex()
 		s.queriesMu.RLock()
 		s.queries.Cancel()
 		s.queriesMu.RUnlock()
@@ -275,6 +298,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/cli/sources/{name}", s.sameOriginMutation(s.handleUpdateCLISource))
 	mux.HandleFunc("DELETE /api/cli/sources/{name}", s.sameOriginMutation(s.handleDeleteCLISource))
 	mux.HandleFunc("GET /api/cli/source-paths", s.handleCLISourcePaths)
+	mux.HandleFunc("GET /api/codex/events", s.handleCodexEvents)
+	mux.HandleFunc("POST /api/codex/prompts", s.sameOriginMutation(s.handleCodexPrompt))
+	mux.HandleFunc("POST /api/codex/cancel", s.sameOriginMutation(s.handleCodexCancel))
+	mux.HandleFunc("POST /api/codex/tool-results", s.sameOriginMutation(s.handleCodexToolResult))
+	mux.HandleFunc("POST /api/codex/retry", s.sameOriginMutation(s.handleCodexRetry))
 	mux.HandleFunc("POST /api/session/close", s.sameOriginMutation(s.handleSave))
 	mux.HandleFunc("GET /api/session/blobs/{id}", s.handleGetBlob)
 	mux.HandleFunc("GET /api/session/query-results/{id}", s.handleGetTransientResult)
@@ -536,6 +564,8 @@ func (s *Server) handleLoadPath(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "selected Kavla document does not exist", http.StatusBadRequest)
 		return
 	}
+	s.closeCodex()
+	defer s.startCodexDetection()
 	if err := s.document.OpenFromPath(filepath.Clean(request.Path)); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -570,6 +600,8 @@ func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	s.closeCodex()
+	defer s.startCodexDetection()
 	if err := s.document.NewAtPath(targetPath, []byte(request.CanvasJSON), request.Overwrite); err != nil {
 		if !request.Overwrite && errors.Is(err, os.ErrExist) {
 			http.Error(w, "A Kavla document with this name already exists.", http.StatusConflict)

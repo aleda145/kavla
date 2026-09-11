@@ -37,8 +37,11 @@ import {
   useValue,
 } from "tldraw";
 import { useCliStatus } from "../localServer/runtimeStore";
-import { Asterisk, Database, FilePlus2, FileTerminal, FolderOpen, Loader2, Save } from "lucide-react";
+import { Asterisk, Bot, Database, FilePlus2, FileTerminal, FolderOpen, Loader2, Save } from "lucide-react";
+import { CodexAgentLayer } from "../../AgentBlob/CodexAgentOverlay";
+import { createOrFocusCodexAgent } from "../../AgentBlob/codex-agent-store";
 import { LocalRoomInfoPanel } from "./LocalRoomInfoPanel";
+import { LocalAgentDialog } from "./LocalAgentDialog";
 import { LocalSaveDialog } from "./LocalSaveDialog";
 import { LocalSourcesDialog } from "./LocalSourcesDialog";
 import type { SaveLocalSessionOptions, SaveLocalSessionResult } from "./localSession";
@@ -109,8 +112,10 @@ function LocalDocumentControls({
   onNewDocument,
   onSaveDocument,
 }: LocalDocumentControlsProps) {
+  const editor = useEditor();
   const [dialogMode, setDialogMode] = useState<"load" | "new" | null>(null);
   const [showSources, setShowSources] = useState(false);
+  const [showAgentStatus, setShowAgentStatus] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
@@ -163,10 +168,12 @@ function LocalDocumentControls({
           .kavla-document-control[data-action="save"] { background: #fce7f3; }
           .kavla-document-control[data-action="load"] { background: #dcfce7; }
           .kavla-document-control[data-action="sources"] { background: #dbeafe; }
+          .kavla-document-control[data-action="agent"] { background: #ffedd5; }
           .kavla-document-control[data-action="new"]:hover { background: #fde68a; }
           .kavla-document-control[data-action="save"]:hover { background: #fbcfe8; }
           .kavla-document-control[data-action="load"]:hover { background: #bbf7d0; }
           .kavla-document-control[data-action="sources"]:hover { background: #bfdbfe; }
+          .kavla-document-control[data-action="agent"]:hover { background: #fed7aa; }
           .kavla-document-control:active { transform: translateY(1px); }
           .kavla-document-control:disabled { cursor: default; opacity: 0.42; }
         `}
@@ -223,6 +230,19 @@ function LocalDocumentControls({
         <Database size={14} />
         Sources
       </button>
+      <button
+        aria-label="Open the Kavla Agent"
+        className="kavla-document-control"
+        data-action="agent"
+        disabled={!documentsAvailable}
+        onClick={() => setShowAgentStatus(true)}
+        onPointerDown={(event) => event.stopPropagation()}
+        title={documentsAvailable ? "View the connected agent" : "Run Kavla through the CLI to use the Agent"}
+        type="button"
+      >
+        <Bot size={14} />
+        Agent
+      </button>
       {dialogMode ? (
         <LocalSaveDialog
           documentName={documentName}
@@ -233,6 +253,15 @@ function LocalDocumentControls({
         />
       ) : null}
       {showSources ? <LocalSourcesDialog onClose={() => setShowSources(false)} /> : null}
+      {showAgentStatus ? (
+        <LocalAgentDialog
+          onClose={() => setShowAgentStatus(false)}
+          onOpenChat={() => {
+            createOrFocusCodexAgent(editor);
+            setShowAgentStatus(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -485,7 +514,7 @@ export function useLocalComponents({
       MainMenu: CustomMainMenu,
       PageMenu: null,
       TopPanel: LocalConnectionStatus,
-      InFrontOfTheCanvas: null,
+      InFrontOfTheCanvas: CodexAgentLayer,
     }),
     [
       documentName,

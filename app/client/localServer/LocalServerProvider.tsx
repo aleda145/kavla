@@ -2,6 +2,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, typ
 import { tableFromIPC } from "apache-arrow";
 import { getActiveLocalSession } from "../local/localSession";
 import {
+  notifyCodexEvent,
+  notifyCodexModels,
+  notifyCodexStatus,
+  notifyCodexThread,
+  notifyCodexToolRequest,
+} from "./codexStore";
+import {
   notifyCliOutputHistory,
   notifyCliOutputLine,
   notifyCliSources,
@@ -43,7 +50,7 @@ async function postJSON<T>(path: string, body: unknown, signal?: AbortSignal): P
     signal,
   });
   if (!response.ok) throw await responseError(response);
-  if (response.status === 204) return undefined as T;
+  if (response.status === 204 || response.status === 202) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -54,13 +61,15 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
     if (!getActiveLocalSession()) {
       notifyCliStatus(false);
       notifyCliSources([]);
+      notifyCodexStatus({ state: "missing", message: "Run Kavla through the CLI or desktop app to use the Agent." });
+      notifyCodexModels([]);
       return;
     }
 
-    const events = new EventSource("/api/cli/events");
-    events.onopen = () => notifyCliStatus(true);
-    events.onerror = () => notifyCliStatus(false);
-    events.addEventListener("snapshot", (event) => {
+    const cliEvents = new EventSource("/api/cli/events");
+    cliEvents.onopen = () => notifyCliStatus(true);
+    cliEvents.onerror = () => notifyCliStatus(false);
+    cliEvents.addEventListener("snapshot", (event) => {
       const snapshot = JSON.parse((event as MessageEvent<string>).data) as {
         sources?: unknown[];
         output?: CliOutputLine[];
@@ -68,15 +77,46 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       notifyCliSources(snapshot.sources ?? []);
       notifyCliOutputHistory(snapshot.output ?? []);
     });
-    events.addEventListener("sources", (event) => {
+    cliEvents.addEventListener("sources", (event) => {
       notifyCliSources(JSON.parse((event as MessageEvent<string>).data) as unknown[]);
     });
-    events.addEventListener("output", (event) => {
+    cliEvents.addEventListener("output", (event) => {
       notifyCliOutputLine(JSON.parse((event as MessageEvent<string>).data) as CliOutputLine);
     });
 
+    const codexEvents = new EventSource("/api/codex/events");
+    codexEvents.onerror = () =>
+      notifyCodexStatus({
+        state: "error",
+        message: "The Kavla Agent event stream is disconnected.",
+      });
+    codexEvents.addEventListener("snapshot", (event) => {
+      const snapshot = JSON.parse((event as MessageEvent<string>).data) as {
+        status?: unknown;
+        models?: unknown;
+      };
+      notifyCodexStatus(snapshot.status);
+      notifyCodexModels(snapshot.models);
+    });
+    codexEvents.addEventListener("status", (event) => {
+      notifyCodexStatus(JSON.parse((event as MessageEvent<string>).data));
+    });
+    codexEvents.addEventListener("models", (event) => {
+      notifyCodexModels(JSON.parse((event as MessageEvent<string>).data));
+    });
+    codexEvents.addEventListener("event", (event) => {
+      notifyCodexEvent(JSON.parse((event as MessageEvent<string>).data));
+    });
+    codexEvents.addEventListener("tool_request", (event) => {
+      notifyCodexToolRequest(JSON.parse((event as MessageEvent<string>).data));
+    });
+    codexEvents.addEventListener("thread", (event) => {
+      notifyCodexThread(JSON.parse((event as MessageEvent<string>).data));
+    });
+
     return () => {
-      events.close();
+      cliEvents.close();
+      codexEvents.close();
       notifyCliStatus(false);
     };
   }, []);
@@ -191,6 +231,36 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const reportCodexRequestError = useCallback((error: unknown) => {
+    notifyCodexEvent({
+      eventType: "error",
+      data: { message: error instanceof Error ? error.message : String(error) },
+    });
+  }, []);
+
+  const sendCodexPrompt = useCallback<LocalServerContextType["sendCodexPrompt"]>(
+    (payload) => {
+      void postJSON("/api/codex/prompts", payload).catch(reportCodexRequestError);
+    },
+    [reportCodexRequestError]
+  );
+
+  const sendCodexToolResult = useCallback<LocalServerContextType["sendCodexToolResult"]>(
+    (payload) => {
+      void postJSON("/api/codex/tool-results", payload).catch(reportCodexRequestError);
+    },
+    [reportCodexRequestError]
+  );
+
+  const cancelCodex = useCallback<LocalServerContextType["cancelCodex"]>(() => {
+    void postJSON("/api/codex/cancel", {}).catch(reportCodexRequestError);
+  }, [reportCodexRequestError]);
+
+  const retryCodex = useCallback<LocalServerContextType["retryCodex"]>(() => {
+    notifyCodexStatus({ state: "checking", message: "Checking for Codex CLI…" });
+    void postJSON("/api/codex/retry", {}).catch(reportCodexRequestError);
+  }, [reportCodexRequestError]);
+
   const context = useMemo<LocalServerContextType>(
     () => ({
       updateSourceName: () => undefined,
@@ -203,6 +273,10 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       getQueryResultPage,
       runRemoteQuery,
       cancelRemoteQuery,
+      sendCodexPrompt,
+      sendCodexToolResult,
+      cancelCodex,
+      retryCodex,
     }),
     [
       cancelRemoteQuery,
@@ -214,6 +288,10 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       prepareQueryResultDownload,
       prepareSourceDownload,
       runRemoteQuery,
+      sendCodexPrompt,
+      sendCodexToolResult,
+      cancelCodex,
+      retryCodex,
     ]
   );
 

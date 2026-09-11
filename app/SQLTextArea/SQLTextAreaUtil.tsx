@@ -43,6 +43,7 @@ import {
   getMountedFileSourcesForRemoteExecution,
   walkSQLDag,
 } from "./walkSQLDag";
+import { getAutoExpandedSQLShapeSize } from "./sqlShapeSize";
 
 export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   private updateSourceName: ((payload: { prevName: string; nextName: string }) => void) | null = null;
@@ -89,19 +90,29 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     });
   }
 
-  override onBeforeUpdate(prev: SQLTextAreaShape, next: SQLTextAreaShape): void {
+  override onBeforeCreate(next: SQLTextAreaShape): SQLTextAreaShape | void {
+    if (next.props.isManuallyResized) return;
+    const size = getAutoExpandedSQLShapeSize(next.props.text, next.props);
+    if (size.w === next.props.w && size.h === next.props.h) return;
+    return { ...next, props: { ...next.props, ...size } };
+  }
+
+  override onBeforeUpdate(prev: SQLTextAreaShape, next: SQLTextAreaShape): SQLTextAreaShape | void {
     const prevName = prev.props.name;
     const nextName = next.props.name;
 
-    if (prevName === nextName) {
-      return;
+    if (prevName !== nextName) {
+      if (this.updateSourceName) {
+        this.updateSourceName({ prevName, nextName });
+      } else {
+        console.error("updateSourceName function not initialized");
+      }
     }
 
-    if (this.updateSourceName) {
-      this.updateSourceName({ prevName, nextName });
-    } else {
-      console.error("updateSourceName function not initialized");
-    }
+    if (prev.props.text === next.props.text || next.props.isManuallyResized) return;
+    const size = getAutoExpandedSQLShapeSize(next.props.text, next.props);
+    if (size.w === next.props.w && size.h === next.props.h) return;
+    return { ...next, props: { ...next.props, ...size } };
   }
 
   component(shape: SQLTextAreaShape) {

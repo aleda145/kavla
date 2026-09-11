@@ -37,6 +37,22 @@ export interface QueryResultPage {
   rows: Record<string, unknown>[];
 }
 
+export interface CodexPromptPayload {
+  prompt: string;
+  threadId: string | null;
+  context: unknown;
+  fallbackHistory: string;
+  mainModel?: string;
+  layoutModel?: string;
+}
+
+export interface CodexToolResultPayload {
+  callId: string;
+  success: boolean;
+  result?: unknown;
+  error?: string;
+}
+
 export interface LocalServerContextType {
   updateSourceName: (payload: { prevName: string; nextName: string }) => void;
   deleteShapes: (ids: TLShapeId[]) => void;
@@ -61,4 +77,8 @@ export interface LocalServerContextType {
   }>;
   getQueryResultPage: (payload: QueryResultPagePayload) => Promise<QueryResultPage>;
   cancelRemoteQuery: (shapeId: string, queryName?: string) => void;
+  sendCodexPrompt: (payload: CodexPromptPayload) => void;
+  sendCodexToolResult: (payload: CodexToolResultPayload) => void;
+  cancelCodex: () => void;
+  retryCodex: () => void;
 }

@@ -2,6 +2,7 @@ import type { Editor, TLAssetPartial, TLCamera } from "tldraw";
 import { CameraRecordType, parseTldrawJsonFile } from "tldraw";
 import type { DataSourceShape } from "../../DataSource/data-source-types";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
+import { appendCodexAgentEntry, getCodexAgent, updateCodexAgent } from "../../AgentBlob/codex-agent-store";
 
 export type KavlaBlobKind = "source" | "asset";
 
@@ -162,6 +163,13 @@ export function loadCanvasJson(editor: Editor, canvasJson: string): void {
   });
   if (interruptedShapes.length > 0) {
     editor.updateShapes(interruptedShapes);
+  }
+  if (getCodexAgent(editor)?.props.isRunning) {
+    updateCodexAgent(editor, { isRunning: false, streamingText: "", activity: null });
+    appendCodexAgentEntry(editor, {
+      role: "event",
+      text: "The previous agent turn was interrupted when this canvas closed.",
+    });
   }
   editor.clearHistory();
 }
