@@ -1,3 +1,4 @@
+import { notifyCodexAuth } from "./codexAuth";
 import { notifyCodexRuns, codexClientId, getCodexRuns, isCodexRunActive, cancelCodexRun } from "./codexRuns";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { tableFromIPC } from "apache-arrow";
@@ -101,12 +102,16 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       } else if (event.stream === "codex") {
         switch (event.name) {
           case "snapshot": {
-            const snapshot = event.data as { status?: unknown; models?: unknown; runs?: unknown };
+            const snapshot = event.data as { status?: unknown; models?: unknown; runs?: unknown; auth?: unknown };
             notifyCodexStatus(snapshot.status);
             notifyCodexModels(snapshot.models);
             notifyCodexRuns(snapshot.runs);
+            notifyCodexAuth(snapshot.auth);
             break;
           }
+          case "auth":
+            notifyCodexAuth(event.data);
+            break;
           case "runs":
             notifyCodexRuns(event.data);
             break;

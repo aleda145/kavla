@@ -20,6 +20,7 @@ func (s *Server) startCodexDetection() {
 		s.codexMu.Unlock()
 		return
 	}
+	_, apiKey, _ := s.codexAuthLocked()
 	s.codexStarting = true
 	s.codexStatus = codex.Status{State: "checking", Message: "Checking for Codex CLI…"}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -43,7 +44,7 @@ func (s *Server) startCodexDetection() {
 	s.workerMu.Unlock()
 	go func() {
 		defer s.workers.Done()
-		client, status, err := codex.Start(ctx,
+		client, status, err := codex.StartWithAPIKey(ctx, apiKey,
 			func(method string, params json.RawMessage) {
 				if ctx.Err() == nil {
 					s.handleCodexEvent(method, params)
@@ -195,6 +196,7 @@ func (s *Server) handleCodexEvents(w http.ResponseWriter, r *http.Request) {
 		"status": s.currentCodexStatus(),
 		"models": s.currentCodexModels(),
   "runs": s.currentCodexRuns(),
+  "auth": s.currentCodexAuth(),
 	}}); err != nil {
 		return
 	}

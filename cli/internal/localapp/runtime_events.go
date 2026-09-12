@@ -75,6 +75,7 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 		"status": s.currentCodexStatus(),
 		"models": s.currentCodexModels(),
 		"runs":   s.currentCodexRuns(),
+		"auth":   s.currentCodexAuth(),
 	}}); err != nil {
 		return
 	}

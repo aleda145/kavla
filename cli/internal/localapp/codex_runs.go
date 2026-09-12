@@ -130,6 +130,7 @@ func (s *Server) startCodexPrompt(request codexPromptRequest) error {
  s.codexMu.Lock()
  for _, run := range s.codexHistory { if run.ID == request.RunID { s.codexMu.Unlock(); return nil } }
  client := s.codexClient
+ if s.codexAuthChanging { s.codexMu.Unlock(); return fmt.Errorf("Agent authentication is changing; wait for it to reconnect") }
  if client == nil || s.codexStatus.State != "ready" { message := s.codexStatus.Message; s.codexMu.Unlock(); return fmt.Errorf("%s", message) }
  if activeCodexRun(s.codexRun) { s.codexMu.Unlock(); return fmt.Errorf("the Agent is already working; stop the current run first") }
  model, layoutModel, err := resolveCodexModels(s.codexModels, request.MainModel, request.LayoutModel)

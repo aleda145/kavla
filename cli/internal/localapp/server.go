@@ -74,6 +74,10 @@ type Server struct {
 	shutdownOnce          sync.Once
 
 	codexMu            sync.Mutex
+ codexAuthMu sync.Mutex
+ codexAuthMode string
+ codexAPIKey string
+ codexAuthChanging bool
  codexJournalMu sync.Mutex
  codexRun *codexRunState
  codexHistory []*codexRunState
@@ -308,6 +312,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/cli/sources/{name}", s.sameOriginMutation(s.handleDeleteCLISource))
 	mux.HandleFunc("GET /api/cli/source-paths", s.handleCLISourcePaths)
 	mux.HandleFunc("GET /api/codex/events", s.handleCodexEvents)
+ mux.HandleFunc("GET /api/codex/auth", s.handleCodexAuth)
+ mux.HandleFunc("POST /api/codex/auth", s.sameOriginMutation(s.handleCodexAuth))
  mux.HandleFunc("POST /api/codex/tool-claims", s.sameOriginMutation(s.handleCodexToolClaim))
  mux.HandleFunc("POST /api/codex/generate", s.sameOriginMutation(s.handleCodexGenerate))
 	mux.HandleFunc("POST /api/codex/prompts", s.sameOriginMutation(s.handleCodexPrompt))

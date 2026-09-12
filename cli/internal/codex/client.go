@@ -90,11 +90,16 @@ type Client struct {
 }
 
 func Start(ctx context.Context, onEvent EventHandler, onTool ToolHandler, onExit ExitHandler) (*Client, Status, error) {
+ return StartWithAPIKey(ctx, "", onEvent, onTool, onExit)
+}
+
+func StartWithAPIKey(ctx context.Context, apiKey string, onEvent EventHandler, onTool ToolHandler, onExit ExitHandler) (*Client, Status, error) {
+ apiKey = strings.TrimSpace(apiKey)
 	executable, err := exec.LookPath("codex")
 	if err != nil {
 		return nil, Status{
 			State:   "missing",
-			Message: "Codex CLI was not found. Install Codex and run codex login to enable the Kavla Agent.",
+			Message: "Codex CLI was not found. Install Codex to enable the Kavla Agent, then use Codex login or an OpenAI API key.",
 		}, nil
 	}
 	tempDir, err := os.MkdirTemp("", "kavla-codex-*")
@@ -128,6 +133,15 @@ func Start(ctx context.Context, onEvent EventHandler, onTool ToolHandler, onExit
 		"-c", `tools.web_search=false`,
 		"-c", `mcp_servers={}`,
 	)
+ if apiKey != "" {
+  // Login stays process-local so Kavla does not overwrite the user's Codex credentials.
+  command.Args = append(command.Args, "-c", `cli_auth_credentials_store="ephemeral"`, "-c", `model_provider="openai"`)
+ }
+ // Credential selection is explicit. Keep inherited API keys out of the subprocess environment.
+ command.Env = []string{}
+ for _, entry := range os.Environ() {
+  if !strings.HasPrefix(entry, "OPENAI_API_KEY=") && !strings.HasPrefix(entry, "CODEX_API_KEY=") { command.Env = append(command.Env, entry) }
+ }
 	command.Dir = tempDir
 	stdin, err := command.StdinPipe()
 	if err != nil {
@@ -171,6 +185,7 @@ func Start(ctx context.Context, onEvent EventHandler, onTool ToolHandler, onExit
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
+            if apiKey != "" { line = strings.ReplaceAll(line, apiKey, "[redacted]") }
 			if line == "" {
 				continue
 			}
@@ -215,6 +230,13 @@ func Start(ctx context.Context, onEvent EventHandler, onTool ToolHandler, onExit
 		return nil, Status{}, fmt.Errorf("finish Codex App Server initialization: %w", err)
 	}
 
+ if apiKey != "" {
+  if _, err := client.request(initCtx, "account/login/start", map[string]string{"type": "apiKey", "apiKey": apiKey}); err != nil {
+   _ = client.Close()
+   return nil, Status{}, fmt.Errorf("configure OpenAI API key: %s", strings.ReplaceAll(err.Error(), apiKey, "[redacted]"))
+  }
+ }
+
 	accountRaw, err := client.request(initCtx, "account/read", map[string]interface{}{"refreshToken": false})
 	if err != nil {
 		_ = client.Close()
@@ -232,10 +254,11 @@ func Start(ctx context.Context, onEvent EventHandler, onTool ToolHandler, onExit
 		_ = client.Close()
 		return nil, Status{
 			State:   "auth_required",
-			Message: "Codex CLI is installed but not authenticated. Run codex login, then retry the Kavla Agent.",
+			Message: "Codex CLI is installed but not authenticated. Run codex login or enter an OpenAI API key in Agent settings.",
 		}, nil
 	}
 
+ if apiKey != "" { return client, Status{State: "ready", Message: "Connected with an OpenAI API key."}, nil }
 	return client, Status{State: "ready", Message: "Codex is ready."}, nil
 }
 

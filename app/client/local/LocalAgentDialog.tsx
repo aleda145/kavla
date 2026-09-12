@@ -1,4 +1,5 @@
-import { cancelCodexRun, isCodexRunActive, useCodexRuns } from "../localServer/codexRuns";
+import { notifyCodexAuth, useCodexAuth, type CodexAuth } from "../localServer/codexAuth";
+import { cancelCodexRun, codexRequest, isCodexRunActive, useCodexRuns } from "../localServer/codexRuns";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Bot, CheckCircle2, LayoutDashboard, Loader2, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
@@ -12,6 +13,39 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
   const ready = status.state === "ready";
   const runs = useCodexRuns();
   const [runError, setRunError] = useState<string | null>(null);
+  const auth = useCodexAuth();
+  const [authMode, setAuthMode] = useState<CodexAuth["mode"]>(auth.mode);
+  const [apiKey, setApiKey] = useState("");
+  const [savingAuth, setSavingAuth] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const hasActiveRun = runs.some(isCodexRunActive);
+  const authDisabled = savingAuth || hasActiveRun || status.state === "checking";
+  const canUseKey = apiKey.trim().length > 0 || auth.hasApiKey || auth.hasEnvironmentKey;
+
+  useEffect(() => { setAuthMode(auth.mode); }, [auth.mode]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/codex/auth", { credentials: "same-origin", cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load Agent authentication settings.");
+        notifyCodexAuth(await response.json());
+      }).catch((error) => { if (!controller.signal.aborted) setAuthError(error instanceof Error ? error.message : String(error)); });
+    return () => controller.abort();
+  }, []);
+
+  const saveAuth = async () => {
+    if (authDisabled || (authMode === "apiKey" && !canUseKey)) return;
+    setSavingAuth(true);
+    setAuthError(null);
+    const key = apiKey.trim();
+    setApiKey("");
+    try {
+      const settings = await codexRequest<CodexAuth>("auth", { mode: authMode, ...(authMode === "apiKey" && key ? { apiKey: key } : {}) });
+      notifyCodexAuth(settings);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : String(error));
+    } finally { setSavingAuth(false); }
+  };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -114,6 +148,31 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
             </div>
           </div>
 
+          <form onSubmit={(event) => { event.preventDefault(); void saveAuth(); }} style={{ border: "2px solid #000", borderRadius: 8, padding: 11, display: "flex", flexDirection: "column", gap: 8 }}>
+            <label style={{ fontSize: 11, fontWeight: 900, display: "flex", flexDirection: "column", gap: 5 }}>
+              Authentication
+              <select aria-label="Agent authentication" value={authMode} disabled={authDisabled} onChange={(event) => { setAuthMode(event.currentTarget.value as CodexAuth["mode"]); setApiKey(""); setAuthError(null); }} style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", font: "700 11px Inter, sans-serif" }}>
+                <option value="codex">Codex login</option>
+                <option value="apiKey">OpenAI API key</option>
+              </select>
+            </label>
+            {authMode === "apiKey" ? <>
+              <label style={{ fontSize: 11, fontWeight: 800, display: "flex", flexDirection: "column", gap: 5 }}>
+                OpenAI API key
+                <input type="password" autoComplete="off" spellCheck={false} autoCapitalize="none" aria-label="OpenAI API key" value={apiKey} disabled={authDisabled} onChange={(event) => setApiKey(event.currentTarget.value)} placeholder={auth.hasApiKey ? "Enter a replacement key" : auth.hasEnvironmentKey ? "Using server environment key" : "sk-…"} style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", fontSize: 12 }} />
+              </label>
+              <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>
+                {auth.keySource === "session" ? "A key is held in this server session. " : auth.hasEnvironmentKey ? "OPENAI_API_KEY is configured on the server. " : ""}
+                Entered keys stay in server memory until Kavla restarts. They are excluded from canvas files and chat history. API usage is billed to your OpenAI API account. Codex CLI must still be installed.
+              </div>
+            </> : <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>Uses the existing login from Codex on the server. Switching back discards the key entered in Kavla.</div>}
+            <button type="submit" disabled={authDisabled || (authMode === "apiKey" && !canUseKey)} style={{ alignSelf: "flex-end", minHeight: 32, border: "2px solid #000", borderRadius: 6, background: "#ffedd5", fontSize: 11, fontWeight: 900, padding: "0 10px", cursor: authDisabled ? "default" : "pointer", opacity: authDisabled || (authMode === "apiKey" && !canUseKey) ? 0.5 : 1 }}>
+              {savingAuth ? "Connecting…" : authMode === "apiKey" ? "Use API key" : "Use Codex login"}
+            </button>
+            {hasActiveRun && <div style={{ fontSize: 10, color: "#57534e" }}>Stop the current run before changing authentication.</div>}
+            {authError && <div role="alert" style={{ fontSize: 11, color: "#991b1b" }}>{authError}</div>}
+          </form>
+
           <div style={{ border: "2px solid #000", borderRadius: 8, overflow: "hidden" }}>
             <div
               style={{
@@ -126,8 +185,8 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
             >
               <Sparkles color="#9a3412" size={17} strokeWidth={3} />
               <div>
-                <strong style={{ fontSize: 11 }}>Connected account</strong>
-                <div style={{ color: "#57534e", fontSize: 10, marginTop: 1 }}>Uses Codex on the machine running Kavla</div>
+                <strong style={{ fontSize: 11 }}>{auth.mode === "apiKey" ? "OpenAI API account" : "Connected account"}</strong>
+                <div style={{ color: "#57534e", fontSize: 10, marginTop: 1 }}>{auth.mode === "apiKey" ? "Uses your API key through the local Codex runtime" : "Uses Codex on the machine running Kavla"}</div>
               </div>
             </div>
             <div style={{ alignItems: "center", display: "flex", gap: 9, padding: "9px 11px" }}>
@@ -157,7 +216,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
               <div>
                 <strong style={{ fontSize: 11 }}>Agent models</strong>
                 <div style={{ color: "#57534e", fontSize: 10, lineHeight: 1.35, marginTop: 1 }}>
-                  Available through the connected Codex account.
+                  Available through the selected authentication method.
                 </div>
               </div>
             </div>
