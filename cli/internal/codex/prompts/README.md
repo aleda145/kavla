@@ -17,3 +17,8 @@ Keep the original analysis, visualization, styling, and editing guidance intact 
 - The local run budget, bounded repairs, and terminal failures remain enforced. Restoring the prompts must not reintroduce automatic retry runs.
 
 The original cloud prompts' transport instructions have been translated to the corresponding local operations rather than left as contradictory instructions alongside a second shortened prompt.
+
+Keep renderer selection and visualization guidance aligned with kavla-main. It exposes MapLibre as a library option,
+not a map recipe component. Do not add dataset-specific recipes, preferred basemap URLs, or library mandates to
+address individual generated Lens failures; fix runtime issues in code and handle specific visual requests through
+the user's prompt. Keep additional OSS runtime instructions concise.
