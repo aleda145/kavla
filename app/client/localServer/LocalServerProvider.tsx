@@ -67,61 +67,119 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const cliEvents = new EventSource("/api/cli/events");
-    cliEvents.onopen = () => notifyCliStatus(true);
-    cliEvents.onerror = () => notifyCliStatus(false);
-    cliEvents.addEventListener("snapshot", (event) => {
-      const snapshot = JSON.parse((event as MessageEvent<string>).data) as {
-        sources?: unknown[];
-        output?: CliOutputLine[];
-      };
-      notifyCliSources(snapshot.sources ?? []);
-      notifyCliOutputHistory(snapshot.output ?? []);
-    });
-    cliEvents.addEventListener("sources", (event) => {
-      notifyCliSources(JSON.parse((event as MessageEvent<string>).data) as unknown[]);
-    });
-    cliEvents.addEventListener("output", (event) => {
-      notifyCliOutputLine(JSON.parse((event as MessageEvent<string>).data) as CliOutputLine);
-    });
+    const url = new URL("/api/runtime/events", window.location.href);
+    url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | undefined;
+    let connectTimer: number | undefined;
+    let reconnectDelay = 1000;
+    let stopped = false;
 
-    const codexEvents = new EventSource("/api/codex/events");
-    codexEvents.onerror = () =>
-      notifyCodexStatus({
-        state: "error",
-        message: "The Kavla Agent event stream is disconnected.",
-      });
-    codexEvents.addEventListener("snapshot", (event) => {
-      const snapshot = JSON.parse((event as MessageEvent<string>).data) as {
-        status?: unknown;
-        models?: unknown;
-        runs?: unknown;
+    const disconnected = () => {
+      notifyCliStatus(false);
+      notifyCodexStatus({ state: "error", message: "The Kavla server connection is disconnected. Reconnecting…" });
+    };
+
+    const receiveEvent = (message: MessageEvent<string>) => {
+      const event = JSON.parse(message.data) as { stream: "cli" | "codex"; name: string; data: unknown };
+      if (event.stream === "cli") {
+        switch (event.name) {
+          case "snapshot": {
+            const snapshot = event.data as { sources?: unknown[]; output?: CliOutputLine[] };
+            notifyCliSources(snapshot.sources ?? []);
+            notifyCliOutputHistory(snapshot.output ?? []);
+            notifyCliStatus(true);
+            break;
+          }
+          case "sources":
+            notifyCliSources(event.data as unknown[]);
+            break;
+          case "output":
+            notifyCliOutputLine(event.data as CliOutputLine);
+            break;
+        }
+      } else if (event.stream === "codex") {
+        switch (event.name) {
+          case "snapshot": {
+            const snapshot = event.data as { status?: unknown; models?: unknown; runs?: unknown };
+            notifyCodexStatus(snapshot.status);
+            notifyCodexModels(snapshot.models);
+            notifyCodexRuns(snapshot.runs);
+            break;
+          }
+          case "runs":
+            notifyCodexRuns(event.data);
+            break;
+          case "status":
+            notifyCodexStatus(event.data);
+            break;
+          case "models":
+            notifyCodexModels(event.data);
+            break;
+          case "event":
+            notifyCodexEvent(event.data);
+            break;
+          case "tool_request":
+            notifyCodexToolRequest(event.data);
+            break;
+          case "thread":
+            notifyCodexThread(event.data);
+            break;
+        }
+      }
+    };
+
+    const connect = () => {
+      if (stopped || socket) return;
+      const connection = new WebSocket(url);
+      socket = connection;
+      connectTimer = window.setTimeout(() => connection.close(), 10000);
+      connection.onopen = () => {
+        window.clearTimeout(connectTimer);
+        reconnectDelay = 1000;
       };
-      notifyCodexStatus(snapshot.status);
-      notifyCodexModels(snapshot.models);
-      notifyCodexRuns(snapshot.runs);
-    });
-    codexEvents.addEventListener("runs", (event) => notifyCodexRuns(JSON.parse((event as MessageEvent<string>).data)));
-    codexEvents.addEventListener("status", (event) => {
-      notifyCodexStatus(JSON.parse((event as MessageEvent<string>).data));
-    });
-    codexEvents.addEventListener("models", (event) => {
-      notifyCodexModels(JSON.parse((event as MessageEvent<string>).data));
-    });
-    codexEvents.addEventListener("event", (event) => {
-      notifyCodexEvent(JSON.parse((event as MessageEvent<string>).data));
-    });
-    codexEvents.addEventListener("tool_request", (event) => {
-      notifyCodexToolRequest(JSON.parse((event as MessageEvent<string>).data));
-    });
-    codexEvents.addEventListener("thread", (event) => {
-      notifyCodexThread(JSON.parse((event as MessageEvent<string>).data));
-    });
+      connection.onmessage = receiveEvent;
+      connection.onerror = disconnected;
+      connection.onclose = () => {
+        window.clearTimeout(connectTimer);
+        socket = null;
+        if (stopped) return;
+        disconnected();
+        reconnectTimer = window.setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+      };
+    };
+
+    const disconnect = () => {
+      window.clearTimeout(reconnectTimer);
+      window.clearTimeout(connectTimer);
+      if (socket) {
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onerror = null;
+        socket.onclose = null;
+        socket.close();
+        socket = null;
+      }
+      notifyCliStatus(false);
+    };
+    const onPageHide = () => {
+      stopped = true;
+      disconnect();
+    };
+    const onPageShow = () => {
+      stopped = false;
+      connect();
+    };
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("pageshow", onPageShow);
+    connect();
 
     return () => {
-      cliEvents.close();
-      codexEvents.close();
-      notifyCliStatus(false);
+      stopped = true;
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
+      disconnect();
     };
   }, []);
 

@@ -290,6 +290,7 @@ func (s *Server) Close(ctx context.Context) error {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/session", s.handleSession)
+	mux.HandleFunc("GET /api/runtime/events", s.sameOriginMutation(s.handleRuntimeEvents))
 	mux.HandleFunc("PUT /api/session/document", s.sameOriginMutation(s.handleDocument))
 	mux.HandleFunc("POST /api/session/save", s.sameOriginMutation(s.handleSave))
 	mux.HandleFunc("POST /api/session/save-as", s.sameOriginMutation(s.handleSaveAs))
