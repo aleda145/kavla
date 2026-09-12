@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useEditor, type TLShapeId } from "tldraw";
 import { useData } from "../client/useLocalServer";
 import { codexClientId, codexRequest, cancelCodexRun, createCodexToolEnvironment, getCodexRuns, isCodexRunActive, useCodexRuns } from "../client/localServer/codexRuns";
-import { useCodexModels, useCodexStatus } from "../client/localServer/codexStore";
-import { stageCanvas, getActiveLocalSession } from "../client/local/localSession";
-import { executeCodexCanvasTool, hydratePromptCanvasContext } from "./codexCanvasTools";
+import { stageCanvas } from "../client/local/localSession";
+import { executeCodexCanvasTool } from "./codexCanvasTools";
 import { appendCodexAgentEntry, createOrFocusCodexAgent, getCodexAgent, updateCodexAgent } from "./codex-agent-store";
 import { getShapeCitations } from "./codex-shape-references";
 import type { LensShape } from "../Lens/lens-shape-types";
@@ -13,27 +12,17 @@ export function CodexAgentRuntime({ onActivityShape }: { onActivityShape: (shape
   const editor = useEditor();
   const data = useData();
   const runs = useCodexRuns();
-  const status = useCodexStatus();
-  const models = useCodexModels();
   const controllers = useRef(new Map<string, AbortController>());
   const handled = useRef(new Set<string>());
-  const [repairs, setRepairs] = useState<Array<{ shapeId: string; error: string }>>([]);
-  const startingRepair = useRef(false);
 
   useEffect(() => {
     const stop = (event: Event) => {
       const id = (event as CustomEvent<string>).detail;
       controllers.current.get(id)?.abort();
     };
-    const repair = (event: Event) => {
-      const detail = (event as CustomEvent<{ shapeId: string; error: string }>).detail;
-      if (detail?.shapeId) setRepairs((previous) => previous.some((item) => item.shapeId === detail.shapeId) ? previous : [...previous, detail]);
-    };
     window.addEventListener("kavla:cancel-codex-run", stop);
-    window.addEventListener("kavla:repair-lens", repair);
     return () => {
       window.removeEventListener("kavla:cancel-codex-run", stop);
-      window.removeEventListener("kavla:repair-lens", repair);
       controllers.current.forEach((controller) => controller.abort());
       controllers.current.clear();
     };
@@ -129,24 +118,6 @@ export function CodexAgentRuntime({ onActivityShape }: { onActivityShape: (shape
     }
   }, [data, editor, runs, onActivityShape]);
 
-  useEffect(() => {
-    if (!repairs.length || startingRepair.current || runs.some(isCodexRunActive) || status.state !== "ready") return;
-    const repair = repairs[0];
-    setRepairs((previous) => previous.slice(1));
-    const lens = editor.getShape<LensShape>(repair.shapeId as TLShapeId);
-    if (!lens || lens.type !== "lens-shape" || !lens.props.error || lens.props.retryCount >= 2) return;
-    startingRepair.current = true;
-    const id = crypto.randomUUID();
-    const prompt = `Repair the existing Lens ${lens.props.name} (${lens.id}) with update_lens. Preserve its intent and source. Rendering failed: ${repair.error}. Do not create another Lens.`;
-    editor.updateShape<LensShape>({ id: lens.id, type: "lens-shape", props: { retryCount: lens.props.retryCount + 1 } });
-    void (async () => {
-      const context = await hydratePromptCanvasContext(editor, data, [lens.id]);
-      if (getCodexRuns().some(isCodexRunActive)) { setRepairs((previous) => [...previous, repair]); return; }
-      await codexRequest("prompts", { runId: id, clientId: codexClientId, documentId: getActiveLocalSession()?.documentId, prompt, threadId: getCodexAgent(editor)?.props.codexThreadId, context, mainModel: models.mainModel, layoutModel: models.layoutModel, planLayout: false });
-    })().catch((error) => {
-      appendCodexAgentEntry(editor, { role: "error", text: `Lens repair could not start: ${error instanceof Error ? error.message : String(error)}`, shapeIds: [lens.id] });
-    }).finally(() => { startingRepair.current = false; });
-  }, [data, editor, models, repairs, runs, status.state]);
 
   return null;
 }

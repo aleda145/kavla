@@ -1,3 +1,4 @@
+import { LensRuntimeUnavailableError } from "../Lens/lens-errors";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import * as ECharts from "echarts";
@@ -181,7 +182,32 @@ function GeneratedWidgetErrorPanel() {
   );
 }
 
-async function loadGeneratedWidgetLibraries(): Promise<GeneratedWidgetLibraries> {
+let generatedWidgetRuntime: Promise<GeneratedWidgetLibraries> | null = null;
+
+// Run this before spending a generation request, and share it with validation and rendering.
+export async function prepareGeneratedChartWidgetRuntime(): Promise<void> {
+  await loadGeneratedWidgetLibraries();
+}
+
+function loadGeneratedWidgetLibraries(): Promise<GeneratedWidgetLibraries> {
+  if (generatedWidgetRuntime) return generatedWidgetRuntime;
+  generatedWidgetRuntime = (async () => {
+    try { new Function("return true")(); }
+    catch { throw new LensRuntimeUnavailableError("Lens JavaScript is blocked by Content Security Policy. Restart the updated Kavla server and reload the page. Generating different code cannot fix this."); }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        importGeneratedWidgetLibraries(),
+        new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Timed out loading Lens libraries.")), 30000); }),
+      ]);
+    } catch (error) {
+      throw new LensRuntimeUnavailableError(`Lens libraries could not load. Reload the app before retrying. ${error instanceof Error ? error.message : String(error)}`);
+    } finally { if (timer !== undefined) clearTimeout(timer); }
+  })();
+  return generatedWidgetRuntime;
+}
+
+async function importGeneratedWidgetLibraries(): Promise<GeneratedWidgetLibraries> {
   const [Plot, d3, THREE, fiber, drei, MapLibre] = await Promise.all([
     import("@observablehq/plot"),
     import("d3"),
@@ -777,10 +803,12 @@ export const GeneratedChartWidgetView = React.memo(function GeneratedChartWidget
 }: GeneratedChartWidgetViewProps) {
   const [libraries, setLibraries] = useState<GeneratedWidgetLibraries | null>(null);
   const [Component, setComponent] = useState<React.ComponentType<GeneratedChartWidgetProps> | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [compileError, setCompileError] = useState<string | null>(null);
+  const [dataError, setDataError] = useState<string | null>(null);
   const [queryRows, setQueryRows] = useState<Record<string, unknown>[]>(rows);
   const [isQuerying, setIsQuerying] = useState(false);
   const onErrorRef = useRef(onError);
+  const onDataSqlErrorRef = useRef(onDataSqlError);
   const baseRunSql = useMemo(() => createRunSql(rows, columns, sourceName), [columns, rows, sourceName]);
   const widgetColumns = useMemo(
     () => (queryRows.length > 0 ? Object.keys(queryRows[0]) : columns),
@@ -802,12 +830,13 @@ export const GeneratedChartWidgetView = React.memo(function GeneratedChartWidget
 
   useEffect(() => {
     onErrorRef.current = onError;
-  }, [onError]);
+    onDataSqlErrorRef.current = onDataSqlError;
+  }, [onError, onDataSqlError]);
 
   useEffect(() => {
     let cancelled = false;
     const trimmedDataSql = dataSql?.trim();
-    setError(null);
+    setDataError(null);
 
     if (!trimmedDataSql) {
       setIsQuerying(false);
@@ -828,19 +857,19 @@ export const GeneratedChartWidgetView = React.memo(function GeneratedChartWidget
         if (cancelled) return;
         console.error("Generated Lens data SQL failed", nextError);
         const errorMessage = nextError?.message || "Generated Lens data SQL failed.";
-        setError(errorMessage);
+        setDataError(errorMessage);
         setIsQuerying(false);
-        onDataSqlError?.(errorMessage);
+        onDataSqlErrorRef.current?.(errorMessage);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [baseRunSql, dataSql, onDataSqlError, rows]);
+  }, [baseRunSql, dataSql, rows]);
 
   useEffect(() => {
     let cancelled = false;
-    setError(null);
+    setCompileError(null);
     setComponent(null);
 
     loadGeneratedWidgetLibraries()
@@ -857,7 +886,7 @@ export const GeneratedChartWidgetView = React.memo(function GeneratedChartWidget
         if (cancelled) return;
         console.error("Generated Lens failed", nextError);
         const errorMessage = nextError?.message || "Generated Lens failed.";
-        setError(errorMessage);
+        setCompileError(errorMessage);
         onErrorRef.current?.(errorMessage);
       });
 
@@ -866,7 +895,7 @@ export const GeneratedChartWidgetView = React.memo(function GeneratedChartWidget
     };
   }, [code]);
 
-  if (error) {
+  if (compileError || dataError) {
     return <GeneratedWidgetErrorPanel />;
   }
 

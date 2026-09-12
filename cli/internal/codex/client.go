@@ -66,6 +66,8 @@ type textTurnResult struct {
 
 type textTurnCollector struct {
 	text strings.Builder
+ itemID string
+ finalText string
 	done chan textTurnResult
 	finished bool
 }
@@ -670,6 +672,11 @@ func (c *Client) captureTextTurnEvent(method string, params json.RawMessage) boo
     if collector.finished { return true }
 	switch method {
 	case "item/agentMessage/delta":
+        itemID, _ := payload["itemId"].(string)
+        if itemID != "" && collector.itemID != itemID {
+         collector.itemID = itemID
+         collector.text.Reset()
+        }
 		if delta, ok := payload["delta"].(string); ok {
 			collector.text.WriteString(delta)
 		}
@@ -677,9 +684,13 @@ func (c *Client) captureTextTurnEvent(method string, params json.RawMessage) boo
 		item, _ := payload["item"].(map[string]interface{})
 		itemType, _ := item["type"].(string)
 		text, _ := item["text"].(string)
-		if itemType == "agentMessage" && collector.text.Len() == 0 {
-			collector.text.WriteString(text)
-		}
+        if itemType == "agentMessage" && strings.TrimSpace(text) != "" {
+         // Completed message text is authoritative. Never concatenate progress commentary with JSON output.
+         collector.text.Reset()
+         collector.text.WriteString(text)
+         collector.itemID, _ = item["id"].(string)
+         if item["phase"] == "final_answer" { collector.finalText = text }
+        }
 	case "turn/completed":
 		if !collector.finished {
 			collector.finished = true
@@ -687,7 +698,11 @@ func (c *Client) captureTextTurnEvent(method string, params json.RawMessage) boo
             status, _ := turn["status"].(string)
             if status == "failed" || status == "interrupted" {
              collector.done <- textTurnResult{err: fmt.Errorf("focused generation %s: %v", status, turn["error"])}
-            } else { collector.done <- textTurnResult{text: collector.text.String()} }
+            } else {
+             text := collector.finalText
+             if text == "" { text = collector.text.String() }
+             collector.done <- textTurnResult{text: text}
+            }
 		}
 	case "error":
 		message, _ := payload["message"].(string)
@@ -856,7 +871,7 @@ You have no filesystem, shell, browser, web, coding, or deletion responsibilitie
 Every analytical SQL query you execute must exist as a visible query shape on the Kavla canvas before it runs. The only exceptions are deterministic column profiling and Lens-local presentation SQL; both remain attached to existing artifacts. Do not use them to hide analytical work. Use existing schema, sample, and profile metadata first. Use create_query for additional analytical inspection, sanity checks, and intermediate exploration. Use run_query only to execute a query shape that was already visible, and update_query to correct an existing failed query shape. Never claim to have queried data unless a visible query tool result supports it.
 
 Use create_analysis_query for a focused, repairable SQL step. Use edit_query for requests to modify a selected query, choosing patch_current by default and branch when the user asks to preserve or fork existing work. Use compute_column_profiles for missing per-column statistics. Prefer existing samples and profiles before creating inspection queries.
-Use create_lens for requested custom visualizations, maps, globes, or Lens artifacts; use update_lens for edits and repairs of an existing Lens, without creating unrelated shapes. For a substantive multi-step conclusion or a requested report, create_summary with Interesting findings and Assumptions & data issues sections and concrete evidence links, then finish with a concise chat answer linking that summary. Skip a summary for lightweight follow-ups and visual-only edits.
+Use create_lens for requested custom visualizations, maps, globes, or Lens artifacts; use update_lens for edits and repairs of an existing Lens, without creating unrelated shapes. Lens tools handle one repair internally. If a Lens tool returns retryable:false or stopRun:true, stop immediately and explain the error; never retry through another create_lens or update_lens call. Never try to repair CSP, missing libraries, or network failures by generating different code. For a substantive multi-step conclusion or a requested report, create_summary with Interesting findings and Assumptions & data issues sections and concrete evidence links, then finish with a concise chat answer linking that summary. Skip a summary for lightweight follow-ups and visual-only edits.
 
 Analyze by decomposition. Prefer small, readable chained query shapes that each perform one clear step: filter invalid rows, select or rename useful fields, isolate an interesting slice, aggregate with GROUP BY, rank a result, or perform a compact sanity check. After each query result, use its schema and sampleRows to decide the next branch. Do not hide an analysis inside one dense query when a short visible chain communicates the reasoning better.
 

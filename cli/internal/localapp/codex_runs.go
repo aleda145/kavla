@@ -42,6 +42,8 @@ type codexRunState struct {
  CreatedAt int64 `json:"createdAt"`
  Revision int64 `json:"revision"`
  Tools []*codexToolState `json:"tools"`
+ LensGenerations int `json:"lensGenerations,omitempty"`
+ LensAttempts map[string]int `json:"lensAttempts,omitempty"`
  cancel context.CancelFunc
  ctx context.Context
  messageIDs map[string]bool
@@ -187,12 +189,16 @@ func (s *Server) startCodexPrompt(request codexPromptRequest) error {
 }
 
 func (s *Server) cancelCodexRun(id, reason string) {
+ s.stopCodexRun(id, "cancelled", reason)
+}
+
+func (s *Server) stopCodexRun(id, status, reason string) {
  s.codexMu.Lock()
  run, client := s.codexRun, s.codexClient
  if !activeCodexRun(run) || (id != "" && run.ID != id) { s.codexMu.Unlock(); return }
  runID, threadID, turnID := run.ID, run.ThreadID, run.TurnID
  s.codexMu.Unlock()
- s.finishCodexRun(runID, "cancelled", reason)
+ s.finishCodexRun(runID, status, reason)
  if client != nil && threadID != "" && turnID != "" {
   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
   defer cancel()
@@ -276,6 +282,9 @@ func (s *Server) acceptCodexToolResult(request codexToolResultRequest) error {
  s.codexMu.Unlock()
  s.publishCodexRuns(true)
  if err := client.RespondToTool(requestID, request.Success, value); err != nil { s.finishCodexRun(run.ID, "failed", err.Error()); return err }
+ if result, ok := value.(map[string]interface{}); ok && !request.Success && result["stopRun"] == true {
+  s.stopCodexRun(run.ID, "failed", request.Error)
+ }
  return nil
 }
 
@@ -287,6 +296,20 @@ func (s *Server) handleCodexGenerate(w http.ResponseWriter, r *http.Request) {
  s.codexMu.Lock()
  run, client := s.codexRun, s.codexClient
  if !activeCodexRun(run) || run.ID != request.RunID || run.ClientID != request.ClientID || client == nil { s.codexMu.Unlock(); writeAPIError(w, 409, fmt.Errorf("this agent run is no longer active")); return }
+ if request.Mode == "lens" {
+  target := "lens"
+  if supplied, ok := request.Context.(map[string]interface{}); ok {
+   if id, ok := supplied["targetShapeId"].(string); ok && id != "" { target = id }
+  }
+  if run.LensAttempts == nil { run.LensAttempts = make(map[string]int) }
+  if run.LensGenerations >= 4 || run.LensAttempts[target] >= 2 {
+   s.codexMu.Unlock()
+   writeAPIError(w, 409, fmt.Errorf("Lens generation budget exhausted. Stop and show the existing error; another user request is required to retry."))
+   return
+  }
+  run.LensGenerations++
+  run.LensAttempts[target]++
+ }
  parent, model := run.ctx, run.Model
  run.Activity = "Generating " + request.Mode + "…"; run.Revision++
  s.codexMu.Unlock()

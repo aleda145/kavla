@@ -1,9 +1,10 @@
+import { isLensRuntimeUnavailable } from "../Lens/lens-errors";
 import { createShapeId, type Editor, type TLShapeId } from "tldraw";
 import type { LensShape } from "../Lens/lens-shape-types";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import type { CodexToolEnvironment } from "../client/localServer/codexRuns";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
-import { validateGeneratedChartWidget } from "../Chart/GeneratedChartWidget";
+import { prepareGeneratedChartWidgetRuntime, validateGeneratedChartWidget } from "../Chart/GeneratedChartWidget";
 import { getUniqueName } from "../util/getUniqueName";
 import { connectShapes } from "../util/shapeConnections";
 import { getAgentLayout, getAgentPlacement } from "./agentLayout";
@@ -37,25 +38,35 @@ export async function runLensTool(editor: Editor, args: Record<string, unknown>,
   let lastError = existing?.props.error || "";
   let attemptCode = existing?.props.code || "";
   let attemptDataSql = existing?.props.dataSql || null;
+  let attempts = 0;
   try {
+    await prepareGeneratedChartWidgetRuntime();
+    env.signal.throwIfAborted();
     const rows = await getAgentDataPreview(editor, query.id, env.data, 10001);
     const data = rows.slice(0, 10000);
     const schema = query.props.outputSchema || [];
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
       env.signal.throwIfAborted();
       const current = editor.getShape<LensShape>(id);
       if (!current) throw new Error("The Lens was removed.");
       const codeBeforeGeneration = current.props.code;
       const sqlBeforeGeneration = current.props.dataSql;
-      try {
-        const generated = await env.generate("lens", visualPrompt, {
+      // Transport, authentication, and generation endpoint failures cannot be repaired by rewriting JSX.
+      const previousCode = attemptCode;
+      const previousDataSql = attemptDataSql;
+      attempts = attempt;
+      const generated = await env.generate("lens", visualPrompt, {
+          targetShapeId: id,
           sourceName: query.props.name, schema, rowCount: query.props.lastRunStats?.rowCount, sampleRows: data.slice(0, 5), previewRowLimit: 10000,
           isSampled: rows.length > 10000, sourceSql: query.props.text, currentCode: attemptCode, currentDataSql: attemptDataSql,
           dataIntent: args.dataIntent, currentTitle: current.props.title, currentDescription: current.props.description, width: current.props.w - 48, height: current.props.h - 46, attempt, latestError: lastError,
         });
-        env.signal.throwIfAborted();
-        attemptCode = generated.code || "";
-        attemptDataSql = generated.dataSql?.trim() ? validateReadOnlySQL(generated.dataSql) : null;
+      env.signal.throwIfAborted();
+      attemptCode = generated.code || "";
+      attemptDataSql = generated.dataSql?.trim() || null;
+      if (attempt > 1 && attemptCode === previousCode && attemptDataSql === previousDataSql) throw new Error("The Lens generator repeated the same failed code. Stopped without another attempt.");
+      try {
+        if (attemptDataSql) validateReadOnlySQL(attemptDataSql);
         await validateGeneratedChartWidget({ isSampled: rows.length > 10000, code: attemptCode, dataSql: attemptDataSql, rows: data, columns: schema.map((column) => column.name), columnTypes: Object.fromEntries(schema.map((column) => [column.name, column.type])), sourceName: query.props.name, width: current.props.w - 48, height: current.props.h - 46 });
         env.signal.throwIfAborted();
         const latest = editor.getShape<LensShape>(id);
@@ -68,15 +79,21 @@ export async function runLensTool(editor: Editor, args: Record<string, unknown>,
       } catch (error) {
         env.signal.throwIfAborted();
         lastError = error instanceof Error ? error.message : String(error);
+        if (isLensRuntimeUnavailable(error)) throw error;
         if (lastError.includes("kept your edit") || lastError.includes("was removed") || lastError.includes("source query changed")) throw error;
-        if (editor.getShape(id)) editor.updateShape<LensShape>({ id, type: "lens-shape", props: { generationStatus: "repairing", error: lastError } });
+        if (attempt < 2 && editor.getShape(id)) editor.updateShape<LensShape>({ id, type: "lens-shape", props: { generationStatus: "repairing", error: lastError } });
       }
     }
-    throw new Error(lastError || "Lens generation failed after three attempts.");
+    throw new Error(lastError || "Lens generation failed after two attempts.");
   } catch (error) {
     const message = env.signal.aborted ? "Lens generation stopped." : error instanceof Error ? error.message : String(error);
-    if (editor.getShape(id)) editor.updateShape<LensShape>({ id, type: "lens-shape", props: { generationStatus: "error", error: message } });
+    const latest = editor.getShape<LensShape>(id);
+    if (latest) editor.updateShape<LensShape>({ id, type: "lens-shape", props: {
+      generationStatus: "error", error: message,
+      // Keep a failed first draft available in the Code/SQL tabs without replacing a user's existing Lens.
+      ...(!latest.props.code && attemptCode ? { code: attemptCode, dataSql: attemptDataSql } : {}),
+    } });
     env.signal.throwIfAborted();
-    return { ok: false, shapeId: id, error: message, guidance: "The previous Lens code is preserved. Edit the code or ask for a simpler visualization." };
+    return { ok: false, shapeId: id, error: message, attempts, retryable: false, stopRun: true, guidance: "Stop this run. Do not generate another Lens or call update_lens again. The error and available code remain on the canvas; retry only when the user explicitly asks." };
   }
 }
