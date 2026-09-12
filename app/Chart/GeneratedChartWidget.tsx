@@ -94,7 +94,7 @@ export type GeneratedChartWidgetValidationResult = {
   warning?: string | null;
 };
 
-const BLOCKED_CODE_PATTERN = /^\s*(import|export)\b/m;
+const BLOCKED_CODE_PATTERN = /^\s*(?:import(?!\s*\()|export)\b/m;
 const MAX_SVG_MARKS = 500;
 const MAX_ANIMATED_MARKS = 200;
 const MAX_3D_OBJECTS = 300;

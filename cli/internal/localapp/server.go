@@ -333,10 +333,12 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
-		// Lens compiles user-visible generated React code with Function; WASM permission alone does not allow it.
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'none'; object-src 'none'; frame-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:")
+        // Allow external requests to any origin, including generated Lens assets and modules.
+        // Lens compiles user-visible React code with Function; WASM permission alone does not allow it.
+        w.Header().Set("Content-Security-Policy", "default-src 'self' * data: blob:; base-uri 'none'; object-src * data: blob:; frame-src * data: blob:; script-src 'self' * data: blob: 'wasm-unsafe-eval' 'unsafe-eval'; style-src 'self' * data: blob: 'unsafe-inline'; img-src 'self' * data: blob:; media-src 'self' * data: blob:; font-src 'self' * data: blob:; connect-src 'self' * data: blob: ws: wss:; worker-src 'self' * data: blob:")
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
-		w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
+		// Permit external no-cors resources while retaining cross-origin isolation for DuckDB.
+		w.Header().Set("Cross-Origin-Embedder-Policy", "credentialless")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")

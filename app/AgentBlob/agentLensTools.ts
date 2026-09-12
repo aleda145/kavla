@@ -14,7 +14,7 @@ import { validateReadOnlySQL } from "./readOnlySQL";
 export async function runLensTool(editor: Editor, args: Record<string, unknown>, env: CodexToolEnvironment, editing: boolean, onActivityShape?: (id: string) => void): Promise<Record<string, unknown>> {
   const existing = editing ? editor.getShape<LensShape>(String(args.shapeId) as TLShapeId) : undefined;
   if (editing && existing?.type !== "lens-shape") throw new Error("Choose an existing Lens to edit.");
-  const visualPrompt = typeof args.visualPrompt === "string" ? args.visualPrompt.trim() : "";
+  const visualPrompt = (typeof args.visualPrompt === "string" ? args.visualPrompt.trim() : "") || (editing ? env.prompt.trim() : "");
   if (!visualPrompt) throw new Error("A visualPrompt is required.");
   const source = resolveAgentDataShape(editor, existing?.props.sourceShapeId || String(args.sourceShapeId || ""));
   if (source.type !== "sql-text-area") throw new Error("Create a visible analytical query before creating a Lens.");
@@ -56,7 +56,7 @@ export async function runLensTool(editor: Editor, args: Record<string, unknown>,
       const previousDataSql = attemptDataSql;
       attempts = attempt;
       const generated = await env.generate("lens", visualPrompt, {
-          targetShapeId: id,
+          targetShapeId: id, userRequest: env.prompt,
           sourceName: query.props.name, schema, rowCount: query.props.lastRunStats?.rowCount, sampleRows: data.slice(0, 5), previewRowLimit: 10000,
           isSampled: rows.length > 10000, sourceSql: query.props.text, currentCode: attemptCode, currentDataSql: attemptDataSql,
           dataIntent: args.dataIntent, currentTitle: current.props.title, currentDescription: current.props.description, width: current.props.w - 48, height: current.props.h - 46, attempt, latestError: lastError,
