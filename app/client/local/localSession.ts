@@ -149,7 +149,7 @@ export function loadCanvasJson(editor: Editor, canvasJson: string): void {
     if (shape.type === "data-source" && (shape as DataSourceShape).props.isRunning) {
       return [{ id: shape.id, type: shape.type, props: { isRunning: false } }];
     }
-    if (shape.type === "sql-text-area" && (shape as SQLTextAreaShape).props.isRunning) {
+    if ((shape.type === "sql-text-area" || shape.type === "python-text-area") && (shape as SQLTextAreaShape).props.isRunning) {
       return [
         {
           id: shape.id,
@@ -173,7 +173,10 @@ export function serializeLocalCanvasJson(editor: Editor, includeCurrentCamera = 
   return JSON.stringify({
     tldrawFileFormatVersion: 1,
     schema: editor.store.schema.serialize(),
-    records: [...Object.values(editor.store.serialize("document")), ...cameraRecords],
+    records: [...Object.values(editor.store.serialize("document")).map(record => {
+      if (record.typeName !== "shape" || record.type !== "python-text-area") return record;
+      return { ...record, props: { ...record.props, output: "", errorLine: null, isRunning: false, queryStartTime: null, runnerName: null } };
+    }), ...cameraRecords],
   });
 }
 

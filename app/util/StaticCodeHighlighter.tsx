@@ -1,9 +1,11 @@
+import { pythonLanguage } from "@codemirror/lang-python";
 import { tsxLanguage } from "@codemirror/lang-javascript";
 import { highlightCode, tagHighlighter, tags } from "@lezer/highlight";
 import React, { memo, useMemo } from "react";
 
 interface StaticCodeHighlighterProps {
   code: string;
+  language?: "typescript" | "python";
   pendingHighlight?: boolean;
 }
 
@@ -25,14 +27,14 @@ const tsxStaticHighlighter = tagHighlighter([
   { tag: tags.invalid, class: "kavla-code-invalid" },
 ]);
 
-export const StaticCodeHighlighter = memo(({ code, pendingHighlight = false }: StaticCodeHighlighterProps) => {
+export const StaticCodeHighlighter = memo(({ code, pendingHighlight = false, language = "typescript" }: StaticCodeHighlighterProps) => {
   const lines = useMemo(() => {
     const output: React.ReactNode[][] = [[]];
     let key = 0;
 
     highlightCode(
       code,
-      tsxLanguage.parser.parse(code),
+      (language === "python" ? pythonLanguage : tsxLanguage).parser.parse(code),
       tsxStaticHighlighter,
       (text, classes) => {
         if (!text) return;
@@ -49,7 +51,7 @@ export const StaticCodeHighlighter = memo(({ code, pendingHighlight = false }: S
 
     if (output.length === 0) output.push([]);
     return output;
-  }, [code]);
+  }, [code, language]);
 
   const gutterWidth = `calc(${String(lines.length).length}ch + 11px)`;
 

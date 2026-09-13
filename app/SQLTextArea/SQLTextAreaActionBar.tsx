@@ -1,3 +1,6 @@
+import { pythonShapeReference } from "../Python/types";
+import { createShapeId, useEditor } from "tldraw";
+import { connectShapes } from "../util/shapeConnections";
 import { BarChart3, Eye, EyeOff, Play, Search, Square } from "lucide-react";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 
@@ -32,6 +35,14 @@ export function SQLTextAreaActionBar({
   onRun,
   onToggleTable,
 }: SQLTextAreaActionBarProps) {
+  const editor = useEditor();
+  const createPython = () => {
+    const id = createShapeId();
+    editor.createShape({ id, type: "python-text-area", x: shape.x + shape.props.w + 60, y: shape.y,
+      props: { text: `result = ${pythonShapeReference(shape.props.name)}.copy()` } });
+    connectShapes(editor, shape.id, id);
+    editor.select(id);
+  };
   const runOrCancel = () => {
     if (shape.props.isRunning) {
       onCancel();
@@ -54,6 +65,7 @@ export function SQLTextAreaActionBar({
         borderBottomRightRadius: hasFooter ? 0 : 8,
       }}
     >
+      <button className={buttonBaseClass} title="Create Python" onPointerDown={event => event.stopPropagation()} onClick={createPython}>Python →</button>
       <button
         onClick={onCreateChart}
         onPointerDown={(event) => {

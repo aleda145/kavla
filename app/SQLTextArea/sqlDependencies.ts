@@ -1,9 +1,9 @@
 import type { Editor, TLShapeId } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import { extractTableNames } from "../util/parseSql";
-import type { SQLTextAreaShape } from "./sql-text-area-types";
+import type { ComputeShape } from "../Python/types";
 
-export type SQLDependencyShape = SQLTextAreaShape | DataSourceShape;
+export type SQLDependencyShape = ComputeShape | DataSourceShape;
 
 export function getOrderedDependenciesForSQL(
   editor: Editor,
@@ -20,11 +20,15 @@ export function getOrderedDependenciesForSQL(
     visited.add(shapeId);
 
     const currentShape = editor.getShape(shapeId);
-    if (!currentShape || (currentShape.type !== "sql-text-area" && currentShape.type !== "data-source")) {
+    if (!currentShape || (currentShape.type !== "sql-text-area" && currentShape.type !== "python-text-area" && currentShape.type !== "data-source")) {
       return;
     }
 
-    const upstreamIds = (currentShape.props as { upstreamShapeIds?: string[] | null }).upstreamShapeIds ?? [];
+    const upstreamIds = currentShape.type === "sql-text-area"
+      ? extractTableNames((currentShape as ComputeShape).props.text).flatMap(name => editor.getCurrentPageShapes().filter(shape =>
+        (shape.type === "sql-text-area" || shape.type === "python-text-area" || shape.type === "data-source") &&
+        (shape as SQLDependencyShape).props.name.toLowerCase() === name.toLowerCase()).map(shape => shape.id))
+      : (currentShape.props as { upstreamShapeIds?: string[] | null }).upstreamShapeIds ?? [];
     for (const upstreamId of upstreamIds) {
       getOrderedDeps(upstreamId as TLShapeId);
     }
@@ -38,7 +42,7 @@ export function getOrderedDependenciesForSQL(
         .getCurrentPageShapes()
         .find(
           (shape) =>
-            (shape.type === "data-source" || shape.type === "sql-text-area") &&
+            (shape.type === "data-source" || shape.type === "sql-text-area" || shape.type === "python-text-area") &&
             (shape as SQLDependencyShape).props.name.toLowerCase() === name.toLowerCase()
         )
     )

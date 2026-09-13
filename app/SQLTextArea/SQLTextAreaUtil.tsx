@@ -1,3 +1,4 @@
+import { runComputeGraph, cancelComputeRun } from "../Python/execution";
 import {
   HTMLContainer,
   Rectangle2d,
@@ -106,7 +107,8 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
   component(shape: SQLTextAreaShape) {
     const { addToast } = useToasts();
-    const { updateSourceName, runRemoteQuery, cancelRemoteQuery } = useData();
+    const api = useData();
+    const { updateSourceName, runRemoteQuery, cancelRemoteQuery } = api;
     this.updateSourceName = updateSourceName;
     const [isRemoteRunning, setIsRemoteRunning] = useState(false);
 
@@ -149,7 +151,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       update({ showTable: nextState });
 
       if (nextState) {
-        if (shape.props.isDirty) {
+        if (shape.props.isDirty && !getOrderedDependenciesForSQL(this.editor, text).orderedDependencies.some(s => s.type === "python-text-area")) {
           await handleRun();
         } else {
           await ensureResultTable();
@@ -323,6 +325,22 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       }
     };
     const handleRun = async (options?: { sqlText?: string; formatBeforeRun?: boolean }) => {
+      if (getOrderedDependenciesForSQL(this.editor, options?.sqlText ?? text).orderedDependencies.some(s => s.type === "python-text-area")) {
+        if (options?.sqlText !== undefined) update({ text: options.sqlText });
+        dispatchSQLShapeRunStarted(shape.id, options?.sqlText ?? text);
+        try {
+          await runComputeGraph(this.editor, shape.id, api);
+          const latest = this.editor.getShape<SQLTextAreaShape>(shape.id);
+          const result = { success: true, rowCount: latest?.props.lastRunStats?.rowCount, outputSchema: latest?.props.outputSchema };
+          dispatchSQLShapeRunFinished(shape.id, result);
+          return result;
+        } catch (error) {
+          const result = { success: false, error: error instanceof Error ? error.message : String(error) };
+          if (!(error instanceof DOMException && error.name === "AbortError")) update({ error: result.error });
+          dispatchSQLShapeRunFinished(shape.id, result);
+          return result;
+        }
+      }
       const nextSql = typeof options?.sqlText === "string" ? options.sqlText : text;
       const shouldFormatBeforeRun = options?.formatBeforeRun ?? typeof options?.sqlText !== "string";
       dispatchSQLShapeRunStarted(shape.id, nextSql);
@@ -343,6 +361,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     };
 
     const handleCancel = () => {
+      cancelComputeRun(this.editor, api);
       if (!isRemoteRunning) return;
       cancelRemoteQuery(shape.id, shape.props.name);
       update({ isRunning: false, error: null, queryStartTime: null, runnerName: null });
@@ -369,7 +388,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     };
 
     const handleCreateChart = async () => {
-      if (shape.props.isDirty) {
+      if (shape.props.isDirty && !currentDependencies.some(s => s.type === "python-text-area")) {
         await handleRun();
       }
       const newShapeId = createShapeId();
@@ -503,7 +522,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
           <SQLTextAreaBody
             hasFooter={hasFooter}
-            isRemoteRunning={isRemoteRunning}
+            isRemoteRunning={isRemoteRunning || (shape.props.isRunning && currentDependencies.some(s => s.type === "python-text-area"))}
             shape={shape}
             text={text}
             onCancel={handleCancel}

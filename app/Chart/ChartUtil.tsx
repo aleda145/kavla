@@ -18,7 +18,7 @@ import { ChartShapeMigrations } from "./chart-shape-migrations";
 import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import ReactECharts from "echarts-for-react";
 import { useQueryResultRows } from "../client/useQueryResultRows";
-import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
+import type { ComputeShape } from "../Python/types";
 import { guessChartOptions } from "./chart-heuristics";
 import { ChartActionBar } from "./ChartActionBar";
 import { ChartBody } from "./ChartBody";
@@ -47,7 +47,7 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
 
   canReceiveNewChildrenOfType(shape: ChartShape, type: TLShape["type"]) {
     if (shape.isLocked) return false;
-    return !["data-source", "sql-text-area", "sql-result-table", "chart-shape"].includes(type);
+    return !["data-source", "python-text-area", "sql-text-area", "sql-result-table", "chart-shape"].includes(type);
   }
 
   providesBackgroundForChildren(): boolean {
@@ -118,7 +118,7 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
     const getSourceShape = useCallback(() => {
       if (!sourceShapeId) return undefined;
       const candidate = this.editor.getShape(sourceShapeId as TLShapeId);
-      return candidate?.type === "sql-text-area" ? (candidate as SQLTextAreaShape) : undefined;
+      return (candidate?.type === "sql-text-area" || candidate?.type === "python-text-area") ? (candidate as ComputeShape) : undefined;
     }, [sourceShapeId]);
     const hasSource = useValue("chart source exists", () => Boolean(getSourceShape()), [getSourceShape]);
     const sourceName = useValue("chart source name", () => getSourceShape()?.props.name ?? null, [getSourceShape]);
@@ -128,7 +128,8 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
     const sourceResultStats = useValue("chart source result", () => getSourceShape()?.props.lastRunStats ?? null, [
       getSourceShape,
     ]);
-    const isCLIResult = sourceResultStats?.runnerName === "CLI";
+    const sourceStale = useValue("chart source stale", () => Boolean(getSourceShape()?.props.stale || getSourceShape()?.props.isDirty), [getSourceShape]);
+    const isCLIResult = getSourceShape()?.type === "python-text-area" || sourceResultStats?.runnerName === "CLI";
     const { runRemoteQuery } = useData();
     const ensureSourceTable = useCallback(async () => {
       const sourceShape = getSourceShape();
@@ -330,6 +331,7 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
         onPointerDown={() => {}}
       >
         <ChartHeader sourceName={sourceName || "..."} />
+        {sourceStale && <div style={{ background: "#fef9c3", padding: "4px 12px", fontSize: 11 }}>Result is stale. Run the source shape to refresh it.</div>}
 
         <div style={{ display: "flex", flex: 1, minHeight: 0, minWidth: 0 }}>
           <ChartBody

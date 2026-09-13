@@ -35,6 +35,7 @@ type resultSizeLimiter interface {
 }
 
 type QueryRequest struct {
+    ResultBindings map[string]string `json:"resultBindings,omitempty"`
 	SQL string `json:"sql"`
 	// ExecutionEngine enables explicit source-native preview mode for a single source.
 	// Leave it empty to use the default federated DuckDB preview path.

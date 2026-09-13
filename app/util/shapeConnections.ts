@@ -1,9 +1,9 @@
 import { getArrowBindings, type Editor, type TLArrowShape, type TLShape, type TLShapeId } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
-import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
+import type { ComputeShape } from "../Python/types";
 import createArrowBetweenShapes from "./CreateArrowBetweenShapes";
 
-type ConnectionShape = DataSourceShape | SQLTextAreaShape;
+type ConnectionShape = DataSourceShape | ComputeShape;
 type ConnectionProps = Pick<ConnectionShape["props"], "downstreamShapeIds" | "upstreamShapeIds">;
 
 interface ConnectorArrow {
@@ -13,7 +13,7 @@ interface ConnectorArrow {
 }
 
 function isConnectionShape(shape: TLShape | undefined): shape is ConnectionShape {
-  return shape?.type === "data-source" || shape?.type === "sql-text-area";
+  return shape?.type === "data-source" || shape?.type === "sql-text-area" || shape?.type === "python-text-area";
 }
 
 function updateConnectionProps(editor: Editor, shape: ConnectionShape, props: Partial<ConnectionProps>) {
@@ -26,9 +26,9 @@ function updateConnectionProps(editor: Editor, shape: ConnectionShape, props: Pa
     return;
   }
 
-  editor.updateShape<SQLTextAreaShape>({
+  editor.updateShape<ComputeShape>({
     id: shape.id,
-    type: "sql-text-area",
+    type: shape.type,
     props,
   });
 }

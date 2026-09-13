@@ -3,7 +3,7 @@ import type { Editor } from "tldraw";
 import { isRemoteDataSource } from "../DataSource/remote-source-metadata";
 import type { SQLDependencyShape } from "./sqlDependencies";
 import { getOrderedDependenciesForSQL } from "./sqlDependencies";
-import type { SQLTextAreaShape } from "./sql-text-area-types";
+import type { ComputeShape } from "../Python/types";
 import { describeQueryExecution } from "./walkSQLDag";
 import { ensureBundledSourceTable } from "../client/local/bundledTables";
 
@@ -77,6 +77,7 @@ export async function loadSQLDagDependencies(
       continue;
     }
 
+    if (dependency.type === "python-text-area") throw new Error("Python results are only available in backend DuckDB.");
     try {
       await duckDBService.createQueryView(dependency.props.text, dependency.props.name);
     } catch (error) {
@@ -85,7 +86,8 @@ export async function loadSQLDagDependencies(
   }
 }
 
-export async function ensureLocalQueryView(editor: Editor, queryShape: SQLTextAreaShape): Promise<void> {
+export async function ensureLocalQueryView(editor: Editor, queryShape: ComputeShape): Promise<void> {
+  if (queryShape.type === "python-text-area") throw new Error("Run the Python shape to load its results.");
   const duckDBService = DuckDBService.getInstance();
   await duckDBService.init();
   if (duckDBService.isTableLoaded(queryShape.props.name)) return;

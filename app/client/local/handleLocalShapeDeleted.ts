@@ -20,6 +20,7 @@ export function handleLocalShapeDeleted(
   }
 
   if (
+    deletedShape.type === "python-text-area" ||
     deletedShape.type === "sql-text-area" ||
     deletedShape.type === "data-source" ||
     deletedShape.type === "chart-shape" ||
@@ -35,6 +36,8 @@ export function handleLocalShapeDeleted(
     void duckDB.releaseTable(name).catch((error) => console.error("Could not clean up deleted data source", error));
     return;
   }
+
+  if (deletedShape.type === "python-text-area") { deleteShapes([deletedShape.id]); return; }
 
   if (deletedShape.type === "sql-text-area") {
     deleteShapes([deletedShape.id]);

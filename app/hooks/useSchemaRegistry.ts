@@ -1,17 +1,18 @@
+import type { PythonShape } from "../Python/types";
 import { useEditor } from "tldraw";
 import { useEffect, useState } from "react";
 import { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { DataSourceShape } from "../DataSource/data-source-types";
 
-const isSchemaNode = (shape: any): shape is SQLTextAreaShape | DataSourceShape => {
-  return shape.type === "sql-text-area" || shape.type === "data-source";
+const isSchemaNode = (shape: import("tldraw").TLShape): shape is SQLTextAreaShape | PythonShape | DataSourceShape => {
+  return (shape.type === "python-text-area" || shape.type === "sql-text-area") || shape.type === "data-source";
 };
 
 export interface SchemaRegistry {
   [nodeId: string]: {
     tableName: string;
     columns: Array<{ name: string; type: string }>;
-    type: "sql-text-area" | "data-source";
+    type: "sql-text-area" | "python-text-area" | "data-source";
   };
 }
 
@@ -34,7 +35,7 @@ export const useSchemaRegistry = () => {
             columns = shape.props.metadata;
           }
 
-          if (columns.length > 0) {
+          {
             newRegistry[shape.id] = {
               tableName: shape.props.name,
               columns,
@@ -52,13 +53,13 @@ export const useSchemaRegistry = () => {
       if (entry.changes.added || entry.changes.updated || entry.changes.removed) {
         const relevantChange =
           Object.values(entry.changes.added).some(
-            (r) => r.typeName === "shape" && (r.type === "sql-text-area" || r.type === "data-source")
+            (r) => r.typeName === "shape" && (r.type === "python-text-area" || r.type === "sql-text-area" || r.type === "data-source")
           ) ||
           Object.values(entry.changes.updated).some(
-            (u) => u[1].typeName === "shape" && (u[1].type === "sql-text-area" || u[1].type === "data-source")
+            (u) => u[1].typeName === "shape" && (u[1].type === "python-text-area" || u[1].type === "sql-text-area" || u[1].type === "data-source")
           ) ||
           Object.values(entry.changes.removed).some(
-            (r) => r.typeName === "shape" && (r.type === "sql-text-area" || r.type === "data-source")
+            (r) => r.typeName === "shape" && (r.type === "python-text-area" || r.type === "sql-text-area" || r.type === "data-source")
           );
 
         if (relevantChange) {

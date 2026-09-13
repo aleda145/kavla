@@ -128,7 +128,7 @@ export const LazySQLEditor = ({
           />
         </div>
       ) : !isSqlMode ? (
-        <StaticCodeHighlighter code={text} />
+        <StaticCodeHighlighter code={text} language={language === "python" ? "python" : "typescript"} />
       ) : (
         <StaticSQLHighlighter
           sql={text}

@@ -13,7 +13,7 @@ import { SQLResultTableProps } from "./sql-result-table-props";
 import { SQLResultTableMigrations } from "./sql-result-table-migrations";
 import { SQLResultTableShape } from "./sql-result-table-types";
 import { useMemo, useRef, useEffect, useState, useCallback } from "react";
-import { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
+import type { ComputeShape } from "../Python/types";
 import { useTable } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import throttle from "lodash.throttle";
@@ -80,13 +80,13 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
 
     const sourceShape = useValue(
       "source shape",
-      () => this.editor.getShape(sourceShapeId as TLShapeId) as SQLTextAreaShape | undefined,
+      () => this.editor.getShape(sourceShapeId as TLShapeId) as ComputeShape | undefined,
       [sourceShapeId]
     );
-    const isCLIResult = sourceShape
+    const isCLIResult = sourceShape?.type === "python-text-area" || (sourceShape
       ? describeQueryExecution(getOrderedDependenciesForSQL(this.editor, sourceShape.props.text).orderedDependencies)
           .isRemoteExecution
-      : false;
+      : false);
 
     const scrollArea = useTldrawScrollArea();
     const parentRef = useRef<HTMLDivElement>(null);
@@ -600,6 +600,7 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
         }}
       >
         <SQLResultAreaHeader resultName={sourceShape?.props.name || "Result"} />
+        {(sourceShape?.props.stale || sourceShape?.props.isDirty) && <div style={{ background: "#fef9c3", padding: "4px 12px", fontSize: 11 }}>Result is stale. Run the source shape to refresh it.</div>}
 
         <div style={{ display: "flex", flex: 1, flexDirection: "row", minHeight: 0 }}>
           <SQLResultAreaBody

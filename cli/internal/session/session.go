@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+    "os"
 	"strings"
 	"sync"
 
@@ -19,6 +20,8 @@ type Client interface {
 }
 
 type Session struct {
+    resultMu sync.RWMutex
+    pythonDirectories map[string][]string
 	sources            map[string]kavlaconfig.SourceConfig
 	allowedDirectories []string
 	engine             *engine.Engine
@@ -72,6 +75,7 @@ func NewWithAllowedDirectories(sources map[string]kavlaconfig.SourceConfig, allo
 		allowedDirectories: append([]string(nil), allowedDirectories...),
 		queries:            make(map[string]activeQuery),
 		results:            make(map[string]QueryResultMetadata),
+        pythonDirectories: make(map[string][]string),
 	}
 }
 
@@ -125,7 +129,9 @@ func (s *Session) Close() error {
 	if s.engine == nil {
 		return nil
 	}
-	return s.engine.Close()
+    err := s.engine.Close()
+    for _, directories := range s.pythonDirectories { for _, directory := range directories { if removeErr := os.RemoveAll(directory); err == nil { err = removeErr } } }
+    return err
 }
 
 func (s *Session) SourceList() []map[string]interface{} {
@@ -235,6 +241,7 @@ func (s *Session) beginActiveQuery(parent context.Context, req runner.QueryReque
 }
 
 func (s *Session) RunQuery(parent context.Context, client Client, req runner.QueryRequest) (*QueryResult, error) {
+    s.resultMu.RLock(); defer s.resultMu.RUnlock()
 	queryCtx, queryLabel, finish := s.beginActiveQuery(parent, req)
 	defer finish()
 	if req.Restore {
@@ -246,6 +253,13 @@ func (s *Session) RunQuery(parent context.Context, client Client, req runner.Que
 	if err := s.mountRemoteFileSources(queryCtx, client, req.MountedFileSources); err != nil {
 		return nil, err
 	}
+    for name, id := range req.ResultBindings {
+        if !s.HasQueryResult(id) { return nil, fmt.Errorf("upstream %q is not loaded; run the shape to load it", name) }
+    }
+    if len(req.ResultBindings) > 0 {
+        req.SQL = s.engine.BindResults(req.SQL, req.ResultBindings)
+        req.ExecutionEngine = ""
+    }
 	preparedSQL, err := runner.PreparePreviewSQL(req, s.engine, 0)
 	if err != nil {
 		return nil, err
@@ -279,10 +293,12 @@ func (s *Session) RunQuery(parent context.Context, client Client, req runner.Que
 }
 
 func (s *Session) QueryResultPage(ctx context.Context, shapeID string, offset, limit int) (array.RecordReader, error) {
+    s.resultMu.RLock(); defer s.resultMu.RUnlock()
 	return s.engine.QueryResultPage(ctx, shapeID, offset, limit)
 }
 
 func (s *Session) ExportQueryResult(ctx context.Context, shapeID, format, outputPath string) (QueryResultMetadata, error) {
+    s.resultMu.RLock(); defer s.resultMu.RUnlock()
 	if strings.TrimSpace(shapeID) == "" {
 		return QueryResultMetadata{}, fmt.Errorf("shape id is required")
 	}
@@ -309,13 +325,18 @@ func (s *Session) HasQueryResult(shapeID string) bool {
 }
 
 func (s *Session) DropResults(ctx context.Context, shapeIDs []string) error {
+    for _, id := range shapeIDs { s.CancelQuery(id) }
+    s.resultMu.Lock(); defer s.resultMu.Unlock()
 	for _, shapeID := range shapeIDs {
 		if err := s.engine.DropResult(ctx, shapeID); err != nil {
 			return err
 		}
 		s.mu.Lock()
 		delete(s.results, shapeID)
+        directories := s.pythonDirectories[shapeID]
+        delete(s.pythonDirectories, shapeID)
 		s.mu.Unlock()
+        for _, directory := range directories { if err := os.RemoveAll(directory); err != nil { return err } }
 	}
 	return nil
 }

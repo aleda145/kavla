@@ -16,6 +16,7 @@ export interface MountedFileSourcePayload {
 }
 
 export interface RunRemoteQueryPayload {
+  resultBindings?: Record<string, string>;
   sql: string;
   sourceName?: string;
   sourceType?: string | null;

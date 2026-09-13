@@ -2,7 +2,7 @@ import type { Editor } from "tldraw";
 import type { LocalServerContextType } from "../client/localServer/types";
 import { MissingQueryResultError } from "../client/localServer/types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
-import type { SQLTextAreaShape } from "./sql-text-area-types";
+import type { ComputeShape } from "../Python/types";
 import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
 
 export interface RestoredRemoteQueryMetadata {
@@ -24,14 +24,14 @@ export function clearRestoredRemoteQueryMetadata(shapeId: string): void {
 
 export function restoreRemoteQueryView(
   editor: Editor,
-  queryShape: SQLTextAreaShape,
+  queryShape: ComputeShape,
   runRemoteQuery: LocalServerContextType["runRemoteQuery"]
 ): Promise<RestoredRemoteQueryMetadata> {
   const pending = pendingRestorations.get(queryShape.id);
   if (pending) return pending;
 
   const operation = (async () => {
-    const currentShape = editor.getShape<SQLTextAreaShape>(queryShape.id);
+    const currentShape = editor.getShape<ComputeShape>(queryShape.id);
     if (!currentShape) {
       throw new Error("The query for this result no longer exists.");
     }
@@ -41,6 +41,7 @@ export function restoreRemoteQueryView(
       );
     }
 
+    if (currentShape.type === "python-text-area") throw new MissingQueryResultError("Run the Python shape to load its results.");
     const dagWalk = walkSQLDag(editor, currentShape.props.text);
     if (!dagWalk.ok) {
       throw new Error(dagWalk.error.message);
@@ -50,6 +51,7 @@ export function restoreRemoteQueryView(
     }
 
     const { executionState, mountedFileSources, orderedDependencies } = dagWalk.plan;
+    if (orderedDependencies.some(s => s.type === "python-text-area")) throw new MissingQueryResultError("Run the query to rebuild its Python dependencies.");
     const readsBigQuery = orderedDependencies.some(
       (dependency) =>
         dependency.type === "data-source" &&

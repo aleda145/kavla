@@ -1,3 +1,6 @@
+import python from "../../util/python.svg";
+import { PythonShapeTool, PythonShapeUtil } from "../../Python/PythonShapeUtil";
+import { isComputeShape, markDescendantsStale, cancelComputeRun } from "../../Python/execution";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getAssetUrlsByImport } from "@tldraw/assets/imports.vite";
 import {
@@ -39,10 +42,10 @@ import {
 import { localAssetStore } from "./localAssetStore";
 import { handleLocalShapeDeleted } from "./handleLocalShapeDeleted";
 import { getUniqueName } from "../../util/getUniqueName";
-import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 
 const customShapeUtils = [
   SQLTextAreaUtil,
+  PythonShapeUtil,
   SQLResultTableUtil,
   DataSourceUtil,
   ChartUtil,
@@ -51,13 +54,14 @@ const customShapeUtils = [
 ];
 
 const localShapeUtils = [...customShapeUtils, ...defaultShapeUtils.filter((util) => util.type !== "arrow")];
-const customTools = [SQLTextAreaTool, SourceTextAreaTool];
+const customTools = [SQLTextAreaTool, PythonShapeTool, SourceTextAreaTool];
 const bundledTldrawAssetUrls = getAssetUrlsByImport();
 const customAssetUrls: TLUiAssetUrlOverrides = {
   ...bundledTldrawAssetUrls,
   icons: {
     ...bundledTldrawAssetUrls.icons,
     sql,
+    python,
     source,
   },
 };
@@ -88,7 +92,8 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const loadingDocumentRef = useRef(false);
   const documentRevisionRef = useRef(0);
   const { addToast } = useToasts();
-  const { deleteShapes } = useData();
+  const api = useData();
+  const { deleteShapes } = api;
 
   useCanvasFileDrop(editorRef, addToast);
 
@@ -98,7 +103,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
       if (!editor || !session) return;
       await stageCanvas(editor, includeCurrentCamera);
     },
-    [session]
+    [session, api]
   );
 
   const saveCurrentSession = useCallback(async () => {
@@ -136,6 +141,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
       if (!session) {
         throw new Error("Run Kavla through the CLI to load .kavla documents.");
       }
+      if (editorRef.current) cancelComputeRun(editorRef.current, api);
       loadingDocumentRef.current = true;
       try {
         await loadLocalSessionPath(path);
@@ -145,7 +151,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         throw error;
       }
     },
-    [session]
+    [session, api]
   );
 
   const newDocument = useCallback(
@@ -158,6 +164,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         throw new Error("The Kavla canvas is not ready yet.");
       }
       const emptyCanvasJson = createEmptyCanvasJson(editor);
+      if (editorRef.current) cancelComputeRun(editorRef.current, api);
       loadingDocumentRef.current = true;
       try {
         const result = await newLocalSession(options, emptyCanvasJson);
@@ -168,7 +175,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         throw error;
       }
     },
-    [session]
+    [session, api]
   );
 
   useEffect(() => {
@@ -213,6 +220,11 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
 
       for (const cleanup of shapeSideEffectCleanupRef.current) cleanup();
       shapeSideEffectCleanupRef.current = [
+        editor.sideEffects.registerAfterChangeHandler("shape", (previous, next) => {
+          if (isComputeShape(previous) && isComputeShape(next) && (previous.props.text !== next.props.text || previous.props.name !== next.props.name || previous.props.lastRunStats !== next.props.lastRunStats)) {
+            markDescendantsStale(editor, next.id);
+          }
+        }),
         editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
           handleLocalShapeDeleted(editor, shape, deleteShapes);
         }),
@@ -228,11 +240,11 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
             };
           }
 
-          if (nextShape.type !== "sql-text-area") {
+          if (!isComputeShape(nextShape)) {
             return nextShape;
           }
 
-          const sqlProps = nextShape.props as SQLTextAreaShape["props"];
+          const sqlProps = nextShape.props;
           return {
             ...nextShape,
             props: {
@@ -243,6 +255,10 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
               downstreamShapeIds: null,
               upstreamShapeIds: null,
               stale: false,
+              isDirty: true,
+              outputSchema: null,
+              lastRunStats: null,
+              ...(nextShape.type === "python-text-area" ? { output: "", errorLine: null } : {}),
             },
           };
         }),
@@ -269,7 +285,11 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         source: "user",
         scope: "document",
       });
-      storeCleanupRef.current = cleanupDocumentListener;
+      window.addEventListener("kavla:python-environment-changed", queueCanvasStage);
+      storeCleanupRef.current = () => {
+        cleanupDocumentListener();
+        window.removeEventListener("kavla:python-environment-changed", queueCanvasStage);
+      };
     },
     [addToast, deleteShapes, session, stageCurrentCanvas]
   );

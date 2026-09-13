@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+    "github.com/aleda145/kavla/cli/internal/python"
 )
 
 const FormatVersion = 1
@@ -43,6 +44,7 @@ type BlobDescriptor struct {
 }
 
 type Manifest struct {
+    Python *python.Config `json:"python,omitempty"`
 	FormatVersion int              `json:"formatVersion"`
 	DocumentID    string           `json:"documentId"`
 	DocumentName  string           `json:"documentName"`
@@ -132,6 +134,7 @@ func (d *Document) Manifest() Manifest {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	manifest := d.manifest
+    if manifest.Python != nil { config := *manifest.Python; config.Requirements = append([]string(nil), config.Requirements...); manifest.Python = &config }
 	manifest.Blobs = make([]BlobDescriptor, len(d.manifest.Blobs))
 	copy(manifest.Blobs, d.manifest.Blobs)
 	return manifest
@@ -939,4 +942,14 @@ func verifyBlobFile(path string, descriptor BlobDescriptor) error {
 		return fmt.Errorf("checksum does not match manifest")
 	}
 	return nil
+}
+
+func (d *Document) SetPythonConfig(documentID string, config python.Config) error {
+    if err := python.ValidateConfig(config); err != nil { return err }
+    d.mu.Lock()
+    defer d.mu.Unlock()
+    if d.manifest.DocumentID != documentID { return fmt.Errorf("the active document changed") }
+    d.manifest.Python = &config
+    d.manifest.UpdatedAt = time.Now().UTC()
+    return d.writeManifestLocked()
 }

@@ -23,6 +23,7 @@ import (
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/runner"
+    "github.com/aleda145/kavla/cli/internal/python"
 	"github.com/aleda145/kavla/cli/internal/session"
 	"github.com/apache/arrow/go/v14/arrow"
 	"github.com/apache/arrow/go/v14/arrow/ipc"
@@ -46,6 +47,8 @@ type cliRuntimeEvent struct {
 }
 
 type Server struct {
+    pythonRuntime *python.Runtime
+    pythonGate chan struct{}
 	document *Document
 	assets   fs.FS
 	verbose  bool
@@ -112,7 +115,9 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		transientResults: make(map[string]transientResult),
 		eventSubscribers: make(map[chan cliRuntimeEvent]struct{}),
 	}
-	querySession.SetLogger(server.logCLIOutput)
+	server.pythonRuntime = python.New(server.logCLIOutput)
+    server.pythonGate = make(chan struct{}, 1)
+    querySession.SetLogger(server.logCLIOutput)
 	if verbose {
 		querySession.SetVerboseLogger(server.logCLIOutput)
 	}
@@ -258,7 +263,11 @@ func (s *Server) Close(ctx context.Context) error {
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/session", s.handleSession)
+	mux.HandleFunc("GET /api/session/python", s.handlePythonEnvironment)
+    mux.HandleFunc("PUT /api/session/python", s.sameOriginMutation(s.handlePythonEnvironment))
+    mux.HandleFunc("POST /api/session/python/analyze", s.sameOriginMutation(s.handlePythonAnalyze))
+    mux.HandleFunc("POST /api/session/python/run", s.sameOriginMutation(s.handlePythonRun))
+    mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("PUT /api/session/document", s.sameOriginMutation(s.handleDocument))
 	mux.HandleFunc("POST /api/session/save", s.sameOriginMutation(s.handleSave))
 	mux.HandleFunc("POST /api/session/save-as", s.sameOriginMutation(s.handleSaveAs))
@@ -536,6 +545,9 @@ func (s *Server) handleLoadPath(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "selected Kavla document does not exist", http.StatusBadRequest)
 		return
 	}
+    finishSwitch, switchErr := s.beginDocumentSwitch()
+    if switchErr != nil { writeAPIError(w, http.StatusConflict, switchErr); return }
+    defer finishSwitch()
 	if err := s.document.OpenFromPath(filepath.Clean(request.Path)); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -570,6 +582,9 @@ func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+    finishSwitch, switchErr := s.beginDocumentSwitch()
+    if switchErr != nil { writeAPIError(w, http.StatusConflict, switchErr); return }
+    defer finishSwitch()
 	if err := s.document.NewAtPath(targetPath, []byte(request.CanvasJSON), request.Overwrite); err != nil {
 		if !request.Overwrite && errors.Is(err, os.ErrExist) {
 			http.Error(w, "A Kavla document with this name already exists.", http.StatusConflict)

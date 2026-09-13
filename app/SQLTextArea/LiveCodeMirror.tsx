@@ -1,3 +1,5 @@
+import { python } from "@codemirror/lang-python";
+import { pythonEditorExtensions } from "../Python/editor";
 import { useMemo, useRef, useCallback, useEffect } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
@@ -178,7 +180,7 @@ const basicSetupOptions = {
   autocompletion: false,
 };
 
-export type LiveCodeMirrorLanguage = "sql" | "typescript";
+export type LiveCodeMirrorLanguage = "sql" | "typescript" | "python";
 
 interface LiveCodeMirrorProps {
   shapeId: TLShapeId;
@@ -397,6 +399,7 @@ export const LiveCodeMirror = ({
         continue;
       }
 
+      if (entry.type === "python-text-area") continue;
       const queryShape = editor.getShape<SQLTextAreaShape>(shapeId as TLShapeId);
       if (!queryShape) continue;
 
@@ -535,9 +538,11 @@ export const LiveCodeMirror = ({
   }, [validator]);
 
   const extensions = useMemo(() => {
-    if (language === "typescript") {
+    if (language !== "sql") {
       return [
-        javascript({ jsx: true, typescript: true }),
+        language === "python" ? python() : javascript({ jsx: true, typescript: true }),
+        ...(language === "python" ? [pythonEditorExtensions(registry, onNavigate), sqlLinter, linterTheme,
+          errorTooltipField, errorHoverPlugin(onTooltipActive), errorLineGutterHighlighter] : []),
         syntaxHighlighting(typescriptHighlightStyle, { fallback: true }),
         EditorView.lineWrapping,
         typescriptEditorTheme,
@@ -753,6 +758,7 @@ export const LiveCodeMirror = ({
     editor,
     remoteSourceMap,
     localTableLoaders,
+    registry,
     language,
   ]);
 
@@ -797,7 +803,7 @@ export const LiveCodeMirror = ({
         readOnly={readOnly}
         editable={!readOnly}
         style={
-          language === "typescript"
+          language !== "sql"
             ? { height: "100%", fontSize: 12, fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }
             : { height: "100%", fontSize: 14, fontFamily: "monospace" }
         }

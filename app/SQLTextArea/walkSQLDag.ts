@@ -75,6 +75,10 @@ export function getMountedFileSourcesForRemoteExecution(
 }
 
 export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]): QueryExecutionState {
+  if (orderedDependencies.some(dependency => dependency.type === "python-text-area")) {
+    return { isRemoteExecution: true, sourceType: "duckdb", sourceNativePreview: false,
+      tabs: [{ key: "python-duckdb", type: "duckdb", active: true, layerZIndex: 0, title: "Runs in backend DuckDB with Python results" }] };
+  }
   const remoteSources = orderedDependencies
     .filter((dependency): dependency is DataSourceShape => dependency.type === "data-source")
     .flatMap((dependency) => {

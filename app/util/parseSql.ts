@@ -1,11 +1,11 @@
+import { analyzeQuery } from "@polyglot-sql/sdk";
+
 export function extractTableNames(sql: string): string[] {
-  // This regex finds table names after FROM or JOIN clauses.
-  // It's a simple implementation and may not cover all SQL edge cases.
-  const regex = /(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi;
-  const matches = sql.matchAll(regex);
-  const tableNames = new Set<string>();
-  for (const match of matches) {
-    tableNames.add(match[1]);
-  }
-  return Array.from(tableNames);
+  // Physical dependencies exclude CTE aliases, comments and string literals.
+  // Incomplete editor text has no executable dependency graph yet.
+  const result = analyzeQuery(sql, "duckdb");
+  if (!result.success || !result.analysis) return [];
+  return Array.from(new Set(result.analysis.baseTables.map(table =>
+    !table.catalog && !table.schema ? table.table ?? table.name : table.name
+  )));
 }

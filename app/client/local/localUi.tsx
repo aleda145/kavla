@@ -1,3 +1,4 @@
+import { PythonIcon } from "../../Python/PythonIcon";
 import { memo, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import {
   CenteredTopPanelContainer,
@@ -51,6 +52,9 @@ export const localUiOverrides: TLUiOverrides = {
       label: "sql-text-area",
       kbd: "c",
       onSelect: () => editor.setCurrentTool("sql-text-area"),
+    };
+    tools["python-text-area"] = {
+      id: "python-text-area", icon: "python", label: "Python", onSelect: () => editor.setCurrentTool("python-text-area"),
     };
     tools["data-source"] = {
       id: "data-source",
@@ -322,6 +326,7 @@ function LocalToolbar(props: ComponentProps<typeof DefaultToolbar>) {
   const tools = useTools();
   const sourceSelected = useIsToolSelected(tools["data-source"]);
   const sqlSelected = useIsToolSelected(tools["sql-text-area"]);
+  const pythonSelected = useIsToolSelected(tools["python-text-area"]);
 
   return (
     <DefaultToolbar {...props}>
@@ -387,6 +392,7 @@ function LocalToolbar(props: ComponentProps<typeof DefaultToolbar>) {
         <DataToolButton tool={tools["data-source"]} selected={sourceSelected} color="#2563eb" label="Source">
           <Database size={20} strokeWidth={2} />
         </DataToolButton>
+        <DataToolButton tool={tools["python-text-area"]} selected={pythonSelected} color="#15803d" label="Python"><PythonIcon /></DataToolButton>
         <DataToolButton tool={tools["sql-text-area"]} selected={sqlSelected} color="#854d0e" label="Query">
           <FileTerminal size={20} strokeWidth={2} />
         </DataToolButton>
@@ -466,6 +472,7 @@ export function useLocalComponents({
           <DefaultKeyboardShortcutsDialog {...props}>
             <TldrawUiMenuItem {...tools["data-source"]} />
             <TldrawUiMenuItem {...tools["sql-text-area"]} />
+            <TldrawUiMenuItem {...tools["python-text-area"]} />
             <DefaultKeyboardShortcutsDialogContent />
           </DefaultKeyboardShortcutsDialog>
         );
