@@ -196,7 +196,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
               <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>
                 Works with providers that support Chat Completions and tool calling, including Cloudflare. Use the base URL before /chat/completions.
                 {sameEndpoint && auth.keySource === "environment" ? " Using the API key configured on the server." : ""}
-                {" "}Settings stay in server memory until Kavla restarts. Changing the base URL clears saved credentials; enter credentials for the new provider. API usage is billed by your provider.
+                {" "}Settings are saved in ~/.kavla/agent.yaml on the computer running Kavla and restored at startup. Changing the base URL clears saved credentials; enter credentials for the new provider. API usage is billed by your provider.
               </div>
             </> : <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>Uses the existing login from Codex on the server. Switching back discards API credentials entered in Kavla.</div>}
             <button type="submit" disabled={authDisabled || (authMode === "apiKey" && !canUseProvider)} style={{ alignSelf: "flex-end", minHeight: 32, border: "2px solid #000", borderRadius: 6, background: "#ffedd5", fontSize: 11, fontWeight: 900, padding: "0 10px", cursor: authDisabled ? "default" : "pointer", opacity: authDisabled || (authMode === "apiKey" && !canUseProvider) ? 0.5 : 1 }}>

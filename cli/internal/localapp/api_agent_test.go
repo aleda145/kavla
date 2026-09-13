@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -22,7 +23,7 @@ func newAPIAgentTestServer(t *testing.T) *Server {
 	t.Setenv("PATH", t.TempDir())
 	document, err := OpenDocument(filepath.Join(t.TempDir(), "agent.kavla"))
 	if err != nil { t.Fatal(err) }
-	s := &Server{document: document}
+	s := &Server{document: document, agentConfigPath: filepath.Join(t.TempDir(), "agent.yaml")}
 	t.Cleanup(func() { s.closeCodex(); s.workers.Wait() })
 	return s
 }
@@ -95,7 +96,7 @@ func TestAPIAuthKeepsCredentialsPrivateAndScopedToEndpoint(t *testing.T) {
 	s.codexMu.Lock()
 	mode, key, source := s.codexAuthLocked()
 	s.codexMu.Unlock()
-	if mode != "apiKey" || key != "session-secret" || source != "session" || s.currentCodexAuth()["hasHeaders"] != true { t.Fatal("omitted credentials were not retained") }
+	if mode != "apiKey" || key != "session-secret" || source != "config" || s.currentCodexAuth()["hasHeaders"] != true { t.Fatal("omitted credentials were not retained") }
 	if w := saveAPIAgentSettings(t, s, `{"mode":"apiKey","baseUrl":"https://different.example/v1","model":"another-model"}`); w.Code != http.StatusOK { t.Fatal(w.Body.String()) }
 	awaitAPIAgent(t, func() bool { return s.currentCodexStatus().State == "ready" })
 	if auth := s.currentCodexAuth(); auth["hasApiKey"] != false || auth["hasHeaders"] != false { t.Fatal("credentials carried to another provider", auth) }
@@ -127,4 +128,71 @@ func TestAPIAuthEnvironmentCompatibility(t *testing.T) {
 	if key := environmentAPIKey("https://different.example/v1"); key != "" { t.Fatal("environment key applied to a different endpoint") }
 	s.codexAuthMode = "codex"
 	if auth := s.currentCodexAuth(); auth["mode"] != "codex" || auth["hasApiKey"] != false { t.Fatal("environment overrides explicit Codex login", auth) }
+}
+
+func TestAgentConfigRestoresSettingsAfterRestart(t *testing.T) {
+	s := newAPIAgentTestServer(t)
+	if w := saveAPIAgentSettings(t, s, `{"mode":"apiKey","baseUrl":"https://provider.example/v1","model":"custom-model","apiKey":"saved-secret","headers":{"cf-aig-authorization":"Bearer saved-header"}}`); w.Code != http.StatusOK { t.Fatal(w.Body.String()) }
+	awaitAPIAgent(t, func() bool { return s.currentCodexStatus().State == "ready" })
+	s.closeCodex()
+	info, err := os.Stat(s.agentConfigPath)
+	if err != nil { t.Fatal(err) }
+	if info.Mode().Perm() != 0600 { t.Fatalf("expected owner-only permissions, got %o", info.Mode().Perm()) }
+	t.Setenv("KAVLA_AI_BASE_URL", "https://environment.example/v1")
+	t.Setenv("KAVLA_AI_MODEL", "environment-model")
+	t.Setenv("KAVLA_AI_API_KEY", "environment-key")
+	restarted := &Server{agentConfigPath: s.agentConfigPath}
+	if err := restarted.loadAgentConfig(); err != nil { t.Fatal(err) }
+	if restarted.codexAPIKey != "saved-secret" || restarted.apiProvider.Headers["cf-aig-authorization"] != "Bearer saved-header" { t.Fatal("credentials not restored") }
+	auth := restarted.currentCodexAuth()
+	if auth["mode"] != "apiKey" || auth["baseUrl"] != "https://provider.example/v1" || auth["model"] != "custom-model" || auth["keySource"] != "config" { t.Fatal(auth) }
+	if w := saveAPIAgentSettings(t, s, `{"mode":"codex"}`); w.Code != http.StatusOK { t.Fatal(w.Body.String()) }
+	if err := restarted.loadAgentConfig(); err != nil { t.Fatal(err) }
+	if auth := restarted.currentCodexAuth(); auth["mode"] != "codex" || auth["hasApiKey"] != false || auth["hasHeaders"] != false { t.Fatal("Codex login selection not persisted", auth) }
+	data, err := os.ReadFile(s.agentConfigPath)
+	if err != nil { t.Fatal(err) }
+	if strings.Contains(string(data), "saved-secret") || strings.Contains(string(data), "saved-header") { t.Fatal("discarded credentials remain in config") }
+}
+
+func TestAgentConfigWriteFailureLeavesConnectionUnchanged(t *testing.T) {
+	s := newAPIAgentTestServer(t)
+	if w := saveAPIAgentSettings(t, s, `{"mode":"apiKey","baseUrl":"https://provider.example/v1","model":"original-model","apiKey":"original-key"}`); w.Code != http.StatusOK { t.Fatal(w.Body.String()) }
+	awaitAPIAgent(t, func() bool { return s.currentCodexStatus().State == "ready" })
+	originalPath := s.agentConfigPath
+	before, err := os.ReadFile(originalPath)
+	if err != nil { t.Fatal(err) }
+	// A regular file cannot serve as a parent directory, regardless of user privileges.
+	s.agentConfigPath = filepath.Join(originalPath, "agent.yaml")
+	if w := saveAPIAgentSettings(t, s, `{"mode":"apiKey","model":"replacement-model","apiKey":"replacement-key"}`); w.Code != http.StatusInternalServerError { t.Fatalf("expected save failure: %s", w.Body.String()) }
+	if auth := s.currentCodexAuth(); auth["model"] != "original-model" { t.Fatal("failed save changed the connection", auth) }
+	s.codexMu.Lock()
+	key, changing := s.codexAPIKey, s.codexAuthChanging
+	s.codexMu.Unlock()
+	if key != "original-key" || changing { t.Fatal("failed save changed credentials or left the connection locked") }
+	after, err := os.ReadFile(originalPath)
+	if err != nil { t.Fatal(err) }
+	if string(before) != string(after) { t.Fatal("failed save changed the existing config") }
+}
+
+func TestAgentConfigMissingAndInvalidFiles(t *testing.T) {
+	s := newAPIAgentTestServer(t)
+	if err := s.loadAgentConfig(); err != nil { t.Fatalf("missing config should use defaults: %v", err) }
+	for _, data := range []string{"invalid: [", "mode: unsupported\n", "mode: apiKey\nbase_url: file:///tmp/model\nmodel: test\n"} {
+		if err := os.WriteFile(s.agentConfigPath, []byte(data), 0600); err != nil { t.Fatal(err) }
+		if err := s.loadAgentConfig(); err == nil { t.Fatalf("accepted invalid Agent config: %s", data) }
+	}
+}
+
+func TestAgentConfigUsesEnvironmentDefaultsWithoutSavingEnvironmentKey(t *testing.T) {
+	s := newAPIAgentTestServer(t)
+	t.Setenv("KAVLA_AI_BASE_URL", "https://environment.example/v1")
+	t.Setenv("KAVLA_AI_MODEL", "environment-model")
+	t.Setenv("KAVLA_AI_API_KEY", "environment-secret")
+	if err := os.WriteFile(s.agentConfigPath, []byte("mode: apiKey\n"), 0600); err != nil { t.Fatal(err) }
+	if err := s.loadAgentConfig(); err != nil { t.Fatal(err) }
+	if auth := s.currentCodexAuth(); auth["baseUrl"] != "https://environment.example/v1" || auth["model"] != "environment-model" || auth["keySource"] != "environment" { t.Fatal(auth) }
+	if w := saveAPIAgentSettings(t, s, `{"mode":"apiKey","model":"saved-model"}`); w.Code != http.StatusOK { t.Fatal(w.Body.String()) }
+	data, err := os.ReadFile(s.agentConfigPath)
+	if err != nil { t.Fatal(err) }
+	if strings.Contains(string(data), "environment-secret") { t.Fatal("environment key copied into config") }
 }

@@ -7,7 +7,7 @@ export type CodexAuth = {
   hasHeaders: boolean;
   hasApiKey: boolean;
   hasEnvironmentKey: boolean;
-  keySource: "session" | "environment" | "";
+  keySource: "config" | "session" | "environment" | "";
 };
 
 let auth: CodexAuth = { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1", hasHeaders: false, mode: "codex", hasApiKey: false, hasEnvironmentKey: false, keySource: "" };
@@ -16,7 +16,7 @@ export function notifyCodexAuth(value: unknown) {
   if (!value || typeof value !== "object") return;
   const next = value as Partial<CodexAuth>;
   if ((next.mode !== "codex" && next.mode !== "apiKey") || typeof next.hasApiKey !== "boolean") return;
-  auth = { baseUrl: typeof next.baseUrl === "string" ? next.baseUrl : auth.baseUrl, model: typeof next.model === "string" ? next.model : auth.model, hasHeaders: next.hasHeaders === true, mode: next.mode, hasApiKey: next.hasApiKey, hasEnvironmentKey: next.hasEnvironmentKey === true, keySource: next.keySource === "session" || next.keySource === "environment" ? next.keySource : "" };
+  auth = { baseUrl: typeof next.baseUrl === "string" ? next.baseUrl : auth.baseUrl, model: typeof next.model === "string" ? next.model : auth.model, hasHeaders: next.hasHeaders === true, mode: next.mode, hasApiKey: next.hasApiKey, hasEnvironmentKey: next.hasEnvironmentKey === true, keySource: next.keySource === "config" || next.keySource === "session" || next.keySource === "environment" ? next.keySource : "" };
   listeners.forEach((listener) => listener());
 }
 export function useCodexAuth() {

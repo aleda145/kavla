@@ -21,7 +21,7 @@ import (
 const DefaultAPIBaseURL = "https://api.openai.com/v1"
 const DefaultAPIModel = "gpt-4.1"
 
-// Credentials and headers are process settings, never part of a canvas or run journal.
+// Credentials and headers are local connection settings, never part of a canvas or run journal.
 type APIConfig struct {
 	BaseURL string
 	APIKey string

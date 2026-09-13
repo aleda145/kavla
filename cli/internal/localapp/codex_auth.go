@@ -10,13 +10,13 @@ import (
  "github.com/aleda145/kavla/cli/internal/codex"
 )
 
-// The UI key belongs to this server process, never the document or run journal.
+// Entered settings are saved in the user's Agent config, never the document or run journal.
 // OPENAI_API_KEY supports persistent configuration through the server environment.
-// KAVLA_AI_* settings also support compatible providers and take precedence.
+// Saved settings take precedence; environment settings provide defaults when missing.
 func (s *Server) codexAuthLocked() (mode, key, source string) {
  mode = s.codexAuthMode
  if mode == "codex" { return mode, "", "" }
- if s.codexAPIKey != "" { return "apiKey", s.codexAPIKey, "session" }
+ if s.codexAPIKey != "" { return "apiKey", s.codexAPIKey, "config" }
  if key = environmentAPIKey(s.apiProviderLocked().BaseURL); key != "" { return "apiKey", key, "environment" }
  if mode == "apiKey" || strings.TrimSpace(os.Getenv("KAVLA_AI_BASE_URL")) != "" { return "apiKey", "", "" }
  return "codex", "", ""
@@ -64,7 +64,10 @@ func (s *Server) handleCodexAuth(w http.ResponseWriter, r *http.Request) {
  config.APIKey = key
  if request.Mode == "apiKey" {
   if err := config.Validate(); err != nil { s.codexMu.Unlock(); writeAPIError(w, 400, err); return }
+ } else {
+  key, config.APIKey, config.Headers = "", "", nil
  }
+ if err := s.saveAgentConfig(request.Mode, config); err != nil { s.codexMu.Unlock(); writeAPIError(w, 500, err); return }
  // Prevent a prompt from starting between changing credentials and restarting Codex.
  s.codexAuthChanging = true
  s.codexAuthMode = request.Mode
@@ -102,7 +105,10 @@ func environmentAPIKey(baseURL string) string {
 
 // Caller holds codexMu. Headers are replaced as a whole and never mutated.
 func (s *Server) apiProviderLocked() codex.APIConfig {
- config := s.apiProvider
+ return withAPIProviderDefaults(s.apiProvider)
+}
+
+func withAPIProviderDefaults(config codex.APIConfig) codex.APIConfig {
  if config.BaseURL == "" { config.BaseURL = environmentAPIBaseURL() }
  if config.Model == "" { config.Model = strings.TrimSpace(os.Getenv("KAVLA_AI_MODEL")) }
  if config.Model == "" { config.Model = codex.DefaultAPIModel }

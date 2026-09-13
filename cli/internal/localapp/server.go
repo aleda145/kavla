@@ -78,6 +78,7 @@ type Server struct {
  codexAuthMode string
  codexAPIKey string
  apiProvider codex.APIConfig
+ agentConfigPath string
  codexAuthChanging bool
  codexJournalMu sync.Mutex
  codexRun *codexRunState
@@ -139,6 +140,10 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		codexToolRequests: make(map[string]json.RawMessage),
 		codexThreads:      make(map[string]struct{}),
 		codexSubscribers:  make(map[chan cliRuntimeEvent]struct{}),
+	}
+	if err := server.loadAgentConfig(); err != nil {
+		_ = os.RemoveAll(transientDir)
+		return nil, err
 	}
 	querySession.SetLogger(server.logCLIOutput)
 	if verbose {
