@@ -16,13 +16,18 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
   const auth = useCodexAuth();
   const [authMode, setAuthMode] = useState<CodexAuth["mode"]>(auth.mode);
   const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState(auth.baseUrl);
+  const [apiModel, setApiModel] = useState(auth.model);
+  const [extraHeaders, setExtraHeaders] = useState("");
   const [savingAuth, setSavingAuth] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const hasActiveRun = runs.some(isCodexRunActive);
   const authDisabled = savingAuth || hasActiveRun || status.state === "checking";
-  const canUseKey = apiKey.trim().length > 0 || auth.hasApiKey || auth.hasEnvironmentKey;
+  const canUseProvider = baseUrl.trim().length > 0 && apiModel.trim().length > 0;
+  const sameEndpoint = baseUrl.trim().replace(/\/+$/, "") === auth.baseUrl.replace(/\/+$/, "");
 
   useEffect(() => { setAuthMode(auth.mode); }, [auth.mode]);
+  useEffect(() => { setBaseUrl(auth.baseUrl); setApiModel(auth.model); }, [auth.baseUrl, auth.model]);
   useEffect(() => {
     const controller = new AbortController();
     void fetch("/api/codex/auth", { credentials: "same-origin", cache: "no-store", signal: controller.signal })
@@ -34,13 +39,25 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
   }, []);
 
   const saveAuth = async () => {
-    if (authDisabled || (authMode === "apiKey" && !canUseKey)) return;
+    if (authDisabled || (authMode === "apiKey" && !canUseProvider)) return;
     setSavingAuth(true);
     setAuthError(null);
     const key = apiKey.trim();
-    setApiKey("");
     try {
-      const settings = await codexRequest<CodexAuth>("auth", { mode: authMode, ...(authMode === "apiKey" && key ? { apiKey: key } : {}) });
+      let headers: Record<string, string> | undefined;
+      if (authMode === "apiKey" && extraHeaders.trim()) {
+        const parsed: unknown = JSON.parse(extraHeaders);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || Object.values(parsed).some((value) => typeof value !== "string")) {
+          throw new Error('Extra headers must be a JSON object with string values, such as {"cf-aig-gateway-id":"kavla"}.');
+        }
+        headers = parsed as Record<string, string>;
+      }
+      const settings = await codexRequest<CodexAuth>("auth", {
+        mode: authMode,
+        ...(authMode === "apiKey" ? { baseUrl: baseUrl.trim(), model: apiModel.trim(), ...(key ? { apiKey: key } : {}), ...(headers ? { headers } : {}) } : {}),
+      });
+      setApiKey("");
+      setExtraHeaders("");
       notifyCodexAuth(settings);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : String(error));
@@ -143,33 +160,49 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
               <Bot color="#991b1b" size={22} strokeWidth={3} />
             )}
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 900 }}>Codex CLI</div>
+              <div style={{ fontSize: 13, fontWeight: 900 }}>{auth.mode === "apiKey" ? "API provider" : "Codex CLI"}</div>
               <div style={{ fontSize: 11, lineHeight: 1.4, marginTop: 2 }}>{status.message}</div>
             </div>
           </div>
 
           <form onSubmit={(event) => { event.preventDefault(); void saveAuth(); }} style={{ border: "2px solid #000", borderRadius: 8, padding: 11, display: "flex", flexDirection: "column", gap: 8 }}>
             <label style={{ fontSize: 11, fontWeight: 900, display: "flex", flexDirection: "column", gap: 5 }}>
-              Authentication
-              <select aria-label="Agent authentication" value={authMode} disabled={authDisabled} onChange={(event) => { setAuthMode(event.currentTarget.value as CodexAuth["mode"]); setApiKey(""); setAuthError(null); }} style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", font: "700 11px Inter, sans-serif" }}>
+              Connection method
+              <select aria-label="Agent connection method" value={authMode} disabled={authDisabled} onChange={(event) => { setAuthMode(event.currentTarget.value as CodexAuth["mode"]); setApiKey(""); setExtraHeaders(""); setAuthError(null); }} style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", font: "700 11px Inter, sans-serif" }}>
                 <option value="codex">Codex login</option>
-                <option value="apiKey">OpenAI API key</option>
+                <option value="apiKey">API provider</option>
               </select>
             </label>
             {authMode === "apiKey" ? <>
               <label style={{ fontSize: 11, fontWeight: 800, display: "flex", flexDirection: "column", gap: 5 }}>
-                OpenAI API key
-                <input type="password" autoComplete="off" spellCheck={false} autoCapitalize="none" aria-label="OpenAI API key" value={apiKey} disabled={authDisabled} onChange={(event) => setApiKey(event.currentTarget.value)} placeholder={auth.hasApiKey ? "Enter a replacement key" : auth.hasEnvironmentKey ? "Using server environment key" : "sk-…"} style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", fontSize: 12 }} />
+                Base URL
+                <input type="url" aria-label="API base URL" value={baseUrl} disabled={authDisabled} onChange={(event) => setBaseUrl(event.currentTarget.value)} placeholder="https://api.openai.com/v1" spellCheck={false} autoCapitalize="none" style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", fontSize: 12 }} />
               </label>
+              <label style={{ fontSize: 11, fontWeight: 800, display: "flex", flexDirection: "column", gap: 5 }}>
+                Model ID
+                <input aria-label="API model ID" value={apiModel} disabled={authDisabled} onChange={(event) => setApiModel(event.currentTarget.value)} placeholder="gpt-4.1" spellCheck={false} autoCapitalize="none" style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", fontSize: 12 }} />
+              </label>
+              <label style={{ fontSize: 11, fontWeight: 800, display: "flex", flexDirection: "column", gap: 5 }}>
+                API key
+                <input type="password" autoComplete="off" spellCheck={false} autoCapitalize="none" aria-label="API key" value={apiKey} disabled={authDisabled} onChange={(event) => setApiKey(event.currentTarget.value)} placeholder={sameEndpoint && auth.hasApiKey ? "Leave blank to keep the current key" : "Optional for providers without key authentication"} style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", fontSize: 12 }} />
+              </label>
+              <details>
+                <summary style={{ fontSize: 11, fontWeight: 800, cursor: "pointer" }}>Extra headers (optional)</summary>
+                <label style={{ fontSize: 10, display: "flex", flexDirection: "column", gap: 5, marginTop: 6 }}>
+                  Headers as JSON
+                  <textarea aria-label="API extra headers" value={extraHeaders} disabled={authDisabled} onChange={(event) => setExtraHeaders(event.currentTarget.value)} placeholder={sameEndpoint && auth.hasHeaders ? "Headers are saved. Leave blank to keep them; enter {} to clear them." : '{"cf-aig-gateway-id":"kavla"}'} autoComplete="off" spellCheck={false} autoCapitalize="none" rows={3} style={{ border: "2px solid #000", borderRadius: 6, padding: 8, background: "#fff", color: "#000", fontSize: 11, resize: "vertical" }} />
+                </label>
+              </details>
               <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>
-                {auth.keySource === "session" ? "A key is held in this server session. " : auth.hasEnvironmentKey ? "OPENAI_API_KEY is configured on the server. " : ""}
-                Entered keys stay in server memory until Kavla restarts. They are excluded from canvas files and chat history. API usage is billed to your OpenAI API account. Codex CLI must still be installed.
+                Works with providers that support Chat Completions and tool calling, including Cloudflare. Use the base URL before /chat/completions.
+                {sameEndpoint && auth.keySource === "environment" ? " Using the API key configured on the server." : ""}
+                {" "}Settings stay in server memory until Kavla restarts. Changing the base URL clears saved credentials; enter credentials for the new provider. API usage is billed by your provider.
               </div>
-            </> : <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>Uses the existing login from Codex on the server. Switching back discards the key entered in Kavla.</div>}
-            <button type="submit" disabled={authDisabled || (authMode === "apiKey" && !canUseKey)} style={{ alignSelf: "flex-end", minHeight: 32, border: "2px solid #000", borderRadius: 6, background: "#ffedd5", fontSize: 11, fontWeight: 900, padding: "0 10px", cursor: authDisabled ? "default" : "pointer", opacity: authDisabled || (authMode === "apiKey" && !canUseKey) ? 0.5 : 1 }}>
-              {savingAuth ? "Connecting…" : authMode === "apiKey" ? "Use API key" : "Use Codex login"}
+            </> : <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>Uses the existing login from Codex on the server. Switching back discards API credentials entered in Kavla.</div>}
+            <button type="submit" disabled={authDisabled || (authMode === "apiKey" && !canUseProvider)} style={{ alignSelf: "flex-end", minHeight: 32, border: "2px solid #000", borderRadius: 6, background: "#ffedd5", fontSize: 11, fontWeight: 900, padding: "0 10px", cursor: authDisabled ? "default" : "pointer", opacity: authDisabled || (authMode === "apiKey" && !canUseProvider) ? 0.5 : 1 }}>
+              {savingAuth ? "Saving…" : authMode === "apiKey" ? "Use API provider" : "Use Codex login"}
             </button>
-            {hasActiveRun && <div style={{ fontSize: 10, color: "#57534e" }}>Stop the current run before changing authentication.</div>}
+            {hasActiveRun && <div style={{ fontSize: 10, color: "#57534e" }}>Stop the current run before changing the connection.</div>}
             {authError && <div role="alert" style={{ fontSize: 11, color: "#991b1b" }}>{authError}</div>}
           </form>
 
@@ -185,8 +218,8 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
             >
               <Sparkles color="#9a3412" size={17} strokeWidth={3} />
               <div>
-                <strong style={{ fontSize: 11 }}>{auth.mode === "apiKey" ? "OpenAI API account" : "Connected account"}</strong>
-                <div style={{ color: "#57534e", fontSize: 10, marginTop: 1 }}>{auth.mode === "apiKey" ? "Uses your API key through the local Codex runtime" : "Uses Codex on the machine running Kavla"}</div>
+                <strong style={{ fontSize: 11 }}>{auth.mode === "apiKey" ? "API provider" : "Connected account"}</strong>
+                <div style={{ color: "#57534e", fontSize: 10, marginTop: 1 }}>{auth.mode === "apiKey" ? "Calls your provider directly from the Kavla server" : "Uses Codex on the machine running Kavla"}</div>
               </div>
             </div>
             <div style={{ alignItems: "center", display: "flex", gap: 9, padding: "9px 11px" }}>
@@ -216,7 +249,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
               <div>
                 <strong style={{ fontSize: 11 }}>Agent models</strong>
                 <div style={{ color: "#57534e", fontSize: 10, lineHeight: 1.35, marginTop: 1 }}>
-                  Available through the selected authentication method.
+                  Available through the selected connection.
                 </div>
               </div>
             </div>

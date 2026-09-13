@@ -20,9 +20,11 @@ func (s *Server) startCodexDetection() {
 		s.codexMu.Unlock()
 		return
 	}
-	_, apiKey, _ := s.codexAuthLocked()
+	mode, apiKey, _ := s.codexAuthLocked()
+ config := s.apiProviderLocked()
+ config.APIKey = apiKey
 	s.codexStarting = true
-	s.codexStatus = codex.Status{State: "checking", Message: "Checking for Codex CLI…"}
+	s.codexStatus = codex.Status{State: "checking", Message: "Preparing Agent connection…"}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.codexContext = ctx
 	s.codexCancel = cancel
@@ -44,23 +46,33 @@ func (s *Server) startCodexDetection() {
 	s.workerMu.Unlock()
 	go func() {
 		defer s.workers.Done()
-		client, status, err := codex.StartWithAPIKey(ctx, apiKey,
-			func(method string, params json.RawMessage) {
+		onEvent := func(method string, params json.RawMessage) {
 				if ctx.Err() == nil {
 					s.handleCodexEvent(method, params)
 				}
-			},
-			func(requestID json.RawMessage, params json.RawMessage) {
+			}
+  onTool := func(requestID json.RawMessage, params json.RawMessage) {
 				if ctx.Err() == nil {
 					s.handleCodexToolCall(requestID, params)
 				}
-			},
-			func(err error) {
+			}
+  onExit := func(err error) {
 				if ctx.Err() == nil {
 					s.handleCodexExit(err)
 				}
-			},
-		)
+			}
+  var client codex.Runtime
+  var status codex.Status
+  var err error
+  if mode == "apiKey" {
+   apiClient, startErr := codex.NewAPIClient(ctx, config, onEvent, onTool)
+   err = startErr
+   if err == nil { client = apiClient; status = codex.Status{State: "ready", Message: "API provider configured. Credentials are checked on the first request."} }
+  } else {
+   codexClient, startStatus, startErr := codex.Start(ctx, onEvent, onTool, onExit)
+   status, err = startStatus, startErr
+   if codexClient != nil { client = codexClient }
+  }
 		var models []codex.Model
 		if err == nil && client != nil && status.State == "ready" {
 			modelsContext, cancelModels := context.WithTimeout(ctx, codexOperationTimeout)
@@ -68,7 +80,7 @@ func (s *Server) startCodexDetection() {
 			models, modelsErr = client.ListModels(modelsContext)
 			cancelModels()
 			if modelsErr != nil {
-				status = codex.Status{State: "error", Message: fmt.Sprintf("Codex models could not be loaded: %v", modelsErr)}
+				status = codex.Status{State: "error", Message: fmt.Sprintf("Agent models could not be loaded: %v", modelsErr)}
 				_ = client.Close()
 				client = nil
 			}
@@ -83,7 +95,7 @@ func (s *Server) startCodexDetection() {
 		}
 		s.codexStarting = false
 		if err != nil {
-			s.codexStatus = codex.Status{State: "error", Message: fmt.Sprintf("Codex could not start: %v", err)}
+			s.codexStatus = codex.Status{State: "error", Message: fmt.Sprintf("Agent could not start: %v", err)}
 		} else {
 			s.codexClient = client
 			s.codexStatus = status
@@ -98,13 +110,13 @@ func (s *Server) startCodexDetection() {
 func (s *Server) retryCodexDetection() {
 	s.closeCodex()
 	s.codexMu.Lock()
-	s.codexStatus = codex.Status{State: "checking", Message: "Checking for Codex CLI…"}
+	s.codexStatus = codex.Status{State: "checking", Message: "Preparing Agent connection…"}
 	s.codexMu.Unlock()
 	s.startCodexDetection()
 }
 
 func (s *Server) closeCodex() {
- s.cancelCodexRun("", "The Codex connection closed.")
+ s.cancelCodexRun("", "The Agent connection closed.")
 	s.codexMu.Lock()
 	client := s.codexClient
 	cancel := s.codexCancel
@@ -251,7 +263,7 @@ func (s *Server) handleCodexPrompt(w http.ResponseWriter, r *http.Request) {
 
 func resolveCodexModels(models []codex.Model, requestedMain, requestedLayout string) (string, string, error) {
 	if len(models) == 0 {
-		return "", "", fmt.Errorf("Codex has no available models")
+		return "", "", fmt.Errorf("The Agent has no available models")
 	}
 	find := func(requested string) string {
 		requested = strings.TrimSpace(requested)
@@ -264,7 +276,7 @@ func resolveCodexModels(models []codex.Model, requestedMain, requestedLayout str
 	}
 	mainModel := find(requestedMain)
 	if strings.TrimSpace(requestedMain) != "" && mainModel == "" {
-		return "", "", fmt.Errorf("the selected main Codex model is not available")
+		return "", "", fmt.Errorf("the selected main Agent model is not available")
 	}
 	if mainModel == "" {
 		mainModel = find("gpt-5.6-sol")
@@ -283,7 +295,7 @@ func resolveCodexModels(models []codex.Model, requestedMain, requestedLayout str
 
 	layoutModel := find(requestedLayout)
 	if strings.TrimSpace(requestedLayout) != "" && layoutModel == "" {
-		return "", "", fmt.Errorf("the selected layout Codex model is not available")
+		return "", "", fmt.Errorf("the selected layout Agent model is not available")
 	}
 	if layoutModel == "" {
 		layoutModel = find("gpt-5.6-terra")

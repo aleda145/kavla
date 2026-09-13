@@ -51,7 +51,7 @@ const LAYOUT_MODEL_KEY = "kavla.codex.layoutModel";
 
 let currentStatus: CodexStatus = {
   state: "checking",
-  message: "Checking for Codex CLI…",
+  message: "Preparing Agent connection…",
 };
 
 let currentModels: CodexModelSelection = {

@@ -77,11 +77,12 @@ type Server struct {
  codexAuthMu sync.Mutex
  codexAuthMode string
  codexAPIKey string
+ apiProvider codex.APIConfig
  codexAuthChanging bool
  codexJournalMu sync.Mutex
  codexRun *codexRunState
  codexHistory []*codexRunState
-	codexClient        *codex.Client
+	codexClient        codex.Runtime
 	codexStatus        codex.Status
 	codexContext       context.Context
 	codexCancel        context.CancelFunc

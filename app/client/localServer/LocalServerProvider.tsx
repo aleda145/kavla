@@ -325,7 +325,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
   }, [reportCodexRequestError]);
 
   const retryCodex = useCallback<LocalServerContextType["retryCodex"]>(() => {
-    notifyCodexStatus({ state: "checking", message: "Checking for Codex CLI…" });
+    notifyCodexStatus({ state: "checking", message: "Preparing Agent connection…" });
     void postJSON("/api/codex/retry", {}).catch(reportCodexRequestError);
   }, [reportCodexRequestError]);
 

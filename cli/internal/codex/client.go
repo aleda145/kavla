@@ -99,7 +99,7 @@ func StartWithAPIKey(ctx context.Context, apiKey string, onEvent EventHandler, o
 	if err != nil {
 		return nil, Status{
 			State:   "missing",
-			Message: "Codex CLI was not found. Install Codex to enable the Kavla Agent, then use Codex login or an OpenAI API key.",
+			Message: "Codex CLI was not found. Install Codex to use Codex login, or choose an API provider in Agent settings.",
 		}, nil
 	}
 	tempDir, err := os.MkdirTemp("", "kavla-codex-*")
@@ -254,7 +254,7 @@ func StartWithAPIKey(ctx context.Context, apiKey string, onEvent EventHandler, o
 		_ = client.Close()
 		return nil, Status{
 			State:   "auth_required",
-			Message: "Codex CLI is installed but not authenticated. Run codex login or enter an OpenAI API key in Agent settings.",
+			Message: "Codex CLI is installed but not authenticated. Run codex login or choose an API provider in Agent settings.",
 		}, nil
 	}
 
@@ -299,7 +299,7 @@ func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
 func (c *Client) StartOrResumeThread(ctx context.Context, threadID, model string) (string, bool, error) {
 	threadID = strings.TrimSpace(threadID)
 	model = strings.TrimSpace(model)
-	if threadID != "" {
+	if threadID != "" && !strings.HasPrefix(threadID, "api-") {
 		params := map[string]interface{}{
 			"threadId":             threadID,
 			"approvalPolicy":       "never",
@@ -396,6 +396,10 @@ func (c *Client) Generate(ctx context.Context, mode, model, prompt string, canva
  if mode == "lens" { instructions = lensDeveloperInstructions }
  text, err := c.runFocusedTurn(ctx, model, prompt, canvasContext, instructions)
  if err != nil { return nil, err }
+ return parseGeneration(mode, text)
+}
+
+func parseGeneration(mode, text string) (map[string]interface{}, error) {
  text = strings.TrimSpace(text)
  if strings.HasPrefix(text, "```") {
   if start := strings.Index(text, "\n"); start >= 0 { text = text[start+1:] }
@@ -910,7 +914,4 @@ func BuildPrompt(userPrompt string, contextValue interface{}, fallbackHistory, l
 	builder.Write(contextJSON)
 	return builder.String(), nil
 }
-
-
-
 
