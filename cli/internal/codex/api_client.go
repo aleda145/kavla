@@ -98,7 +98,7 @@ func NewAPIClient(ctx context.Context, config APIConfig, onEvent EventHandler, o
 		config: config, ctx: ctx, cancel: cancel, onEvent: onEvent, onTool: onTool,
 		pending: make(map[string]chan string),
 		httpClient: &http.Client{
-			Timeout: 120 * time.Second,
+			// Request contexts own the deadline so heavy Lens generation can take longer.
 			// Extra headers can contain credentials. Never forward them through redirects.
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
@@ -159,7 +159,9 @@ func (c *APIClient) runTurn(ctx context.Context, threadID, turnID, model, prompt
 	seenCalls := make(map[string]bool)
 	c.emit("turn/started", threadID, turnID, nil)
 	for step := 0; step <= 16; step++ {
-		completion, err := c.complete(ctx, model, messages, tools)
+		requestCtx, cancelRequest := context.WithTimeout(ctx, 2*time.Minute)
+		completion, err := c.complete(requestCtx, model, messages, tools)
+		cancelRequest()
 		if err != nil { return err }
 		if err := ctx.Err(); err != nil { return err }
 		messages = append(messages, completion.message)
@@ -268,6 +270,8 @@ func chatCompletionTools() []map[string]interface{} {
 }
 
 func (c *APIClient) complete(ctx context.Context, model string, messages []interface{}, tools []map[string]interface{}) (apiCompletion, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
 	payload := map[string]interface{}{"model": model, "messages": messages, "stream": false}
 	if len(tools) > 0 { payload["tools"] = tools }
 	data, err := json.Marshal(payload)

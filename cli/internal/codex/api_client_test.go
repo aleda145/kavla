@@ -184,6 +184,27 @@ func TestAPIClientCancellation(t *testing.T) {
 	select { case <-cancelled: case <-time.After(3*time.Second): t.Fatal("provider request is still running") }
 }
 
+type apiTestTransport func(*http.Request) (*http.Response, error)
+
+func (transport apiTestTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport(request)
+}
+
+func TestAPILensGenerationKeepsLongerDeadline(t *testing.T) {
+	client, err := NewAPIClient(context.Background(), APIConfig{BaseURL: "https://provider.example/v1", Model: "test-model"}, nil, nil)
+	if err != nil { t.Fatal(err) }
+	defer client.Close()
+	client.httpClient.Transport = apiTestTransport(func(request *http.Request) (*http.Response, error) {
+		deadline, ok := request.Context().Deadline()
+		remaining := time.Until(deadline)
+		if !ok || remaining < 8*time.Minute || remaining > 9*time.Minute { t.Errorf("HTTP client shortened Lens deadline: %s", remaining) }
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"{\"code\":\"Lens\"}"}}]}`))}, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 9*time.Minute)
+	defer cancel()
+	if _, err := client.Generate(ctx, "lens", "test-model", "Generate a Lens", nil); err != nil { t.Fatal(err) }
+}
+
 func TestAPIClientRejectsIncompleteResponses(t *testing.T) {
 	for _, body := range []string{
 		`{"choices":[]}`,

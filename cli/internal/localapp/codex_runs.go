@@ -15,6 +15,10 @@ import (
  "github.com/aleda145/kavla/cli/internal/codex"
 )
 
+const codexRunTimeout = 15 * time.Minute
+const codexLensGenerationTimeout = 10 * time.Minute
+const codexSQLGenerationTimeout = 2 * time.Minute
+
 type codexToolState struct {
  CallID string `json:"callId"`
  Tool string `json:"tool"`
@@ -135,7 +139,7 @@ func (s *Server) startCodexPrompt(request codexPromptRequest) error {
  if activeCodexRun(s.codexRun) { s.codexMu.Unlock(); return fmt.Errorf("the Agent is already working; stop the current run first") }
  model, layoutModel, err := resolveCodexModels(s.codexModels, request.MainModel, request.LayoutModel)
  if err != nil { s.codexMu.Unlock(); return err }
- ctx, cancel := context.WithTimeout(s.codexContext, 15*time.Minute)
+ ctx, cancel := context.WithTimeout(s.codexContext, codexRunTimeout)
  run := &codexRunState{ID: request.RunID, DocumentID: request.DocumentID, ClientID: request.ClientID, Model: model, Prompt: request.Prompt, Status: "planning", Activity: "Preparing analysis…", CreatedAt: time.Now().UnixMilli(), Revision: 1, Tools: []*codexToolState{}, ctx: ctx, cancel: cancel}
  s.codexRun = run
  s.codexHistory = append(s.codexHistory, run)
@@ -148,7 +152,7 @@ func (s *Server) startCodexPrompt(request codexPromptRequest) error {
  s.workerMu.Unlock()
  go func() {
   defer s.workers.Done()
-  defer func() { <-ctx.Done(); if ctx.Err() == context.DeadlineExceeded { s.cancelCodexRun(run.ID, "Agent run timed out.") } }()
+  defer func() { <-ctx.Done(); if ctx.Err() == context.DeadlineExceeded { s.cancelCodexRun(run.ID, "Agent run exceeded its 15-minute limit. Existing canvas work has been kept.") } }()
   layoutPlan := ""
   if request.PlanLayout {
    layoutContext, cancelLayout := context.WithTimeout(ctx, codexOperationTimeout)
@@ -233,6 +237,9 @@ func (s *Server) handleCodexToolCall(requestID json.RawMessage, params json.RawM
  runID, ctx := run.ID, run.ctx
  s.codexMu.Unlock()
  s.publishCodexRuns(true)
+ // Lens generation and a possible repair share the remaining overall run budget.
+ // The ordinary eight-minute tool limit would otherwise cut off a valid Lens request.
+ if request.Tool == "create_lens" || request.Tool == "update_lens" { return }
  go func() {
   timer := time.NewTimer(8*time.Minute)
   defer timer.Stop()
@@ -315,11 +322,22 @@ func (s *Server) handleCodexGenerate(w http.ResponseWriter, r *http.Request) {
  run.Activity = "Generating " + request.Mode + "…"; run.Revision++
  s.codexMu.Unlock()
  s.publishCodexRuns(true)
- ctx, cancel := context.WithTimeout(parent, 120*time.Second)
+ timeout := codexSQLGenerationTimeout
+ label := "SQL"
+ if request.Mode == "lens" { timeout, label = codexLensGenerationTimeout, "Lens" }
+ ctx, cancel := context.WithTimeout(parent, timeout)
  stop := context.AfterFunc(r.Context(), cancel)
  defer stop(); defer cancel()
  result, err := client.Generate(ctx, request.Mode, model, request.Prompt, request.Context)
- if err != nil { writeAPIError(w, 500, err); return }
+ if err != nil {
+  if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
+   message := fmt.Errorf("%s generation exceeded its %d-minute limit. Existing canvas work has been kept.", label, int(timeout/time.Minute))
+   if parent.Err() == context.DeadlineExceeded { message = fmt.Errorf("Agent run exceeded its 15-minute limit during %s generation. Existing canvas work has been kept.", label) }
+   writeAPIError(w, http.StatusGatewayTimeout, message)
+   return
+  }
+  writeAPIError(w, 500, err); return
+ }
  w.Header().Set("Content-Type", "application/json")
  _ = json.NewEncoder(w).Encode(result)
 }
