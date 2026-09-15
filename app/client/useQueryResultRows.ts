@@ -5,6 +5,7 @@ import { quoteIdentifier } from "../src/duckdb/sql";
 import { useData } from "./useLocalServer";
 import { MissingQueryResultError } from "./localServer/types";
 import { getRestoredRemoteQueryMetadata } from "../SQLTextArea/restoreRemoteQueryView";
+import { loadQueryResultRows } from "./loadQueryResultRows";
 
 export interface QueryResultRows {
   columns: string[];
@@ -54,6 +55,7 @@ export function useQueryResultRows({
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     if (!sourceShapeId || !sourceTableName) {
       setResult(EMPTY_RESULT);
       return;
@@ -69,24 +71,25 @@ export function useQueryResultRows({
 
       try {
         if (serverResultShapeId) {
-          const rowLimit = typeof limit === "number" ? Math.max(1, Math.floor(limit)) : 10000;
-          const pageRequest = { shapeId: serverResultShapeId, offset: 0, limit: rowLimit + 1 };
-          let page;
+          const rowLimit = typeof limit === "number" ? Math.max(1, Math.floor(limit)) : null;
+          const loadRows = () => loadQueryResultRows(getQueryResultPage, serverResultShapeId, rowLimit === null ? null : rowLimit + 1, controller.signal);
+          let loadedRows;
           try {
-            page = await getQueryResultPage(pageRequest);
+            loadedRows = await loadRows();
           } catch (error) {
             if (!(error instanceof MissingQueryResultError) || !restoreServerResult) throw error;
+            controller.signal.throwIfAborted();
             await restoreServerResult();
-            page = await getQueryResultPage(pageRequest);
+            loadedRows = await loadRows();
           }
-          const rows = page.rows.map(normalizeRow);
-          const isTruncated = rows.length > rowLimit;
+          const rows = loadedRows.map(normalizeRow);
+          const isTruncated = rowLimit !== null && rows.length > rowLimit;
           const resolvedSchema = getRestoredRemoteQueryMetadata(serverResultShapeId)?.schema ?? schema ?? [];
           if (!cancelled) {
             setResult({
               columns: resolvedSchema.map((column) => column.name),
               columnTypes: Object.fromEntries(resolvedSchema.map((column) => [column.name, column.type])),
-              data: rows.slice(0, rowLimit),
+              data: rowLimit === null ? rows : rows.slice(0, rowLimit),
               error: null,
               isLoading: false,
               isTruncated,
@@ -151,6 +154,7 @@ export function useQueryResultRows({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     limit,

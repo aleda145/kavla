@@ -8,6 +8,7 @@ import { buildColumnStatsQuery, parseColumnStatsRows } from "../src/duckdb/colum
 import type { ColumnStats } from "../src/duckdb/column-stats-types";
 import { walkSQLDag, buildRemoteSQLFromDag } from "../SQLTextArea/walkSQLDag";
 import { loadSQLDagDependencies, ensureLocalQueryView } from "../SQLTextArea/sqlDagDependencies";
+import { loadQueryResultRows } from "../client/loadQueryResultRows";
 
 export function resolveAgentDataShape(editor: Editor, shapeId: string): DataSourceShape | SQLTextAreaShape {
   const seen = new Set<string>();
@@ -20,16 +21,23 @@ export function resolveAgentDataShape(editor: Editor, shapeId: string): DataSour
   throw new Error("Choose a data source or a connected query, table, chart, or Lens.");
 }
 
-export async function getAgentDataPreview(editor: Editor, shapeId: string, data: CodexToolEnvironment["data"], limit = 5): Promise<Record<string, unknown>[]> {
+export async function getAgentDataPreview(editor: Editor, shapeId: string, data: CodexToolEnvironment["data"], limit: number | null = 5, signal?: AbortSignal): Promise<Record<string, unknown>[]> {
   const shape = resolveAgentDataShape(editor, shapeId);
   if (shape.type !== "sql-text-area") throw new Error("Create a visible query to preview this source.");
   if (shape.props.isDirty || shape.props.stale || shape.props.error || !shape.props.lastRunStats) throw new Error("Run the source query first.");
-  if (shape.props.lastRunStats.runnerName === "CLI") return (await data.getQueryResultPage({ shapeId: shape.id, offset: 0, limit })).rows;
+  if (shape.props.lastRunStats.runnerName === "CLI") return loadQueryResultRows(data.getQueryResultPage, shape.id, limit, signal);
   await ensureLocalQueryView(editor, shape);
+  signal?.throwIfAborted();
   const connection = await DuckDBService.getInstance().getDb()!.connect();
+  const cancel = () => { void connection.cancelSent(); };
+  signal?.addEventListener("abort", cancel, { once: true });
   try {
-    return (await connection.query(`SELECT * FROM ${quoteIdentifier(shape.props.name)} LIMIT ${Math.max(1, Math.min(10001, Math.floor(limit)))}`)).toArray().map((row) => row.toJSON() as Record<string, unknown>);
-  } finally { await connection.close(); }
+    signal?.throwIfAborted();
+    const queryLimit = limit === null ? "" : ` LIMIT ${Math.max(1, Math.min(10001, Math.floor(limit)))}`;
+    const rows = (await connection.query(`SELECT * FROM ${quoteIdentifier(shape.props.name)}${queryLimit}`)).toArray().map((row) => row.toJSON() as Record<string, unknown>);
+    signal?.throwIfAborted();
+    return rows;
+  } finally { signal?.removeEventListener("abort", cancel); await connection.close(); }
 }
 
 export async function computeAgentProfiles(editor: Editor, args: Record<string, unknown>, env: CodexToolEnvironment): Promise<Record<string, unknown>> {

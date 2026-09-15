@@ -31,6 +31,7 @@ export interface QueryResultPagePayload {
   shapeId: string;
   offset: number;
   limit: number;
+  signal?: AbortSignal;
 }
 
 export interface QueryResultPage {

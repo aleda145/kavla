@@ -28,7 +28,7 @@ Only use the props listed in this prompt.
 For updates, preserve existing behavior except for the requested change. For repairs, fix the runtime error first.
 description is shown with the Lens. Make it one concise sentence describing what changed.
 Performance rules:
-- Source rows are capped at 10,000; performance.isSampled reports truncation. Aggregate, bin, filter, or sample before drawing large mark counts. Full-source aggregation belongs in the visible source query; do not claim complete-source counts from capped rows.
+- rows/allRows are not capped; Lens-local dataSql can aggregate over the complete source query result. Aggregate, bin, filter, or sample before drawing large mark counts. sampleRows in the generation context is only a small preview, not the complete data available to the Lens.
 - Memoize derived data/options/scales. Do not do expensive grouping in JSX.
 - Keep DOM/SVG/animated/3D marks within performance limits. Prefer ECharts canvas, Plot/d3 aggregates, MapLibre layers, or sampled 3D points for large data.
 - Avoid continuous animation unless analytical; update few objects if using useFrame.

@@ -230,11 +230,12 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
   );
 
   const getQueryResultPage = useCallback<LocalServerContextType["getQueryResultPage"]>(
-    async ({ shapeId, offset, limit }) => {
+    async ({ shapeId, offset, limit, signal }) => {
       const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
       const response = await fetch(`/api/session/queries/${encodeURIComponent(shapeId)}/rows?${query.toString()}`, {
         credentials: "same-origin",
         headers: { Accept: "application/vnd.apache.arrow.stream" },
+        signal,
       });
       if (response.status === 404) throw new MissingQueryResultError();
       if (!response.ok) throw await responseError(response);

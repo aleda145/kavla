@@ -45,7 +45,7 @@ export class LensUtil extends ShapeUtil<LensShape> {
       await restoreRemoteQueryView(editor, source, runRemoteQuery);
     }, [editor, source, runRemoteQuery]);
     const isRemote = source?.props.lastRunStats?.runnerName === "CLI";
-    const rows = useQueryResultRows({ sourceShapeId: source?.id || null, sourceTableName: source?.props.name || null, schema: source?.props.outputSchema, revision: source?.props.lastRunStats, limit: 10000, normalizeRow: normalizeChartRow, serverResultShapeId: isRemote ? source!.id : null, ensureSourceTable, restoreServerResult });
+    const rows = useQueryResultRows({ sourceShapeId: source?.id || null, sourceTableName: source?.props.name || null, schema: source?.props.outputSchema, revision: source?.props.lastRunStats, normalizeRow: normalizeChartRow, serverResultShapeId: isRemote ? source!.id : null, ensureSourceTable, restoreServerResult });
     const widgetKey = `${shape.id}:${shape.props.generatedAt}:${shape.props.code}:${shape.props.dataSql}`;
     const update = (props: Partial<LensShape["props"]>) => editor.updateShape<LensShape>({ id: shape.id, type: "lens-shape", props });
     const reportError = (error: string) => {
@@ -75,7 +75,7 @@ export class LensUtil extends ShapeUtil<LensShape> {
         onDataSqlValidate={async (sql) => { try { validateReadOnlySQL(sql); return validateDuckDBSyntax(sql); } catch (error) { return { message: error instanceof Error ? error.message : String(error) }; } }}
         onWidgetError={reportError} onDataSqlError={reportError} />
       <div style={{ fontSize: 10, padding: "4px 8px", borderTop: "1px solid #d6d3d1", color: shape.props.error ? "#991b1b" : "#57534e" }}>
-        {generating ? "Generating Lens… " : shape.props.error ? `${shape.props.error} ` : ""}{rows.isTruncated ? "Showing the first 10,000 rows. Aggregate in the source query for complete results." : `${rows.data.length.toLocaleString()} rows from ${source?.props.name || "query"}.`} Presentation SQL uses these rows.
+        {generating ? "Generating Lens… " : shape.props.error ? `${shape.props.error} ` : ""}{`${rows.data.length.toLocaleString()} rows from ${source?.props.name || "query"}.`} Presentation SQL uses these rows.
       </div>
     </HTMLContainer>;
   }
