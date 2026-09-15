@@ -1,6 +1,5 @@
-.PHONY: build build-app build-appimage build-cef-appimage docker-push release run
+.PHONY: build build-app build-appimage build-cef-appimage docker-push release run FORCE
 
-APP_SOURCES := $(shell find app -type f -not -path 'app/node_modules/*' -not -path 'app/dist/*')
 CLI_SOURCES := $(shell find cli -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \))
 DEMO_ARCHIVE := cli/internal/demo/titanic.kavla
 EMBED_STAMP := cli/internal/webapp/dist/.build-stamp
@@ -12,9 +11,11 @@ DOCKER_REF := $(DOCKER_IMAGE):$(DOCKER_TAG)
 
 build: $(BINARY)
 
-$(EMBED_STAMP): $(APP_SOURCES) Makefile
+# Check contents on every invocation; the script updates the stamp only after a rebuild.
+$(EMBED_STAMP): FORCE
 	./cli/scripts/embed-web.sh
-	touch $(EMBED_STAMP)
+
+FORCE:
 
 $(BINARY): $(CLI_SOURCES) $(DEMO_ARCHIVE) $(EMBED_STAMP) Makefile
 	cd cli && go build -trimpath -o .kavla.new .

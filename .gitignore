@@ -4,8 +4,7 @@
 /cli/dist/
 /cli/kavla
 /cli/internal/webapp/dist/*
-!/cli/internal/webapp/dist/index.html
-!/cli/internal/webapp/dist/kavla.svg
+!/cli/internal/webapp/dist/.gitkeep
 
 **/.env
 **/.env.*
