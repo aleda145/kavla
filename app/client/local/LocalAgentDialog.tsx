@@ -2,7 +2,7 @@ import { notifyCodexAuth, useCodexAuth, type CodexAuth } from "../localServer/co
 import { cancelCodexRun, codexRequest, isCodexRunActive, useCodexRuns } from "../localServer/codexRuns";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bot, CheckCircle2, LayoutDashboard, Loader2, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
+import { CheckCircle2, LayoutDashboard, Loader2, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
 import { setCodexModelSelection, useCodexModels, useCodexStatus } from "../localServer/codexStore";
 import { useData } from "../useLocalServer";
 
@@ -109,14 +109,14 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
         <div
           style={{
             alignItems: "center",
-            backgroundColor: "#ffedd5",
+            backgroundColor: "#ede9fe",
             borderBottom: "3px solid #000",
             display: "flex",
             gap: 8,
             padding: "11px 14px",
           }}
         >
-          <Bot size={18} strokeWidth={2.7} />
+          <Sparkles color="#6d28d9" size={18} strokeWidth={2.7} />
           <strong style={{ fontSize: 14, fontWeight: 900 }}>Agent connection</strong>
           <button
             aria-label="Close agent connection"
@@ -157,7 +157,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
             ) : ready ? (
               <CheckCircle2 color="#15803d" size={22} strokeWidth={3} />
             ) : (
-              <Bot color="#991b1b" size={22} strokeWidth={3} />
+              <Sparkles color="#991b1b" size={22} strokeWidth={3} />
             )}
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 900 }}>{auth.mode === "apiKey" ? "API provider" : "Codex CLI"}</div>
@@ -199,7 +199,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
                 {" "}Settings are saved in ~/.kavla/agent.yaml on the computer running Kavla and restored at startup. Changing the base URL clears saved credentials; enter credentials for the new provider. API usage is billed by your provider.
               </div>
             </> : <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>Uses the existing login from Codex on the server. Switching back discards API credentials entered in Kavla.</div>}
-            <button type="submit" disabled={authDisabled || (authMode === "apiKey" && !canUseProvider)} style={{ alignSelf: "flex-end", minHeight: 32, border: "2px solid #000", borderRadius: 6, background: "#ffedd5", fontSize: 11, fontWeight: 900, padding: "0 10px", cursor: authDisabled ? "default" : "pointer", opacity: authDisabled || (authMode === "apiKey" && !canUseProvider) ? 0.5 : 1 }}>
+            <button type="submit" disabled={authDisabled || (authMode === "apiKey" && !canUseProvider)} style={{ alignSelf: "flex-end", minHeight: 32, border: "2px solid #000", borderRadius: 6, background: "#ede9fe", fontSize: 11, fontWeight: 900, padding: "0 10px", cursor: authDisabled ? "default" : "pointer", opacity: authDisabled || (authMode === "apiKey" && !canUseProvider) ? 0.5 : 1 }}>
               {savingAuth ? "Saving…" : authMode === "apiKey" ? "Use API provider" : "Use Codex login"}
             </button>
             {hasActiveRun && <div style={{ fontSize: 10, color: "#57534e" }}>Stop the current run before changing the connection.</div>}
@@ -216,7 +216,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
                 padding: "9px 11px",
               }}
             >
-              <Sparkles color="#9a3412" size={17} strokeWidth={3} />
+              <Sparkles color="#6d28d9" size={17} strokeWidth={3} />
               <div>
                 <strong style={{ fontSize: 11 }}>{auth.mode === "apiKey" ? "API provider" : "Connected account"}</strong>
                 <div style={{ color: "#57534e", fontSize: 10, marginTop: 1 }}>{auth.mode === "apiKey" ? "Calls your provider directly from the Kavla server" : "Uses Codex on the machine running Kavla"}</div>
@@ -245,7 +245,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
             }}
           >
             <div style={{ alignItems: "center", display: "flex", gap: 8 }}>
-              <Sparkles color="#9a3412" size={17} strokeWidth={3} />
+              <Sparkles color="#6d28d9" size={17} strokeWidth={3} />
               <div>
                 <strong style={{ fontSize: 11 }}>Agent models</strong>
                 <div style={{ color: "#57534e", fontSize: 10, lineHeight: 1.35, marginTop: 1 }}>
@@ -355,7 +355,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
               onClick={onOpenChat}
               style={{
                 alignItems: "center",
-                background: "#ffedd5",
+                background: "#ede9fe",
                 border: "2px solid #000",
                 borderRadius: 6,
                 cursor: ready ? "pointer" : "default",

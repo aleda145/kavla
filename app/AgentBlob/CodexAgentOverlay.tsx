@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
-import { Bot, LocateFixed, Loader2, Send, Sparkles, Square, Trash2 } from "lucide-react";
+import { LocateFixed, Loader2, Send, Sparkles, Square, Trash2, X } from "lucide-react";
 import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useCodexModels, useCodexStatus } from "../client/localServer/codexStore";
 import { useData } from "../client/useLocalServer";
@@ -11,7 +11,7 @@ import { getCanvasBadges, getMentionRanges, getShapeCitations, type ContextBadge
 import { codexClientId, codexRequest, getCodexRuns, isCodexRunActive, useCodexRuns } from "../client/localServer/codexRuns";
 import { getActiveLocalSession, stageCanvas } from "../client/local/localSession";
 
-const LAUNCHER_SIZE = 48;
+const DOCK_ANCHOR_SIZE = 48;
 const CHAT_WIDTH = 340;
 const CHAT_HEIGHT = 360;
 const TOOLBAR_GAP = 6;
@@ -29,19 +29,18 @@ function getDockLayout() {
     .map((element) => ({ element, bounds: element.getBoundingClientRect() }))
     .filter(({ bounds }) => bounds.width > 0 && bounds.height > 0)
     .sort((a, b) => b.bounds.bottom - a.bounds.bottom)[0]?.bounds;
-  const maxLauncherX = Math.max(18, window.innerWidth - LAUNCHER_SIZE - 18);
-  const maxLauncherY = Math.max(18, window.innerHeight - LAUNCHER_SIZE - 18);
-  const launcher = toolbar
+  const maxAnchorX = Math.max(18, window.innerWidth - DOCK_ANCHOR_SIZE - 18);
+  const maxAnchorY = Math.max(18, window.innerHeight - DOCK_ANCHOR_SIZE - 18);
+  const anchor = toolbar
     ? {
-        x: Math.max(18, Math.min(toolbar.right + TOOLBAR_GAP, maxLauncherX)),
-        y: Math.max(18, Math.min(toolbar.top + toolbar.height / 2 - LAUNCHER_SIZE / 2, maxLauncherY)),
+        x: Math.max(18, Math.min(toolbar.right + TOOLBAR_GAP, maxAnchorX)),
+        y: Math.max(18, Math.min(toolbar.top + toolbar.height / 2 - DOCK_ANCHOR_SIZE / 2, maxAnchorY)),
       }
-    : { x: maxLauncherX, y: maxLauncherY };
+    : { x: maxAnchorX, y: maxAnchorY };
   return {
-    launcher,
     chat: {
-      x: Math.max(18, Math.min(launcher.x + LAUNCHER_SIZE - CHAT_WIDTH, window.innerWidth - CHAT_WIDTH - 18)),
-      y: Math.max(18, Math.min(launcher.y - CHAT_HEIGHT - CHAT_GAP, window.innerHeight - CHAT_HEIGHT - 18)),
+      x: Math.max(18, Math.min(anchor.x + DOCK_ANCHOR_SIZE - CHAT_WIDTH, window.innerWidth - CHAT_WIDTH - 18)),
+      y: Math.max(18, Math.min(anchor.y - CHAT_HEIGHT - CHAT_GAP, window.innerHeight - CHAT_HEIGHT - 18)),
     },
   };
 }
@@ -291,54 +290,8 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
       style={{ fontFamily: "Inter, sans-serif", inset: 0, pointerEvents: "none", position: "fixed", zIndex: 100000 }}
     >
       <style>{`
-        @keyframes kavla-codex-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
         @keyframes kavla-codex-thinking-dot { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
       `}</style>
-      <div
-        style={{
-          height: LAUNCHER_SIZE,
-          left: layout.launcher.x,
-          pointerEvents: "all",
-          position: "absolute",
-          top: layout.launcher.y,
-          width: LAUNCHER_SIZE,
-        }}
-      >
-        <button
-          aria-expanded={isOpen}
-          aria-label="Open Kavla Agent chat"
-          onClick={(event) => {
-            event.stopPropagation();
-            if (!agent) createOrFocusCodexAgent(editor);
-            else updateCodexAgent(editor, { isOpen: !isOpen });
-          }}
-          onPointerDown={stopOverlayEvent}
-          style={{
-            alignItems: "center",
-            animation: isRunning ? "kavla-codex-float 4.8s ease-in-out infinite" : undefined,
-            background: "#ffedd5",
-            border: "2px solid #000",
-            borderRadius: 999,
-            boxShadow: "2px 2px 0 0 rgba(0,0,0,.35)",
-            color: ready ? "#9a3412" : "#991b1b",
-            cursor: "pointer",
-            display: "flex",
-            height: "100%",
-            justifyContent: "center",
-            padding: 0,
-            width: "100%",
-          }}
-          title="Kavla Agent"
-          type="button"
-        >
-          {isRunning ? (
-            <Loader2 className="animate-spin" size={20} strokeWidth={3} />
-          ) : (
-            <Sparkles size={21} strokeWidth={3} />
-          )}
-        </button>
-      </div>
-
       {isOpen && agent ? (
         <aside
           aria-label="Kavla Agent chat"
@@ -368,7 +321,7 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
           <div
             style={{
               alignItems: "center",
-              background: "#ffedd5",
+              background: "#ede9fe",
               borderBottom: "3px solid #000",
               borderRadius: "9px 9px 0 0",
               display: "flex",
@@ -377,7 +330,7 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
               padding: "6px 8px",
             }}
           >
-            <Bot size={16} strokeWidth={3} />
+            <Sparkles color="#6d28d9" size={16} strokeWidth={3} />
             <strong style={{ fontSize: 11, fontWeight: 900, textTransform: "uppercase" }}>Analyst</strong>
             <div style={{ alignItems: "center", display: "flex", gap: 6, marginLeft: "auto" }}>
               <button
@@ -386,7 +339,7 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
                 onClick={() => setIsFollowing((value) => !value)}
                 title="Follow active work. Moving around the canvas pauses following."
                 type="button"
-                style={{ display: "flex", alignItems: "center", gap: 3, background: isFollowing ? "#fef08a" : "#fff", border: "2px solid #000", borderRadius: 5, height: 24, padding: "0 4px", fontSize: 10, fontWeight: 900, cursor: "pointer" }}
+                style={{ display: "flex", alignItems: "center", gap: 3, background: isFollowing ? "#ddd6fe" : "#fff", border: "2px solid #000", borderRadius: 5, height: 24, padding: "0 4px", fontSize: 10, fontWeight: 900, cursor: "pointer" }}
               >
                 <LocateFixed size={12} /> Follow
               </button>
@@ -427,6 +380,15 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
               >
                 {visualStatus}
               </div>
+              <button
+                aria-label="Close agent chat"
+                onClick={() => updateCodexAgent(editor, { isOpen: false })}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", border: "2px solid #000", borderRadius: 5, height: 24, width: 24, padding: 0, cursor: "pointer" }}
+                title="Close chat"
+                type="button"
+              >
+                <X size={13} strokeWidth={3} />
+              </button>
             </div>
           </div>
 
@@ -462,7 +424,7 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
 
           <div
             style={{
-              background: "#fffaf5",
+              background: "#faf5ff",
               display: "flex",
               flex: "1 1 auto",
               flexDirection: "column",
@@ -475,7 +437,7 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
           >
             {agent.props.entries.length === 0 ? (
               <div style={{ color: "#57534e", fontSize: 12, lineHeight: 1.45, padding: 4 }}>
-                Select shapes or type @ to mention them, then ask Codex to explore, create, or edit your analysis.
+                Select shapes or type @ to mention them, then ask the Agent to explore, create, or edit your analysis.
               </div>
             ) : null}
             {agent.props.entries.map((entry) => {
@@ -554,7 +516,7 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
                 style={{
                   alignItems: "center",
                   alignSelf: "flex-start",
-                  background: "#fef9c3",
+                  background: "#ede9fe",
                   border: "2px solid #000",
                   borderRadius: 7,
                   boxShadow: "2px 2px 0 0 rgba(0,0,0,.16)",
@@ -603,7 +565,7 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
                     type="button"
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={() => chooseMention(badge)}
-                    style={{ display: "block", width: "100%", textAlign: "left", background: index === activeMentionIndex ? "#fef9c3" : "#fff", border: 0, borderBottom: "1px solid #e7e5e4", padding: "7px 9px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}
+                    style={{ display: "block", width: "100%", textAlign: "left", background: index === activeMentionIndex ? "#ede9fe" : "#fff", border: 0, borderBottom: "1px solid #e7e5e4", padding: "7px 9px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}
                   >
                     @{badge.name}
                   </button>
@@ -696,7 +658,7 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
                   onClick={send}
                   style={{
                     alignItems: "center",
-                    background: "#ffedd5",
+                    background: "#ede9fe",
                     border: "2px solid #000",
                     borderRadius: 5,
                     bottom: 7,
@@ -732,8 +694,8 @@ function AnalystMarker({ shapeId }: { shapeId: string | null }) {
     return bounds ? editor.pageToScreen({ x: bounds.maxX, y: bounds.minY }) : null;
   }, [editor, shapeId]);
   if (!run || !point) return null;
-  return <div data-kavla-agent-ui aria-hidden="true" style={{ position: "fixed", left: point.x + 10, top: point.y - 20, zIndex: 99999, pointerEvents: "none", display: "flex", alignItems: "center", gap: 6, padding: "6px 9px", background: "#ffedd5", border: "2px solid #000", borderRadius: 20, boxShadow: "3px 3px 0 #000", font: "800 11px Inter, sans-serif", maxWidth: 230, transition: "left 180ms ease, top 180ms ease" }}>
-    <Bot size={19} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{run.activity || "Thinking…"}</span>
+  return <div data-kavla-agent-ui aria-hidden="true" style={{ position: "fixed", left: point.x + 10, top: point.y - 20, zIndex: 99999, pointerEvents: "none", display: "flex", alignItems: "center", gap: 6, padding: "6px 9px", background: "#ede9fe", border: "2px solid #000", borderRadius: 20, boxShadow: "3px 3px 0 #000", font: "800 11px Inter, sans-serif", maxWidth: 230, transition: "left 180ms ease, top 180ms ease" }}>
+    <Sparkles color="#6d28d9" size={19} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{run.activity || "Thinking…"}</span>
   </div>;
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useEditor, type TLShapeId } from "tldraw";
+import { useEditor } from "tldraw";
 import { useData } from "../client/useLocalServer";
 import { codexClientId, codexRequest, cancelCodexRun, createCodexToolEnvironment, getCodexRuns, isCodexRunActive, useCodexRuns } from "../client/localServer/codexRuns";
 import { stageCanvas } from "../client/local/localSession";

@@ -37,9 +37,9 @@ import {
   useValue,
 } from "tldraw";
 import { useCliStatus } from "../localServer/runtimeStore";
-import { Asterisk, Bot, Database, FilePlus2, FileTerminal, FolderOpen, Loader2, Save } from "lucide-react";
+import { Asterisk, Database, FilePlus2, FileTerminal, FolderOpen, Loader2, Save, Sparkles } from "lucide-react";
 import { CodexAgentLayer } from "../../AgentBlob/CodexAgentOverlay";
-import { createOrFocusCodexAgent } from "../../AgentBlob/codex-agent-store";
+import { createOrFocusCodexAgent, getCodexAgent, updateCodexAgent } from "../../AgentBlob/codex-agent-store";
 import { LocalRoomInfoPanel } from "./LocalRoomInfoPanel";
 import { LocalAgentDialog } from "./LocalAgentDialog";
 import { LocalSaveDialog } from "./LocalSaveDialog";
@@ -168,12 +168,12 @@ function LocalDocumentControls({
           .kavla-document-control[data-action="save"] { background: #fce7f3; }
           .kavla-document-control[data-action="load"] { background: #dcfce7; }
           .kavla-document-control[data-action="sources"] { background: #dbeafe; }
-          .kavla-document-control[data-action="agent"] { background: #ffedd5; }
+          .kavla-document-control[data-action="agent"] { background: #ede9fe; }
           .kavla-document-control[data-action="new"]:hover { background: #fde68a; }
           .kavla-document-control[data-action="save"]:hover { background: #fbcfe8; }
           .kavla-document-control[data-action="load"]:hover { background: #bbf7d0; }
           .kavla-document-control[data-action="sources"]:hover { background: #bfdbfe; }
-          .kavla-document-control[data-action="agent"]:hover { background: #fed7aa; }
+          .kavla-document-control[data-action="agent"]:hover { background: #ddd6fe; }
           .kavla-document-control:active { transform: translateY(1px); }
           .kavla-document-control:disabled { cursor: default; opacity: 0.42; }
         `}
@@ -231,16 +231,16 @@ function LocalDocumentControls({
         Sources
       </button>
       <button
-        aria-label="Open the Kavla Agent"
+        aria-label="Agent connection settings"
         className="kavla-document-control"
         data-action="agent"
         disabled={!documentsAvailable}
         onClick={() => setShowAgentStatus(true)}
         onPointerDown={(event) => event.stopPropagation()}
-        title={documentsAvailable ? "View the connected agent" : "Run Kavla through the CLI to use the Agent"}
+        title={documentsAvailable ? "Agent connection settings" : "Run Kavla through the CLI to use the Agent"}
         type="button"
       >
-        <Bot size={14} />
+        <Sparkles color="#6d28d9" size={14} />
         Agent
       </button>
       {dialogMode ? (
@@ -348,7 +348,9 @@ function CustomMainMenu() {
 }
 
 function LocalToolbar(props: ComponentProps<typeof DefaultToolbar>) {
+  const editor = useEditor();
   const tools = useTools();
+  const isAgentOpen = useValue("Agent chat open", () => getCodexAgent(editor)?.props.isOpen ?? false, [editor]);
   const sourceSelected = useIsToolSelected(tools["data-source"]);
   const sqlSelected = useIsToolSelected(tools["sql-text-area"]);
 
@@ -359,7 +361,8 @@ function LocalToolbar(props: ComponentProps<typeof DefaultToolbar>) {
           {`
             .tlui-popover__content .custom-data-tools { display: none !important; }
             button[data-testid="tools.data-source"],
-            button[data-testid="tools.sql-text-area"] {
+            button[data-testid="tools.sql-text-area"],
+            button[data-testid="tools.agent"] {
               width: 48px !important;
               height: 48px !important;
               border-radius: 9px !important;
@@ -368,10 +371,19 @@ function LocalToolbar(props: ComponentProps<typeof DefaultToolbar>) {
             button[data-testid="tools.data-source"]:hover { background-color: #bfdbfe !important; }
             button[data-testid="tools.sql-text-area"] { background-color: #fefce8 !important; }
             button[data-testid="tools.sql-text-area"]:hover { background-color: #fef08a !important; }
+            button[data-testid="tools.agent"] { background-color: #f5f3ff !important; }
+            button[data-testid="tools.agent"]:hover { background-color: #ddd6fe !important; }
+            button[data-testid="tools.agent"][aria-pressed="true"] {
+              background-color: #ddd6fe !important;
+              color: #5b21b6 !important;
+              box-shadow: inset 0 -2px 0 #8b5cf6 !important;
+            }
             button[data-testid="tools.data-source"] .tlui-icon,
             button[data-testid="tools.sql-text-area"] .tlui-icon { display: none !important; }
             .data-tool-wrapper button::before,
-            .data-tool-wrapper button::after { background: transparent !important; }
+            .data-tool-wrapper button::after,
+            button[data-testid="tools.agent"]::before,
+            button[data-testid="tools.agent"]::after { background: transparent !important; }
             .data-tool-wrapper.data-tool-selected button {
               background-color: var(--color-selected, #3b82f6) !important;
             }
@@ -381,44 +393,48 @@ function LocalToolbar(props: ComponentProps<typeof DefaultToolbar>) {
             }
           `}
         </style>
-        <div
-          style={{
-            position: "absolute",
-            top: -20,
-            left: 0,
-            width: "100%",
-            display: "flex",
-            justifyContent: "center",
-            pointerEvents: "none",
-            zIndex: 20,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 10,
-              color: "black",
-              fontWeight: 900,
-              textTransform: "uppercase",
-              letterSpacing: "0.5px",
-              backgroundColor: "#fde047",
-              border: "2px solid black",
-              borderRadius: 4,
-              padding: "2px 6px",
-              transform: "rotate(-2deg)",
-              boxShadow: "2px 2px 0 0 #000",
-              fontFamily: "monospace",
-            }}
-          >
-            Data Tools
-          </div>
-        </div>
-
         <DataToolButton tool={tools["data-source"]} selected={sourceSelected} color="#2563eb" label="Source">
           <Database size={20} strokeWidth={2} />
         </DataToolButton>
         <DataToolButton tool={tools["sql-text-area"]} selected={sqlSelected} color="#854d0e" label="Query">
           <FileTerminal size={20} strokeWidth={2} />
         </DataToolButton>
+        <button
+          type="button"
+          className="tlui-button tlui-button__tool"
+          data-testid="tools.agent"
+          data-kavla-agent-toolbar
+          data-kavla-agent-ui
+          aria-label="Agent"
+          aria-expanded={isAgentOpen}
+          aria-pressed={isAgentOpen}
+          title={isAgentOpen ? "Close Agent" : "Open Agent"}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (isAgentOpen) updateCodexAgent(editor, { isOpen: false });
+            else createOrFocusCodexAgent(editor);
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          style={{ position: "relative", border: 0, padding: 0, color: "#6d28d9", cursor: "pointer" }}
+        >
+          <span
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 10,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 2,
+              pointerEvents: "none",
+            }}
+          >
+            <Sparkles size={20} strokeWidth={2} />
+            <span style={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }}>Agent</span>
+          </span>
+        </button>
         <div
           style={{ width: 1, height: 32, backgroundColor: "var(--color-border)", margin: "0 4px", alignSelf: "center" }}
         />
