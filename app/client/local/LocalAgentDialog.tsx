@@ -2,7 +2,7 @@ import { notifyCodexAuth, useCodexAuth, type CodexAuth } from "../localServer/co
 import { cancelCodexRun, codexRequest, isCodexRunActive, useCodexRuns } from "../localServer/codexRuns";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { CheckCircle2, LayoutDashboard, Loader2, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
+import { CheckCircle2, LayoutDashboard, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
 import { setCodexModelSelection, useCodexModels, useCodexStatus } from "../localServer/codexStore";
 import { useData } from "../useLocalServer";
 
@@ -103,7 +103,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
           fontFamily: "Inter, sans-serif",
           overflowY: "auto",
           maxHeight: "calc(100vh - 40px)",
-          width: "min(460px, calc(100vw - 40px))",
+          width: "min(620px, calc(100vw - 40px))",
         }}
       >
         <div
@@ -161,18 +161,23 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
             )}
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 900 }}>{auth.mode === "apiKey" ? "API provider" : "Codex CLI"}</div>
-              <div style={{ fontSize: 11, lineHeight: 1.4, marginTop: 2 }}>{status.message}</div>
+              <div style={{ fontSize: 11, lineHeight: 1.4, marginTop: 2 }}>{ready ? "Connected" : status.message}</div>
             </div>
           </div>
 
           <form onSubmit={(event) => { event.preventDefault(); void saveAuth(); }} style={{ border: "2px solid #000", borderRadius: 8, padding: 11, display: "flex", flexDirection: "column", gap: 8 }}>
-            <label style={{ fontSize: 11, fontWeight: 900, display: "flex", flexDirection: "column", gap: 5 }}>
-              Connection method
+            <div style={{ display: "flex", alignItems: "flex-end", flexWrap: "wrap", gap: 8 }}>
+            <label style={{ fontSize: 11, fontWeight: 900, display: "flex", flexDirection: "column", gap: 5, flex: "1 1 180px", minWidth: 0 }}>
+              Connection
               <select aria-label="Agent connection method" value={authMode} disabled={authDisabled} onChange={(event) => { setAuthMode(event.currentTarget.value as CodexAuth["mode"]); setApiKey(""); setExtraHeaders(""); setAuthError(null); }} style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", font: "700 11px Inter, sans-serif" }}>
                 <option value="codex">Codex login</option>
                 <option value="apiKey">API provider</option>
               </select>
             </label>
+            <button type="submit" disabled={authDisabled || (authMode === "apiKey" && !canUseProvider)} style={{ flexShrink: 0, height: 34, border: "2px solid #000", borderRadius: 6, background: "#ede9fe", fontSize: 11, fontWeight: 900, padding: "0 10px", cursor: authDisabled ? "default" : "pointer", opacity: authDisabled || (authMode === "apiKey" && !canUseProvider) ? 0.5 : 1 }}>
+              {savingAuth ? "Saving…" : authMode === "apiKey" ? "Use API provider" : "Use Codex login"}
+            </button>
+            </div>
             {authMode === "apiKey" ? <>
               <label style={{ fontSize: 11, fontWeight: 800, display: "flex", flexDirection: "column", gap: 5 }}>
                 Base URL
@@ -184,54 +189,24 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
               </label>
               <label style={{ fontSize: 11, fontWeight: 800, display: "flex", flexDirection: "column", gap: 5 }}>
                 API key
-                <input type="password" autoComplete="off" spellCheck={false} autoCapitalize="none" aria-label="API key" value={apiKey} disabled={authDisabled} onChange={(event) => setApiKey(event.currentTarget.value)} placeholder={sameEndpoint && auth.hasApiKey ? "Leave blank to keep the current key" : "Optional for providers without key authentication"} style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", fontSize: 12 }} />
+                <input type="password" autoComplete="off" spellCheck={false} autoCapitalize="none" aria-label="API key" value={apiKey} disabled={authDisabled} onChange={(event) => setApiKey(event.currentTarget.value)} placeholder={sameEndpoint && auth.hasApiKey ? "Leave blank to keep the current key" : "Optional if your provider needs no key"} style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", fontSize: 12 }} />
               </label>
               <details>
                 <summary style={{ fontSize: 11, fontWeight: 800, cursor: "pointer" }}>Extra headers (optional)</summary>
                 <label style={{ fontSize: 10, display: "flex", flexDirection: "column", gap: 5, marginTop: 6 }}>
                   Headers as JSON
-                  <textarea aria-label="API extra headers" value={extraHeaders} disabled={authDisabled} onChange={(event) => setExtraHeaders(event.currentTarget.value)} placeholder={sameEndpoint && auth.hasHeaders ? "Headers are saved. Leave blank to keep them; enter {} to clear them." : '{"cf-aig-gateway-id":"kavla"}'} autoComplete="off" spellCheck={false} autoCapitalize="none" rows={3} style={{ border: "2px solid #000", borderRadius: 6, padding: 8, background: "#fff", color: "#000", fontSize: 11, resize: "vertical" }} />
+                  <textarea aria-label="API extra headers" value={extraHeaders} disabled={authDisabled} onChange={(event) => setExtraHeaders(event.currentTarget.value)} placeholder={sameEndpoint && auth.hasHeaders ? "Leave blank to keep saved headers; {} to clear." : '{"cf-aig-gateway-id":"kavla"}'} autoComplete="off" spellCheck={false} autoCapitalize="none" rows={3} style={{ border: "2px solid #000", borderRadius: 6, padding: 8, background: "#fff", color: "#000", fontSize: 11, resize: "vertical" }} />
                 </label>
               </details>
               <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>
-                Works with providers that support Chat Completions and tool calling, including Cloudflare. Use the base URL before /chat/completions.
-                {sameEndpoint && auth.keySource === "environment" ? " Using the API key configured on the server." : ""}
-                {" "}Settings are saved in ~/.kavla/agent.yaml on the computer running Kavla and restored at startup. Changing the base URL clears saved credentials; enter credentials for the new provider. API usage is billed by your provider.
+                Use a Chat Completions-compatible provider with tool calling. Omit /chat/completions from the URL.
+                {sameEndpoint && auth.keySource === "environment" ? " Using the server’s API key." : ""}
+                {!sameEndpoint && (auth.hasApiKey || auth.hasHeaders) ? " New URL: re-enter your credentials." : ""}
               </div>
-            </> : <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>Uses the existing login from Codex on the server. Switching back discards API credentials entered in Kavla.</div>}
-            <button type="submit" disabled={authDisabled || (authMode === "apiKey" && !canUseProvider)} style={{ alignSelf: "flex-end", minHeight: 32, border: "2px solid #000", borderRadius: 6, background: "#ede9fe", fontSize: 11, fontWeight: 900, padding: "0 10px", cursor: authDisabled ? "default" : "pointer", opacity: authDisabled || (authMode === "apiKey" && !canUseProvider) ? 0.5 : 1 }}>
-              {savingAuth ? "Saving…" : authMode === "apiKey" ? "Use API provider" : "Use Codex login"}
-            </button>
+            </> : auth.mode === "apiKey" ? <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>Switching clears saved API credentials.</div> : null}
             {hasActiveRun && <div style={{ fontSize: 10, color: "#57534e" }}>Stop the current run before changing the connection.</div>}
             {authError && <div role="alert" style={{ fontSize: 11, color: "#991b1b" }}>{authError}</div>}
           </form>
-
-          <div style={{ border: "2px solid #000", borderRadius: 8, overflow: "hidden" }}>
-            <div
-              style={{
-                alignItems: "center",
-                borderBottom: "1px solid #d6d3d1",
-                display: "flex",
-                gap: 9,
-                padding: "9px 11px",
-              }}
-            >
-              <Sparkles color="#6d28d9" size={17} strokeWidth={3} />
-              <div>
-                <strong style={{ fontSize: 11 }}>{auth.mode === "apiKey" ? "API provider" : "Connected account"}</strong>
-                <div style={{ color: "#57534e", fontSize: 10, marginTop: 1 }}>{auth.mode === "apiKey" ? "Calls your provider directly from the Kavla server" : "Uses Codex on the machine running Kavla"}</div>
-              </div>
-            </div>
-            <div style={{ alignItems: "center", display: "flex", gap: 9, padding: "9px 11px" }}>
-              <ShieldCheck color="#15803d" size={17} strokeWidth={3} />
-              <div>
-                <strong style={{ fontSize: 11 }}>Canvas-only access</strong>
-                <div style={{ color: "#57534e", fontSize: 10, lineHeight: 1.4, marginTop: 1 }}>
-                  Uses your canvas as context. Queries and new analysis stay visible on the canvas.
-                </div>
-              </div>
-            </div>
-          </div>
 
           <div
             style={{
@@ -246,12 +221,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
           >
             <div style={{ alignItems: "center", display: "flex", gap: 8 }}>
               <Sparkles color="#6d28d9" size={17} strokeWidth={3} />
-              <div>
-                <strong style={{ fontSize: 11 }}>Agent models</strong>
-                <div style={{ color: "#57534e", fontSize: 10, lineHeight: 1.35, marginTop: 1 }}>
-                  Available through the selected connection.
-                </div>
-              </div>
+              <strong style={{ fontSize: 11 }}>Models</strong>
             </div>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <span style={{ fontSize: 10, fontWeight: 900 }}>Main agent</span>
@@ -276,9 +246,6 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
                   </option>
                 ))}
               </select>
-              <span style={{ color: "#57534e", fontSize: 9, lineHeight: 1.35 }}>
-                Handles analysis, SQL generation, charts, Lens, summaries, and notes.
-              </span>
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <span style={{ alignItems: "center", display: "flex", fontSize: 10, fontWeight: 900, gap: 5 }}>
@@ -306,13 +273,13 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
                 ))}
               </select>
               <span style={{ color: "#57534e", fontSize: 9, lineHeight: 1.35 }}>
-                Used when “Plan layout before analysis” is enabled in chat.
+                Used when layout planning is enabled in chat.
               </span>
             </label>
           </div>
 
-          {runs.length > 0 && <section aria-label="Recent agent runs" style={{ border: "2px solid #000", borderRadius: 8, padding: 10 }}>
-            <strong style={{ fontSize: 12 }}>Recent runs</strong>
+          {runs.length > 0 && <details aria-label="Recent agent runs" style={{ border: "2px solid #000", borderRadius: 8, padding: 10 }}>
+            <summary style={{ fontSize: 12, fontWeight: 800, cursor: "pointer" }}>Recent runs</summary>
             <div style={{ maxHeight: 190, overflowY: "auto", marginTop: 6 }}>
               {[...runs].reverse().slice(0, 10).map((run) => <div key={run.id} style={{ borderTop: "1px solid #d6d3d1", padding: "7px 0", fontSize: 11 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
@@ -326,9 +293,10 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
               </div>)}
             </div>
             {runError && <div role="alert" style={{ color: "#991b1b", fontSize: 11 }}>{runError}</div>}
-          </section>}
+          </details>}
 
-          <div style={{ alignItems: "center", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
+            <span style={{ color: "#57534e", fontSize: 10, marginRight: "auto" }}>Config: <code>~/.kavla/agent.yaml</code></span>
             {!ready && status.state !== "checking" ? (
               <button
                 onClick={retryCodex}

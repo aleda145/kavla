@@ -55,7 +55,7 @@ export function appendCodexAgentEntry(
 }
 
 export function getAgentContextShapeIds(editor: Editor): TLShapeId[] {
-  const selected = editor.getSelectedShapeIds().filter((id) => id !== CODEX_AGENT_SHAPE_ID);
+  const selected = editor.getSelectedShapeIds().filter((id) => id !== CODEX_AGENT_SHAPE_ID && editor.getShape(id)?.type !== "agent-blob");
   if (selected.length > 0) return selected.slice(0, 8);
   const recent = [...new Set((getCodexAgent(editor)?.props.entries ?? []).slice(-30).reverse().flatMap((entry) => [...(entry.shapeIds ?? []), ...(entry.contextShapeIds ?? [])]))]
     .filter((id) => Boolean(editor.getShape(id as TLShapeId)));

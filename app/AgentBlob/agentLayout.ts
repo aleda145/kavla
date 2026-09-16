@@ -58,7 +58,7 @@ export function getAgentPlacement(
     height: 0,
   };
   const occupied = editor.getCurrentPageShapes()
-    .filter((shape) => shape.id !== movingShapeId && shape.type !== "arrow" && shape.type !== "codex-agent")
+    .filter((shape) => shape.id !== movingShapeId && shape.type !== "arrow" && shape.type !== "codex-agent" && shape.type !== "agent-blob")
     .flatMap((shape) => {
       const bounds = editor.getShapePageBounds(shape.id);
       return bounds ? [{

@@ -1,19 +1,40 @@
-import { useEffect, useRef } from "react";
-import { useEditor } from "tldraw";
+import { useCallback, useEffect, useRef } from "react";
+import { useEditor, type TLShapeId } from "tldraw";
 import { useData } from "../client/useLocalServer";
 import { codexClientId, codexRequest, cancelCodexRun, createCodexToolEnvironment, getCodexRuns, isCodexRunActive, useCodexRuns } from "../client/localServer/codexRuns";
 import { stageCanvas } from "../client/local/localSession";
 import { executeCodexCanvasTool } from "./codexCanvasTools";
 import { appendCodexAgentEntry, createOrFocusCodexAgent, getCodexAgent, updateCodexAgent } from "./codex-agent-store";
-import { getShapeCitations } from "./codex-shape-references";
+import { getShapeCitations, isContextShape } from "./codex-shape-references";
 import type { LensShape } from "../Lens/lens-shape-types";
+import { AGENT_BLOB_SHAPE_ID, getAgentBlob, moveAgentBlobToShape, removeAgentBlob, setAgentBlobStatus, startAgentBlob } from "./agent-blob-store";
 
-export function CodexAgentRuntime({ onActivityShape }: { onActivityShape: (shapeId: string) => void }) {
+export function CodexAgentRuntime() {
   const editor = useEditor();
   const data = useData();
   const runs = useCodexRuns();
   const controllers = useRef(new Map<string, AbortController>());
   const handled = useRef(new Set<string>());
+  const blobRunId = useRef<string | null>(null);
+  const onActivityShape = useCallback((shapeId: string) => {
+    const run = getCodexRuns().find(isCodexRunActive);
+    if (!run || shapeId === AGENT_BLOB_SHAPE_ID) return;
+    editor.run(() => {
+      moveAgentBlobToShape(editor, shapeId as TLShapeId, run.id, run.activity, { status: "working" });
+    }, { history: "ignore" });
+  }, [editor]);
+
+  useEffect(() => editor.sideEffects.registerAfterChangeHandler("shape", (previous, next) => {
+    if (next.id === AGENT_BLOB_SHAPE_ID) return;
+    const blob = getAgentBlob(editor);
+    if (!blob?.props.targetShapeIds?.includes(next.id)) return;
+    const previousSize = previous.props as { w?: number; h?: number };
+    const nextSize = next.props as { w?: number; h?: number };
+    if (previous.x === next.x && previous.y === next.y && previous.rotation === next.rotation && previous.parentId === next.parentId && previousSize.w === nextSize.w && previousSize.h === nextSize.h) return;
+    editor.run(() => {
+      moveAgentBlobToShape(editor, next.id, blob.props.currentJobId, blob.props.lastMessage, { status: blob.props.status });
+    }, { history: "ignore" });
+  }), [editor]);
 
   useEffect(() => {
     const stop = (event: Event) => {
@@ -67,6 +88,21 @@ export function CodexAgentRuntime({ onActivityShape }: { onActivityShape: (shape
     const agent = getCodexAgent(editor)!;
     const next = { isRunning: Boolean(active), streamingText: active?.text || "", activity: active?.activity || null, codexThreadId: latest?.threadId || agent.props.codexThreadId };
     if (Object.entries(next).some(([key, value]) => agent.props[key as keyof typeof next] !== value)) updateCodexAgent(editor, next);
+    editor.run(() => {
+      if (active) {
+        if (blobRunId.current !== active.id) {
+          blobRunId.current = active.id;
+          if (getAgentBlob(editor)?.props.currentJobId !== active.id) {
+            startAgentBlob(editor, active.id, editor.getSelectedShapes().find(isContextShape)?.id);
+          }
+        }
+        const blob = getAgentBlob(editor);
+        setAgentBlobStatus(editor, blob?.props.targetShapeIds?.length ? "working" : "thinking", active.id, active.activity);
+      } else if (latest && getAgentBlob(editor)?.props.currentJobId === latest.id) {
+        if (latest.status === "completed") setAgentBlobStatus(editor, "done", latest.id, "Done");
+        else removeAgentBlob(editor);
+      }
+    }, { history: "ignore" });
     if (active) {
       const call = [...active.tools].reverse().find((call) => call.status === "pending" || call.status === "running") || active.tools[active.tools.length - 1];
       const target = call?.result?.shapeId || call?.arguments.shapeId || call?.arguments.sourceShapeId;

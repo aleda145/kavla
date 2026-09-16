@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
 import { LocateFixed, Loader2, Send, Sparkles, Square, Trash2, X } from "lucide-react";
 import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useCodexModels, useCodexStatus } from "../client/localServer/codexStore";
 import { useData } from "../client/useLocalServer";
 import { hydratePromptCanvasContext } from "./codexCanvasTools";
 import { appendCodexAgentEntry, createOrFocusCodexAgent, getCodexAgent, updateCodexAgent } from "./codex-agent-store";
+import { AGENT_BLOB_SHAPE_ID, getAgentBlob, removeAgentBlob, startAgentBlob } from "./agent-blob-store";
 import type { CodexAgentEntry } from "./codex-agent-types";
 import { CodexAgentRuntime } from "./CodexAgentRuntime";
 import { getCanvasBadges, getMentionRanges, getShapeCitations, type ContextBadge } from "./codex-shape-references";
@@ -100,7 +101,7 @@ function AnswerText({ text, badgesById, onNavigate }: {
   })}{text.slice(offset)}</>;
 }
 
-function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
+function CodexChatOverlay() {
   const editor = useEditor();
   const dataSocket = useData();
   const codexStatus = useCodexStatus();
@@ -142,9 +143,9 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
     if (showMentions) document.getElementById(`codex-mention-${activeMentionIndex}`)?.scrollIntoView({ block: "nearest" });
   }, [showMentions, activeMentionIndex]);
   const activeBounds = useValue("Kavla Codex active shape", () => {
-    const bounds = activeShapeId ? editor.getShapePageBounds(activeShapeId as TLShapeId) : null;
+    const bounds = editor.getShapePageBounds(AGENT_BLOB_SHAPE_ID);
     return bounds ? { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h } : null;
-  }, [editor, activeShapeId]);
+  }, [editor]);
 
   useEffect(() => {
     if (!isFollowing || !activeBounds) return;
@@ -225,6 +226,7 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
     const contextShapeIds = contextBadges.map((badge) => badge.id);
     const runId = crypto.randomUUID();
     try {
+      editor.run(() => startAgentBlob(editor, runId, contextShapeIds[0]), { history: "ignore" });
       const context = await hydratePromptCanvasContext(editor, dataSocket, contextShapeIds);
       if (getCodexRuns().some(isCodexRunActive)) throw new Error("The Agent started another run. Wait or stop it before sending.");
       await stageCanvas(editor);
@@ -241,6 +243,9 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
       else appendCodexAgentEntry(editor, { role: "user", runId, text, contextShapeIds });
       setPrompt(""); setCursor(0); setChosenMentions([]); setDismissedMention(null);
     } catch (error) {
+      if (getAgentBlob(editor)?.props.currentJobId === runId) {
+        editor.run(() => removeAgentBlob(editor), { history: "ignore" });
+      }
       appendCodexAgentEntry(editor, { role: "error", text: error instanceof Error ? error.message : String(error) });
     } finally { setIsSending(false); }
   };
@@ -685,29 +690,12 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
   );
 }
 
-function AnalystMarker({ shapeId }: { shapeId: string | null }) {
-  const editor = useEditor();
-  const runs = useCodexRuns();
-  const run = runs.find(isCodexRunActive);
-  const point = useValue("analyst marker position", () => {
-    const bounds = shapeId ? editor.getShapePageBounds(shapeId as TLShapeId) : null;
-    return bounds ? editor.pageToScreen({ x: bounds.maxX, y: bounds.minY }) : null;
-  }, [editor, shapeId]);
-  if (!run || !point) return null;
-  return <div data-kavla-agent-ui aria-hidden="true" style={{ position: "fixed", left: point.x + 10, top: point.y - 20, zIndex: 99999, pointerEvents: "none", display: "flex", alignItems: "center", gap: 6, padding: "6px 9px", background: "#ede9fe", border: "2px solid #000", borderRadius: 20, boxShadow: "3px 3px 0 #000", font: "800 11px Inter, sans-serif", maxWidth: 230, transition: "left 180ms ease, top 180ms ease" }}>
-    <Sparkles color="#6d28d9" size={19} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{run.activity || "Thinking…"}</span>
-  </div>;
-}
-
 export function CodexAgentLayer() {
-  const [activeShapeId, setActiveShapeId] = useState<string | null>(null);
-  const onActivityShape = useCallback((shapeId: string) => setActiveShapeId(shapeId), []);
   if (!getActiveLocalSession()) return null;
   return (
     <>
-      <CodexAgentRuntime onActivityShape={onActivityShape} />
-      <CodexChatOverlay activeShapeId={activeShapeId} />
-      <AnalystMarker shapeId={activeShapeId} />
+      <CodexAgentRuntime />
+      <CodexChatOverlay />
     </>
   );
 }
