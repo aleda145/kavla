@@ -13,6 +13,3 @@ var sqlDeveloperInstructions string
 
 //go:embed prompts/lens.txt
 var lensDeveloperInstructions string
-
-//go:embed prompts/layout.txt
-var layoutDeveloperInstructions string

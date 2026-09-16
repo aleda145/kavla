@@ -109,7 +109,6 @@ function CodexChatOverlay() {
   const [prompt, setPrompt] = useState("");
   const runs = useCodexRuns();
   const [isSending, setIsSending] = useState(false);
-  const [planLayout, setPlanLayout] = useState(false);
   const highlightsRef = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState(0);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -235,7 +234,7 @@ function CodexChatOverlay() {
         prompt: text, threadId: currentAgent?.props.codexThreadId ?? null,
         context: { ...context, mentions: mentionRanges.map(({ badge }) => ({ name: badge.name, shapeId: badge.id })) },
         fallbackHistory: fallbackHistory(currentAgent?.props.entries ?? []),
-        mainModel: codexModels.mainModel, layoutModel: codexModels.layoutModel, planLayout,
+        mainModel: codexModels.mainModel,
       });
       const latest = getCodexAgent(editor);
       const userEntry = latest?.props.entries.find((entry) => entry.role === "user" && entry.runId === runId);
@@ -577,9 +576,6 @@ function CodexChatOverlay() {
                 )) : <div style={{ padding: 9, fontSize: 11 }}>No matching shapes</div>}
               </div>
             ) : null}
-            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, marginBottom: 5 }}>
-              <input type="checkbox" checked={planLayout} disabled={isRunning} onChange={(event) => setPlanLayout(event.currentTarget.checked)} /> Plan layout before analysis
-            </label>
             <div
               style={{
                 background: "#fff",

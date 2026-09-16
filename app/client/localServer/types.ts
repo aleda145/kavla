@@ -40,13 +40,11 @@ export interface QueryResultPage {
 
 export interface CodexPromptPayload {
   runId: string;
-  planLayout?: boolean;
   prompt: string;
   threadId: string | null;
   context: unknown;
   fallbackHistory: string;
   mainModel?: string;
-  layoutModel?: string;
 }
 
 export interface CodexToolResultPayload {

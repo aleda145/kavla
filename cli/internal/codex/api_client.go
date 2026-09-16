@@ -350,10 +350,6 @@ func (c *APIClient) focusedCompletion(ctx context.Context, model, prompt string,
 	return completion.text, nil
 }
 
-func (c *APIClient) PlanLayout(ctx context.Context, model, prompt string, canvasContext interface{}) (string, error) {
-	return c.focusedCompletion(ctx, model, prompt, canvasContext, layoutDeveloperInstructions)
-}
-
 func (c *APIClient) Generate(ctx context.Context, mode, model, prompt string, canvasContext interface{}) (map[string]interface{}, error) {
 	instructions := sqlDeveloperInstructions
 	if mode == "lens" { instructions = lensDeveloperInstructions }

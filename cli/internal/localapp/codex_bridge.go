@@ -238,11 +238,9 @@ type codexPromptRequest struct {
  RunID string `json:"runId"`
  DocumentID string `json:"documentId"`
  ClientID string `json:"clientId"`
- PlanLayout bool `json:"planLayout"`
 	Prompt          string      `json:"prompt"`
 	ThreadID        string      `json:"threadId"`
 	MainModel       string      `json:"mainModel"`
-	LayoutModel     string      `json:"layoutModel"`
 	FallbackHistory string      `json:"fallbackHistory"`
 	Context         interface{} `json:"context"`
 }
@@ -261,9 +259,9 @@ func (s *Server) handleCodexPrompt(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-func resolveCodexModels(models []codex.Model, requestedMain, requestedLayout string) (string, string, error) {
+func resolveCodexModel(models []codex.Model, requestedMain string) (string, error) {
 	if len(models) == 0 {
-		return "", "", fmt.Errorf("The Agent has no available models")
+		return "", fmt.Errorf("The Agent has no available models")
 	}
 	find := func(requested string) string {
 		requested = strings.TrimSpace(requested)
@@ -276,7 +274,7 @@ func resolveCodexModels(models []codex.Model, requestedMain, requestedLayout str
 	}
 	mainModel := find(requestedMain)
 	if strings.TrimSpace(requestedMain) != "" && mainModel == "" {
-		return "", "", fmt.Errorf("the selected main Agent model is not available")
+		return "", fmt.Errorf("the selected main Agent model is not available")
 	}
 	if mainModel == "" {
 		mainModel = find("gpt-5.6-sol")
@@ -293,17 +291,7 @@ func resolveCodexModels(models []codex.Model, requestedMain, requestedLayout str
 		mainModel = models[0].Model
 	}
 
-	layoutModel := find(requestedLayout)
-	if strings.TrimSpace(requestedLayout) != "" && layoutModel == "" {
-		return "", "", fmt.Errorf("the selected layout Agent model is not available")
-	}
-	if layoutModel == "" {
-		layoutModel = find("gpt-5.6-terra")
-	}
-	if layoutModel == "" {
-		layoutModel = mainModel
-	}
-	return mainModel, layoutModel, nil
+	return mainModel, nil
 }
 
 func (s *Server) handleCodexCancel(w http.ResponseWriter, r *http.Request) {

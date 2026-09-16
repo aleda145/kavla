@@ -18,11 +18,10 @@ export type CodexModel = {
 export type CodexModelSelection = {
   models: CodexModel[];
   mainModel: string;
-  layoutModel: string;
 };
 
 export type CodexEvent = {
-  eventType: "layout_started" | "started" | "message_delta" | "tool_started" | "tool_finished" | "completed" | "cancelled" | "error" | "warning";
+  eventType: "started" | "message_delta" | "tool_started" | "tool_finished" | "completed" | "cancelled" | "error" | "warning";
   data: Record<string, unknown>;
 };
 
@@ -47,7 +46,6 @@ const threadListeners = new Set<(thread: CodexThread) => void>();
 const modelListeners = new Set<(selection: CodexModelSelection) => void>();
 
 const MAIN_MODEL_KEY = "kavla.codex.mainModel";
-const LAYOUT_MODEL_KEY = "kavla.codex.layoutModel";
 
 let currentStatus: CodexStatus = {
   state: "checking",
@@ -57,7 +55,6 @@ let currentStatus: CodexStatus = {
 let currentModels: CodexModelSelection = {
   models: [],
   mainModel: "",
-  layoutModel: "",
 };
 
 function storedModel(key: string): string {
@@ -86,12 +83,6 @@ function defaultMainModel(models: CodexModel[]): string {
     || models.find((model) => model.isDefault)?.model
     || models[0]?.model
     || "";
-}
-
-function defaultLayoutModel(models: CodexModel[], mainModel: string): string {
-  return availableModel(models, storedModel(LAYOUT_MODEL_KEY))
-    || availableModel(models, "gpt-5.6-terra")
-    || mainModel;
 }
 
 export function notifyCodexStatus(value: unknown) {
@@ -162,18 +153,15 @@ export function notifyCodexModels(value: unknown) {
     }];
   });
   const mainModel = availableModel(models, currentModels.mainModel) || defaultMainModel(models);
-  const layoutModel = availableModel(models, currentModels.layoutModel) || defaultLayoutModel(models, mainModel);
-  currentModels = { models, mainModel, layoutModel };
+  currentModels = { models, mainModel };
   modelListeners.forEach((listener) => listener(currentModels));
 }
 
-export function setCodexModelSelection(role: "main" | "layout", requested: string) {
+export function setCodexModelSelection(requested: string) {
   const model = availableModel(currentModels.models, requested);
   if (!model) return;
-  currentModels = role === "main"
-    ? { ...currentModels, mainModel: model }
-    : { ...currentModels, layoutModel: model };
-  persistModel(role === "main" ? MAIN_MODEL_KEY : LAYOUT_MODEL_KEY, model);
+  currentModels = { ...currentModels, mainModel: model };
+  persistModel(MAIN_MODEL_KEY, model);
   modelListeners.forEach((listener) => listener(currentModels));
 }
 

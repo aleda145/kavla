@@ -64,7 +64,7 @@ func TestAPIClientToolLoop(t *testing.T) {
 	defer client.Close()
 	thread, resumed, err := client.StartOrResumeThread(context.Background(), "old-codex-thread", "test-model")
 	if err != nil || resumed { t.Fatalf("start thread: resumed=%v, err=%v", resumed, err) }
-	prompt, err := BuildPrompt("Create a note", map[string]interface{}{}, "Earlier conversation", "")
+	prompt, err := BuildPrompt("Create a note", map[string]interface{}{}, "Earlier conversation")
 	if err != nil { t.Fatal(err) }
 	if _, err := client.StartTurn(context.Background(), thread, prompt); err != nil { t.Fatal(err) }
 	select {
@@ -83,7 +83,7 @@ func TestAPIClientFocusedGeneration(t *testing.T) {
 		if body["stream"] != false || body["tools"] != nil { t.Error("focused generation must use complete text without tools") }
 		messages := body["messages"].([]interface{})
 		instructions := messages[0].(map[string]interface{})["content"].(string)
-		content := "A layout plan"
+		content := ""
 		if instructions == sqlDeveloperInstructions { content = "```json\n{\"sql\":\"SELECT 1\"}\n```" }
 		if instructions == lensDeveloperInstructions { content = `{"code":"export default function Lens() { return null; }"}` }
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"choices": []interface{}{map[string]interface{}{"finish_reason": "stop", "message": map[string]string{"role": "assistant", "content": content}}}})
@@ -98,7 +98,6 @@ func TestAPIClientFocusedGeneration(t *testing.T) {
 		if mode == "sql" && result["sql"] != "SELECT 1" { t.Fatal(result) }
 		if mode == "lens" && result["code"] == nil { t.Fatal(result) }
 	}
-	if text, err := client.PlanLayout(context.Background(), "test-model", "Plan", nil); err != nil || text != "A layout plan" { t.Fatalf("layout: %q, %v", text, err) }
 }
 
 func TestAPIClientInterruptsPendingTool(t *testing.T) {

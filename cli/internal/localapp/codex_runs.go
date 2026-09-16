@@ -137,7 +137,7 @@ func (s *Server) startCodexPrompt(request codexPromptRequest) error {
  if s.codexAuthChanging { s.codexMu.Unlock(); return fmt.Errorf("Agent authentication is changing; wait for it to reconnect") }
  if client == nil || s.codexStatus.State != "ready" { message := s.codexStatus.Message; s.codexMu.Unlock(); return fmt.Errorf("%s", message) }
  if activeCodexRun(s.codexRun) { s.codexMu.Unlock(); return fmt.Errorf("the Agent is already working; stop the current run first") }
- model, layoutModel, err := resolveCodexModels(s.codexModels, request.MainModel, request.LayoutModel)
+ model, err := resolveCodexModel(s.codexModels, request.MainModel)
  if err != nil { s.codexMu.Unlock(); return err }
  ctx, cancel := context.WithTimeout(s.codexContext, codexRunTimeout)
  run := &codexRunState{ID: request.RunID, DocumentID: request.DocumentID, ClientID: request.ClientID, Model: model, Prompt: request.Prompt, Status: "planning", Activity: "Preparing analysis…", CreatedAt: time.Now().UnixMilli(), Revision: 1, Tools: []*codexToolState{}, ctx: ctx, cancel: cancel}
@@ -153,13 +153,6 @@ func (s *Server) startCodexPrompt(request codexPromptRequest) error {
  go func() {
   defer s.workers.Done()
   defer func() { <-ctx.Done(); if ctx.Err() == context.DeadlineExceeded { s.cancelCodexRun(run.ID, "Agent run exceeded its 15-minute limit. Existing canvas work has been kept.") } }()
-  layoutPlan := ""
-  if request.PlanLayout {
-   layoutContext, cancelLayout := context.WithTimeout(ctx, codexOperationTimeout)
-   layoutPlan, err = client.PlanLayout(layoutContext, layoutModel, request.Prompt, request.Context)
-   cancelLayout()
-   if err != nil && ctx.Err() == nil { s.logCLIOutput("Layout planner unavailable; using automatic placement: %v\n", err) }
-  }
   if ctx.Err() != nil { return }
   operationContext, cancelOperation := context.WithTimeout(ctx, codexOperationTimeout)
   defer cancelOperation()
@@ -167,7 +160,7 @@ func (s *Server) startCodexPrompt(request codexPromptRequest) error {
   if err != nil { s.finishCodexRun(run.ID, "failed", err.Error()); return }
   history := ""
   if !resumed { history = request.FallbackHistory }
-  prompt, err := codex.BuildPrompt(request.Prompt, request.Context, history, layoutPlan)
+  prompt, err := codex.BuildPrompt(request.Prompt, request.Context, history)
   if err != nil { s.finishCodexRun(run.ID, "failed", err.Error()); return }
   s.codexMu.Lock()
   if !activeCodexRun(run) || s.codexRun != run { s.codexMu.Unlock(); return }

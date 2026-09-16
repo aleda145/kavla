@@ -3,7 +3,6 @@ These are the full prompts from `kavla-main/tldraw-sync-cloudflare/worker/dataSo
 - `agent.txt`: `buildDagOrchestratorSystemPrompt`.
 - `sql.txt`: `buildSQLAgentSystemPrompt`.
 - `lens.txt`: `buildLensWidgetSystemPrompt`, including the complete `getLensVizCatalogPrompt`.
-- `layout.txt`: the complete layout planner prompt from the original Codex port in `codex_branch.txt`. The current `kavla-main` DAG runtime places artifacts in the browser and has no separate layout model prompt.
 
 Keep the original analysis, visualization, styling, and editing guidance intact when updating these files. The local integration needs these adaptations:
 

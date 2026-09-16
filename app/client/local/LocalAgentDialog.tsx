@@ -2,7 +2,7 @@ import { notifyCodexAuth, useCodexAuth, type CodexAuth } from "../localServer/co
 import { cancelCodexRun, codexRequest, isCodexRunActive, useCodexRuns } from "../localServer/codexRuns";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { CheckCircle2, LayoutDashboard, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
 import { setCodexModelSelection, useCodexModels, useCodexStatus } from "../localServer/codexStore";
 import { useData } from "../useLocalServer";
 
@@ -221,14 +221,14 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
           >
             <div style={{ alignItems: "center", display: "flex", gap: 8 }}>
               <Sparkles color="#6d28d9" size={17} strokeWidth={3} />
-              <strong style={{ fontSize: 11 }}>Models</strong>
+              <strong style={{ fontSize: 11 }}>Model</strong>
             </div>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <span style={{ fontSize: 10, fontWeight: 900 }}>Main agent</span>
               <select
                 aria-label="Main agent model"
                 disabled={!ready || modelSelection.models.length === 0}
-                onChange={(event) => setCodexModelSelection("main", event.currentTarget.value)}
+                onChange={(event) => setCodexModelSelection(event.currentTarget.value)}
                 style={{
                   background: "#fff",
                   border: "2px solid #000",
@@ -246,35 +246,6 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
                   </option>
                 ))}
               </select>
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ alignItems: "center", display: "flex", fontSize: 10, fontWeight: 900, gap: 5 }}>
-                <LayoutDashboard size={12} strokeWidth={3} /> Layout planner
-              </span>
-              <select
-                aria-label="Layout planner model"
-                disabled={!ready || modelSelection.models.length === 0}
-                onChange={(event) => setCodexModelSelection("layout", event.currentTarget.value)}
-                style={{
-                  background: "#fff",
-                  border: "2px solid #000",
-                  borderRadius: 6,
-                  color: "#000",
-                  font: "700 11px Inter, sans-serif",
-                  height: 34,
-                  padding: "0 8px",
-                }}
-                value={modelSelection.layoutModel}
-              >
-                {modelSelection.models.map((model) => (
-                  <option key={model.model} value={model.model}>
-                    {model.displayName}
-                  </option>
-                ))}
-              </select>
-              <span style={{ color: "#57534e", fontSize: 9, lineHeight: 1.35 }}>
-                Used when layout planning is enabled in chat.
-              </span>
             </label>
           </div>
 
