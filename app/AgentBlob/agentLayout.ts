@@ -1,4 +1,5 @@
 import type { Editor, TLShapeId } from "tldraw";
+import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 
 export type AgentPlacement = "right" | "below" | "above" | "summary";
 
@@ -118,5 +119,73 @@ export function getAgentPlacement(
     }
   }
 
-  return candidates.sort((a, b) => a.score - b.score)[0] ?? { x: anchor.maxX + xGap, y: anchor.minY };
+  return candidates.sort((a, b) => a.score - b.score)[0]
+    ?? { x: Math.max(anchor.maxX, ...occupied.map((rect) => rect.maxX)) + xGap, y: anchor.minY };
+}
+
+function getQueryLayout(shape: SQLTextAreaShape): AgentLayout | null {
+  const layout = shape.meta.agentQueryLayout;
+  if (!layout || typeof layout !== "object" || Array.isArray(layout)) return null;
+  return getAgentLayout({ layout }, shape.props.upstreamShapeIds?.[0] as TLShapeId | undefined ?? null, "right");
+}
+
+export function trackAgentQueryLayout(editor: Editor, shapeId: TLShapeId, layout: AgentLayout) {
+  const shape = editor.getShape<SQLTextAreaShape>(shapeId);
+  if (shape?.type !== "sql-text-area") return;
+  editor.updateShape<SQLTextAreaShape>({
+    id: shapeId,
+    type: "sql-text-area",
+    meta: { ...shape.meta, agentQueryLayout: { ...layout } },
+  });
+  reflowAgentQuery(editor, shapeId);
+}
+
+function hasLayoutCollision(editor: Editor, shapeId: TLShapeId) {
+  const bounds = editor.getShapePageBounds(shapeId);
+  if (!bounds) return false;
+  return editor.getCurrentPageShapes().some((other) => {
+    if (other.id === shapeId || ["arrow", "codex-agent", "agent-blob"].includes(other.type)) return false;
+    // Frames and groups contain their children intentionally.
+    if (editor.hasAncestor(shapeId, other.id) || editor.hasAncestor(other.id, shapeId)) return false;
+    const otherBounds = editor.getShapePageBounds(other.id);
+    return otherBounds && overlaps(bounds, {
+      minX: otherBounds.minX - 28,
+      minY: otherBounds.minY - 28,
+      maxX: otherBounds.maxX + 28,
+      maxY: otherBounds.maxY + 28,
+    });
+  });
+}
+
+export function reflowAgentQuery(editor: Editor, shapeId: TLShapeId) {
+  const query = editor.getShape<SQLTextAreaShape>(shapeId);
+  if (query?.type !== "sql-text-area" || query.isLocked || query.props.isManuallyResized) return;
+  const layout = getQueryLayout(query);
+  if (!layout) return;
+  const bounds = editor.getShapePageBounds(shapeId);
+  if (!bounds) return;
+  if (hasLayoutCollision(editor, shapeId)) {
+    const placement = getAgentPlacement(editor, layout, layout.parentShapeId, { w: bounds.w, h: bounds.h }, shapeId);
+    const origin = editor.getPointInParentSpace(query, placement);
+    editor.updateShape({ id: shapeId, type: query.type, x: origin.x, y: origin.y });
+  }
+  const resultId = query.props.linkedTableId as TLShapeId | null;
+  const result = resultId ? editor.getShape(resultId) : null;
+  const resultBounds = resultId ? editor.getShapePageBounds(resultId) : null;
+  if (result?.type === "sql-result-table" && !result.isLocked && resultBounds && hasLayoutCollision(editor, result.id)) {
+    const placement = getAgentPlacement(editor, { parentShapeId: shapeId, placement: "below", order: layout.order }, shapeId, { w: resultBounds.w, h: resultBounds.h }, result.id);
+    const origin = editor.getPointInParentSpace(result, placement);
+    editor.updateShape({ id: result.id, type: result.type, x: origin.x, y: origin.y });
+  }
+}
+
+export function registerAgentQueryReflow(editor: Editor) {
+  return editor.sideEffects.registerAfterChangeHandler("shape", (previous, next) => {
+    if (previous.type !== "sql-text-area" || next.type !== "sql-text-area") return;
+    const before = previous as SQLTextAreaShape;
+    const after = next as SQLTextAreaShape;
+    if (before.props.w === after.props.w && before.props.h === after.props.h) return;
+    if (after.props.w <= before.props.w && after.props.h <= before.props.h) return;
+    editor.run(() => reflowAgentQuery(editor, after.id), { history: "ignore" });
+  });
 }

@@ -7,6 +7,7 @@ import { executeCodexCanvasTool } from "./codexCanvasTools";
 import { appendCodexAgentEntry, createOrFocusCodexAgent, getCodexAgent, updateCodexAgent } from "./codex-agent-store";
 import { getShapeCitations, isContextShape } from "./codex-shape-references";
 import type { LensShape } from "../Lens/lens-shape-types";
+import { registerAgentQueryReflow } from "./agentLayout";
 import { AGENT_BLOB_SHAPE_ID, getAgentBlob, moveAgentBlobToShape, removeAgentBlob, setAgentBlobStatus, startAgentBlob } from "./agent-blob-store";
 
 export function CodexAgentRuntime() {
@@ -16,6 +17,7 @@ export function CodexAgentRuntime() {
   const controllers = useRef(new Map<string, AbortController>());
   const handled = useRef(new Set<string>());
   const blobRunId = useRef<string | null>(null);
+  useEffect(() => registerAgentQueryReflow(editor), [editor]);
   const onActivityShape = useCallback((shapeId: string) => {
     const run = getCodexRuns().find(isCodexRunActive);
     if (!run || shapeId === AGENT_BLOB_SHAPE_ID) return;

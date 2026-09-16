@@ -22,11 +22,12 @@ import type { ChartShape } from "../Chart/chart-shape-types";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import { type SQLShapeRunResult } from "../SQLTextArea/sqlShapeRun";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
+import { getAutoExpandedSQLShapeSize } from "../SQLTextArea/sqlShapeSize";
 import type { SQLResultTableShape } from "../SQLResultArea/sql-result-table-types";
 import { connectShapes } from "../util/shapeConnections";
 import { getUniqueName } from "../util/getUniqueName";
 import { getAgentContextShapeIds } from "./codex-agent-store";
-import { getAgentLayout, getAgentPlacement } from "./agentLayout";
+import { getAgentLayout, getAgentPlacement, reflowAgentQuery, trackAgentQueryLayout } from "./agentLayout";
 
 const SAMPLE_ROW_LIMIT = 20;
 const MAX_TEXT_LENGTH = 500;
@@ -221,33 +222,20 @@ async function createQuery(editor: Editor, args: ToolArguments, env: CodexToolEn
   const sql = formatAgentSQL(validateReadOnlySQL(requiredString(args, "sql")));
   const desiredName = optionalString(args, "name") ?? "agent_query";
   const shapeId = createShapeId();
-  const viewport = editor.getViewportPageBounds();
+  const layout = getAgentLayout(args, source.id, "right");
+  const placement = getAgentPlacement(editor, layout, source.id, getAutoExpandedSQLShapeSize(sql));
   editor.createShape<SQLTextAreaShape>({
     id: shapeId,
     type: "sql-text-area",
-    x: viewport.center.x - 200,
-    y: viewport.center.y - 150,
+    x: placement.x,
+    y: placement.y,
     props: {
       text: sql,
       name: getUniqueName(editor, desiredName),
       showTable: true,
     },
   });
-  const createdForPlacement = editor.getShape<SQLTextAreaShape>(shapeId);
-  if (!createdForPlacement) throw new Error("The SQL query shape could not be created.");
-  const finalPlacement = getAgentPlacement(
-    editor,
-    getAgentLayout(args, source.id, "right"),
-    source.id,
-    { w: createdForPlacement.props.w, h: createdForPlacement.props.h },
-    shapeId,
-  );
-  editor.updateShape<SQLTextAreaShape>({
-    id: shapeId,
-    type: "sql-text-area",
-    x: finalPlacement.x,
-    y: finalPlacement.y,
-  });
+  trackAgentQueryLayout(editor, shapeId, layout);
   connectShapes(editor, source.id, shapeId);
   onActivityShape?.(shapeId);
   env.signal.throwIfAborted();
@@ -272,23 +260,7 @@ async function createQuery(editor: Editor, args: ToolArguments, env: CodexToolEn
       guidance: "Keep this visible query shape and update it with a materially different, simpler query.",
     });
   }
-  const createdBeforeMove = editor.getShape<SQLTextAreaShape>(shapeId);
-  if (createdBeforeMove?.props.linkedTableId) {
-    const resultId = createdBeforeMove.props.linkedTableId as TLShapeId;
-    const resultPlacement = getAgentPlacement(
-      editor,
-      getAgentLayout({ layout: { placement: "below" } }, shapeId, "below"),
-      shapeId,
-      { w: 400, h: 300 },
-      resultId,
-    );
-    editor.updateShape({
-      id: resultId,
-      type: "sql-result-table",
-      x: resultPlacement.x,
-      y: resultPlacement.y,
-    });
-  }
+  reflowAgentQuery(editor, shapeId);
   const created = editor.getShape<SQLTextAreaShape>(shapeId);
   return boundedResult({
     ok: true,
@@ -336,10 +308,9 @@ async function updateQuery(editor: Editor, args: ToolArguments, env: CodexToolEn
   if (shape.type !== "sql-text-area") throw new Error(`Shape ${shapeId} is not a SQL query.`);
   const query = shape as SQLTextAreaShape;
   const sql = formatAgentSQL(validateReadOnlySQL(requiredString(args, "sql")));
-  const oldResult = query.props.linkedTableId
-    ? editor.getShape(query.props.linkedTableId as TLShapeId)
-    : null;
-  const oldResultPosition = oldResult ? { x: oldResult.x, y: oldResult.y } : null;
+  if (!query.meta.agentQueryLayout) {
+    trackAgentQueryLayout(editor, query.id, getAgentLayout(args, query.props.upstreamShapeIds?.[0] as TLShapeId | undefined ?? null, "right"));
+  }
   const desiredName = optionalString(args, "name");
   editor.updateShape<SQLTextAreaShape>({
     id: query.id,
@@ -351,6 +322,7 @@ async function updateQuery(editor: Editor, args: ToolArguments, env: CodexToolEn
       ...(desiredName ? { name: getUniqueName(editor, desiredName, query.id) } : {}),
     },
   });
+  reflowAgentQuery(editor, query.id);
   env.signal.throwIfAborted();
   let result: SQLShapeRunResult;
   try {
@@ -366,34 +338,8 @@ async function updateQuery(editor: Editor, args: ToolArguments, env: CodexToolEn
       guidance: "The attempted SQL remains visible. Change the SQL pattern materially before running it again.",
     });
   }
-  const updatedBeforeMove = editor.getShape<SQLTextAreaShape>(query.id);
   env.signal.throwIfAborted();
-  if (updatedBeforeMove?.props.linkedTableId) {
-    const resultId = updatedBeforeMove.props.linkedTableId as TLShapeId;
-    const queryBounds = editor.getShapePageBounds(query.id);
-    const resultBounds = editor.getShapePageBounds(resultId);
-    const resultStillClear = queryBounds && resultBounds && (
-      resultBounds.minX >= queryBounds.maxX + 28 ||
-      resultBounds.maxX <= queryBounds.minX - 28 ||
-      resultBounds.minY >= queryBounds.maxY + 28 ||
-      resultBounds.maxY <= queryBounds.minY - 28
-    );
-    const resultPlacement = oldResultPosition && resultStillClear
-      ? oldResultPosition
-      : getAgentPlacement(
-          editor,
-          getAgentLayout({ layout: { placement: "below" } }, query.id, "below"),
-          query.id,
-          { w: resultBounds?.width ?? 400, h: resultBounds?.height ?? 300 },
-          resultId,
-        );
-    editor.updateShape({
-      id: resultId,
-      type: "sql-result-table",
-      x: resultPlacement.x,
-      y: resultPlacement.y,
-    });
-  }
+  reflowAgentQuery(editor, query.id);
   const updated = editor.getShape<SQLTextAreaShape>(query.id);
   if (!result.success) {
     return boundedResult({
@@ -607,8 +553,10 @@ async function generateAnalysisQuery(editor: Editor, args: ToolArguments, env: C
   const patch = editing && args.strategy === "patch_current";
   const id = patch ? source.id : createShapeId();
   if (!patch) {
-    const placement = getAgentPlacement(editor, getAgentLayout(args, source.id, "right"), source.id, { w: 400, h: 300 });
-    editor.createShape<SQLTextAreaShape>({ id, type: "sql-text-area", x: placement.x, y: placement.y, props: { name: getUniqueName(editor, optionalString(args, "name") || `${source.props.name}_analysis`), text: `SELECT * FROM ${quoteIdentifier(source.props.name)}`, isDirty: true, showTable: true } });
+    const text = `SELECT * FROM ${quoteIdentifier(source.props.name)}`;
+    const placement = getAgentPlacement(editor, getAgentLayout(args, source.id, "right"), source.id, getAutoExpandedSQLShapeSize(text));
+    editor.createShape<SQLTextAreaShape>({ id, type: "sql-text-area", x: placement.x, y: placement.y, props: { name: getUniqueName(editor, optionalString(args, "name") || `${source.props.name}_analysis`), text, isDirty: true, showTable: true } });
+    trackAgentQueryLayout(editor, id, getAgentLayout(args, source.id, "right"));
     connectShapes(editor, source.id, id);
   }
   onActivityShape?.(id);
