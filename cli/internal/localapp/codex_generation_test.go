@@ -28,7 +28,7 @@ func TestGenerationDeadlines(t *testing.T) {
 		runBudget, expected time.Duration
 	}{
 		{"heavy Lens", "lens", 15*time.Minute, 10*time.Minute},
-		{"SQL", "sql", 15*time.Minute, 2*time.Minute},
+		{"SQL", "sql", 15*time.Minute, 5*time.Minute},
 		{"remaining run budget", "lens", time.Minute, time.Minute},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -17,7 +17,7 @@ import (
 
 const codexRunTimeout = 15 * time.Minute
 const codexLensGenerationTimeout = 10 * time.Minute
-const codexSQLGenerationTimeout = 2 * time.Minute
+const codexSQLGenerationTimeout = 5 * time.Minute
 
 type codexToolState struct {
  CallID string `json:"callId"`
