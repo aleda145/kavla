@@ -17,7 +17,6 @@ import (
 
 const agentRunTimeout = 15 * time.Minute
 const agentLensGenerationTimeout = 10 * time.Minute
-const agentSQLGenerationTimeout = 5 * time.Minute
 
 type agentToolState struct {
  CallID string `json:"callId"`
@@ -289,43 +288,37 @@ func (s *Server) acceptAgentToolResult(request agentToolResultRequest) error {
  return nil
 }
 
-func (s *Server) handleAgentGenerate(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAgentGenerateLens(w http.ResponseWriter, r *http.Request) {
  r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
- var request struct { RunID string `json:"runId"`; ClientID string `json:"clientId"`; Mode string `json:"mode"`; Prompt string `json:"prompt"`; Context interface{} `json:"context"` }
+ var request struct { RunID string `json:"runId"`; ClientID string `json:"clientId"`; Prompt string `json:"prompt"`; Context interface{} `json:"context"` }
  if json.NewDecoder(r.Body).Decode(&request) != nil { writeAPIError(w, 400, fmt.Errorf("invalid generation request")); return }
- if request.Mode != "sql" && request.Mode != "lens" { writeAPIError(w, 400, fmt.Errorf("unknown generation mode")); return }
  s.agentMu.Lock()
  run, client := s.agentRun, s.agentClient
  if !activeAgentRun(run) || run.ID != request.RunID || run.ClientID != request.ClientID || client == nil { s.agentMu.Unlock(); writeAPIError(w, 409, fmt.Errorf("this agent run is no longer active")); return }
- if request.Mode == "lens" {
-  target := "lens"
-  if supplied, ok := request.Context.(map[string]interface{}); ok {
-   if id, ok := supplied["targetShapeId"].(string); ok && id != "" { target = id }
-  }
-  if run.LensAttempts == nil { run.LensAttempts = make(map[string]int) }
-  if run.LensGenerations >= 4 || run.LensAttempts[target] >= 2 {
-   s.agentMu.Unlock()
-   writeAPIError(w, 409, fmt.Errorf("Lens generation budget exhausted. Stop and show the existing error; another user request is required to retry."))
-   return
-  }
-  run.LensGenerations++
-  run.LensAttempts[target]++
+ target := "lens"
+ if supplied, ok := request.Context.(map[string]interface{}); ok {
+  if id, ok := supplied["targetShapeId"].(string); ok && id != "" { target = id }
  }
+ if run.LensAttempts == nil { run.LensAttempts = make(map[string]int) }
+ if run.LensGenerations >= 4 || run.LensAttempts[target] >= 2 {
+  s.agentMu.Unlock()
+  writeAPIError(w, 409, fmt.Errorf("Lens generation budget exhausted. Stop and show the existing error; another user request is required to retry."))
+  return
+ }
+ run.LensGenerations++
+ run.LensAttempts[target]++
  parent, model := run.ctx, run.Model
- run.Activity = "Generating " + request.Mode + "…"; run.Revision++
+ run.Activity = "Generating Lens…"; run.Revision++
  s.agentMu.Unlock()
  s.publishAgentRuns(true)
- timeout := agentSQLGenerationTimeout
- label := "SQL"
- if request.Mode == "lens" { timeout, label = agentLensGenerationTimeout, "Lens" }
- ctx, cancel := context.WithTimeout(parent, timeout)
+ ctx, cancel := context.WithTimeout(parent, agentLensGenerationTimeout)
  stop := context.AfterFunc(r.Context(), cancel)
  defer stop(); defer cancel()
- result, err := client.Generate(ctx, request.Mode, model, request.Prompt, request.Context)
+ result, err := client.GenerateLens(ctx, model, request.Prompt, request.Context)
  if err != nil {
   if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
-   message := fmt.Errorf("%s generation exceeded its %d-minute limit. Existing canvas work has been kept.", label, int(timeout/time.Minute))
-   if parent.Err() == context.DeadlineExceeded { message = fmt.Errorf("Agent run exceeded its 15-minute limit during %s generation. Existing canvas work has been kept.", label) }
+   message := fmt.Errorf("Lens generation exceeded its %d-minute limit. Existing canvas work has been kept.", int(agentLensGenerationTimeout/time.Minute))
+   if parent.Err() == context.DeadlineExceeded { message = fmt.Errorf("Agent run exceeded its 15-minute limit during Lens generation. Existing canvas work has been kept.") }
    writeAPIError(w, http.StatusGatewayTimeout, message)
    return
   }

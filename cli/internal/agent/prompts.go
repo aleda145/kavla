@@ -13,9 +13,6 @@ import (
 //go:embed prompts/agent.txt
 var developerInstructions string
 
-//go:embed prompts/sql.txt
-var sqlDeveloperInstructions string
-
 //go:embed prompts/lens.txt
 var lensDeveloperInstructions string
 

@@ -321,7 +321,7 @@ func (s *Server) routes() http.Handler {
  mux.HandleFunc("GET /api/agent/auth", s.handleAgentAuth)
  mux.HandleFunc("POST /api/agent/auth", s.sameOriginMutation(s.handleAgentAuth))
  mux.HandleFunc("POST /api/agent/tool-claims", s.sameOriginMutation(s.handleAgentToolClaim))
- mux.HandleFunc("POST /api/agent/generate", s.sameOriginMutation(s.handleAgentGenerate))
+ mux.HandleFunc("POST /api/agent/generate-lens", s.sameOriginMutation(s.handleAgentGenerateLens))
 	mux.HandleFunc("POST /api/agent/prompts", s.sameOriginMutation(s.handleAgentPrompt))
 	mux.HandleFunc("POST /api/agent/cancel", s.sameOriginMutation(s.handleAgentCancel))
 	mux.HandleFunc("POST /api/agent/tool-results", s.sameOriginMutation(s.handleAgentToolResult))

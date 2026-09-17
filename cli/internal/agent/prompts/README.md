@@ -1,7 +1,6 @@
 These compact prompts are embedded by ../prompts.go and shared by the Codex and API runtimes.
 
-- agent.txt: choose analytical steps, manage canvas artifacts, interpret results.
-- sql.txt: implement one SQL step with the supplied source and edit strategy.
+- agent.txt: choose analytical steps, write and repair SQL directly, manage canvas artifacts, interpret results.
 - lens.txt: implement one visualization with the actual runtime props and rendering contract.
 
 The prompts originated in kavla-main's worker/dataSocket/dagPrompt.ts and are now maintained as concise local instructions, not verbatim copies.
@@ -10,7 +9,7 @@ Keep each rule with the agent responsible for it. Tool schemas own argument docu
 
 Preserve these contracts when editing:
 - Inspect relevant data, justify exclusions, and reuse a visible cleaned node for subsequent analysis. Prefer small chained queries over SQL pipelines.
-- Use native tools/chat and actual canvas IDs. Focused generators return flat JSON; Lens code is readable TSX/JSX.
+- Use native tools/chat and actual canvas IDs. Only Lens generation uses a specialist, returning flat JSON with readable TSX/JSX. SQL execution errors return to the analyst for in-place repair.
 - Lens input is uncapped; samples are only context previews. Presentation SQL reads the supplied source, not arbitrary canvas tables.
 - Existing Lens edits stay in place. Runtime tool/repair limits are authoritative.
 - Keep Kavla styling, injected library/helper APIs, and the requested key-free OpenFreeMap default.

@@ -5,7 +5,6 @@ import type { LensShape } from "../Lens/lens-shape-types";
 import type { SummaryShape, SummaryArtifact, SummarySection } from "../Summary/summary-shape-types";
 import { runLensTool } from "./agentLensTools";
 import { computeAgentProfiles, getAgentDataPreview, resolveAgentDataShape } from "./agentDataTools";
-import { quoteIdentifier } from "../src/duckdb/sql";
 import {
   createShapeId,
   toRichText,
@@ -530,9 +529,6 @@ export async function executeAgentCanvasTool(
       return updateNote(editor, args);
     case "compute_column_profiles":
       return boundedResult(await computeAgentProfiles(editor, args, env));
-    case "create_analysis_query":
-    case "edit_query":
-      return generateAnalysisQuery(editor, args, env, tool === "edit_query", onActivityShape);
     case "create_lens":
     case "update_lens":
       return runLensTool(editor, args, env, tool === "update_lens", onActivityShape);
@@ -541,49 +537,6 @@ export async function executeAgentCanvasTool(
     default:
       throw new Error(`Unknown Kavla Agent tool ${tool}.`);
   }
-}
-
-async function generateAnalysisQuery(editor: Editor, args: ToolArguments, env: AgentToolEnvironment, editing: boolean, onActivityShape?: (id: string) => void): Promise<ToolResult> {
-  const instruction = requiredString(args, "instruction");
-  const source = getDataShapeOrThrow(editor, requiredString(args, editing ? "shapeId" : "sourceShapeId"));
-  if (editing && source.type !== "sql-text-area") throw new Error("Select a query to edit.");
-  if (editing && !["patch_current", "branch"].includes(String(args.strategy))) throw new Error("Choose patch_current or branch.");
-  const patch = editing && args.strategy === "patch_current";
-  const id = patch ? source.id : createShapeId();
-  if (!patch) {
-    const text = `SELECT * FROM ${quoteIdentifier(source.props.name)}`;
-    const placement = getAgentPlacement(editor, getAgentLayout(args, source.id, "right"), source.id, getAutoExpandedSQLShapeSize(text));
-    editor.createShape<SQLTextAreaShape>({ id, type: "sql-text-area", x: placement.x, y: placement.y, props: { name: getUniqueName(editor, optionalString(args, "name") || `${source.props.name}_analysis`), text, isDirty: true, showTable: true } });
-    trackAgentQueryLayout(editor, id, getAgentLayout(args, source.id, "right"));
-    connectShapes(editor, source.id, id);
-  }
-  onActivityShape?.(id);
-  let lastError = "";
-  let attemptedSql = "";
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    env.signal.throwIfAborted();
-    const current = editor.getShape<SQLTextAreaShape>(id);
-    if (!current) throw new Error("The query was removed.");
-    const originalText = current.props.text;
-    try {
-      const generated = await env.generate("sql", instruction, { ...buildPromptCanvasContext(editor, [source.id, id]), targetShapeId: id, currentSql: current.props.text, strategy: patch ? "patch_current" : "branch", attempt, latestError: lastError });
-      env.signal.throwIfAborted();
-      if (editor.getShape<SQLTextAreaShape>(id)?.props.text !== originalText) throw new Error("The query was edited during generation; the Agent kept your edit.");
-      const sql = generated.sql || "";
-      editor.updateShape<SQLTextAreaShape>({ id, type: "sql-text-area", props: { text: sql, isDirty: true } });
-      if (attempt > 1 && sql === attemptedSql) throw new Error("The SQL generator repeated the same failed query.");
-      attemptedSql = sql;
-      const result = await updateQuery(editor, { shapeId: id, sql }, env);
-      if (result.ok) return { ...result, attempts: attempt };
-      lastError = String(result.error || "The query failed.");
-    } catch (error) {
-      env.signal.throwIfAborted();
-      lastError = error instanceof Error ? error.message : String(error);
-      if (lastError.includes("kept your edit")) throw error;
-      if (editor.getShape(id)) editor.updateShape<SQLTextAreaShape>({ id, type: "sql-text-area", props: { error: lastError, isDirty: true } });
-    }
-  }
-  return { ok: false, shapeId: id, error: lastError, attempts: 3, guidance: "Three focused attempts failed. Keep the visible query and pivot to a simpler analytical step or explain the blocker." };
 }
 
 function createSummary(editor: Editor, args: ToolArguments, env: AgentToolEnvironment): ToolResult {

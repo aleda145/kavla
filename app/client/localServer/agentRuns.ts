@@ -80,17 +80,17 @@ export function cancelAgentRun(runId: string) {
   window.dispatchEvent(new CustomEvent("kavla:cancel-agent-run", { detail: runId }));
   return agentRequest<void>("cancel", { runId });
 }
-export type AgentGeneration = { sql?: string; name?: string; strategy?: string; title?: string; description?: string; code?: string; dataSql?: string | null };
+export type LensGeneration = { title?: string; description?: string; code: string; dataSql?: string | null };
 export type AgentToolEnvironment = {
   runId: string;
   data: LocalServerContextType;
   signal: AbortSignal;
   prompt: string;
-  generate: (mode: "sql" | "lens", prompt: string, context: unknown) => Promise<AgentGeneration>;
+  generateLens: (prompt: string, context: unknown) => Promise<LensGeneration>;
 };
 export function createAgentToolEnvironment(run: AgentRun, signal: AbortSignal, data: LocalServerContextType): AgentToolEnvironment {
   return {
     runId: run.id, signal, data, prompt: run.prompt,
-    generate: (mode, prompt, context) => agentRequest("generate", { runId: run.id, clientId: agentClientId, mode, prompt, context }, signal),
+    generateLens: (prompt, context) => agentRequest("generate-lens", { runId: run.id, clientId: agentClientId, prompt, context }, signal),
   };
 }

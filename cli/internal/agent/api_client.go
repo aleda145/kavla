@@ -350,12 +350,10 @@ func (c *APIClient) focusedCompletion(ctx context.Context, model, prompt string,
 	return completion.text, nil
 }
 
-func (c *APIClient) Generate(ctx context.Context, mode, model, prompt string, canvasContext interface{}) (map[string]interface{}, error) {
-	instructions := sqlDeveloperInstructions
-	if mode == "lens" { instructions = lensDeveloperInstructions }
-	text, err := c.focusedCompletion(ctx, model, prompt, canvasContext, instructions)
+func (c *APIClient) GenerateLens(ctx context.Context, model, prompt string, canvasContext interface{}) (map[string]interface{}, error) {
+	text, err := c.focusedCompletion(ctx, model, prompt, canvasContext, lensDeveloperInstructions)
 	if err != nil { return nil, err }
-	return parseGeneration(mode, text)
+	return parseLensGeneration(text)
 }
 
 var _ Runtime = (*APIClient)(nil)

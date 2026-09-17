@@ -53,7 +53,7 @@ export async function runLensTool(editor: Editor, args: Record<string, unknown>,
       const previousCode = attemptCode;
       const previousDataSql = attemptDataSql;
       attempts = attempt;
-      const generated = await env.generate("lens", visualPrompt, {
+      const generated = await env.generateLens(visualPrompt, {
           targetShapeId: id, userRequest: env.prompt,
           sourceName: query.props.name, schema, rowCount: query.props.lastRunStats?.rowCount, sampleRows: data.slice(0, 5),
           isSampled: false, sourceSql: query.props.text, currentCode: attemptCode, currentDataSql: attemptDataSql,

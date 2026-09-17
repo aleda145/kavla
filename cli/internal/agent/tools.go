@@ -56,12 +56,6 @@ func dynamicTools() []map[string]interface{} {
 			"shapeId": map[string]string{"type": "string"},
 			"text":    map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 4000},
 		}, "shapeId", "text")),
-        tool("create_analysis_query", "Generate and execute one visible SQL step from an instruction and immediate sourceShapeId. Reuse cleaned nodes. Up to three focused attempts.", objectSchema(map[string]interface{}{
-         "sourceShapeId": map[string]string{"type":"string"}, "instruction": map[string]string{"type":"string"}, "name": map[string]string{"type":"string"}, "layout": layoutSchema(),
-        }, "sourceShapeId", "instruction")),
-        tool("edit_query", "Edit a selected query using a focused SQL generator. Choose patch_current to edit it in place or branch to preserve it and create a separate analytical branch.", objectSchema(map[string]interface{}{
-         "shapeId": map[string]string{"type":"string"}, "instruction": map[string]string{"type":"string"}, "strategy": map[string]interface{}{"type":"string","enum":[]string{"patch_current","branch"}},
-        }, "shapeId", "instruction", "strategy")),
         tool("compute_column_profiles", "Read or compute deterministic column profiles on a source or query. This updates the shape's profiles and records the operation without creating a SQL node. It is not for filtered or cross-column analysis.", objectSchema(map[string]interface{}{
          "shapeId": map[string]string{"type":"string"}, "columns": map[string]interface{}{"type":"array","items":map[string]string{"type":"string"}},
         }, "shapeId")),

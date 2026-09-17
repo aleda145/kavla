@@ -363,12 +363,10 @@ func (c *CodexClient) StartTurn(ctx context.Context, threadID string, prompt str
 	return decoded.Turn.ID, nil
 }
 
-func (c *CodexClient) Generate(ctx context.Context, mode, model, prompt string, canvasContext interface{}) (map[string]interface{}, error) {
- instructions := sqlDeveloperInstructions
- if mode == "lens" { instructions = lensDeveloperInstructions }
- text, err := c.runFocusedTurn(ctx, model, prompt, canvasContext, instructions)
+func (c *CodexClient) GenerateLens(ctx context.Context, model, prompt string, canvasContext interface{}) (map[string]interface{}, error) {
+ text, err := c.runFocusedTurn(ctx, model, prompt, canvasContext, lensDeveloperInstructions)
  if err != nil { return nil, err }
- return parseGeneration(mode, text)
+ return parseLensGeneration(text)
 }
 
 func (c *CodexClient) runFocusedTurn(ctx context.Context, model, userPrompt string, canvasContext interface{}, instructions string) (string, error) {

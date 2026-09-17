@@ -28,7 +28,7 @@ func TestAPIClientToolLoop(t *testing.T) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil { t.Error(err); return }
 		if body.Model != "test-model" || body.Stream == nil || *body.Stream { t.Errorf("request must use the configured model without streaming") }
-		if len(body.Tools) != 14 || body.Tools[0].Function.Name != "get_canvas_context" || body.Tools[0].Function.Parameters["type"] != "object" { t.Errorf("missing Kavla function schemas: %+v", body.Tools) }
+		if len(body.Tools) != 12 || body.Tools[0].Function.Name != "get_canvas_context" || body.Tools[0].Function.Parameters["type"] != "object" { t.Errorf("missing Kavla function schemas: %+v", body.Tools) }
 		w.Header().Set("Content-Type", "application/json")
 		if requests.Add(1) == 1 {
 			if !strings.Contains(string(body.Messages[1]["content"]), "Earlier conversation") { t.Error("missing fallback history") }
@@ -76,7 +76,7 @@ func TestAPIClientToolLoop(t *testing.T) {
 	if text := <-texts; text != "Created the note." { t.Fatal(text) }
 }
 
-func TestAPIClientFocusedGeneration(t *testing.T) {
+func TestAPIClientLensGeneration(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil { t.Error(err); return }
@@ -84,7 +84,6 @@ func TestAPIClientFocusedGeneration(t *testing.T) {
 		messages := body["messages"].([]interface{})
 		instructions := messages[0].(map[string]interface{})["content"].(string)
 		content := ""
-		if instructions == sqlDeveloperInstructions { content = "```json\n{\"sql\":\"SELECT 1\"}\n```" }
 		if instructions == lensDeveloperInstructions { content = `{"code":"export default function Lens() { return null; }"}` }
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"choices": []interface{}{map[string]interface{}{"finish_reason": "stop", "message": map[string]string{"role": "assistant", "content": content}}}})
 	}))
@@ -92,12 +91,9 @@ func TestAPIClientFocusedGeneration(t *testing.T) {
 	client, err := NewAPIClient(context.Background(), APIConfig{BaseURL: provider.URL, Model: "test-model"}, nil, nil)
 	if err != nil { t.Fatal(err) }
 	defer client.Close()
-	for _, mode := range []string{"sql", "lens"} {
-		result, err := client.Generate(context.Background(), mode, "test-model", "Generate", nil)
-		if err != nil { t.Fatal(err) }
-		if mode == "sql" && result["sql"] != "SELECT 1" { t.Fatal(result) }
-		if mode == "lens" && result["code"] == nil { t.Fatal(result) }
-	}
+	result, err := client.GenerateLens(context.Background(), "test-model", "Generate", nil)
+	if err != nil { t.Fatal(err) }
+	if result["code"] == nil { t.Fatal(result) }
 }
 
 func TestAPIClientInterruptsPendingTool(t *testing.T) {
@@ -176,7 +172,7 @@ func TestAPIClientCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { _, err := client.Generate(ctx, "sql", "test-model", "test", nil); done <- err }()
+	go func() { _, err := client.GenerateLens(ctx, "test-model", "test", nil); done <- err }()
 	select { case <-started: case <-time.After(3*time.Second): t.Fatal("request did not start") }
 	cancel()
 	select { case err := <-done: if !errors.Is(err, context.Canceled) { t.Fatalf("expected cancellation, got %v", err) }; case <-time.After(3*time.Second): t.Fatal("request did not cancel") }
@@ -201,7 +197,7 @@ func TestAPILensGenerationKeepsLongerDeadline(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 9*time.Minute)
 	defer cancel()
-	if _, err := client.Generate(ctx, "lens", "test-model", "Generate a Lens", nil); err != nil { t.Fatal(err) }
+	if _, err := client.GenerateLens(ctx, "test-model", "Generate a Lens", nil); err != nil { t.Fatal(err) }
 }
 
 func TestAPIClientRejectsIncompleteResponses(t *testing.T) {
