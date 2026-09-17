@@ -1,5 +1,3 @@
-import { validateReadOnlySQL } from "./readOnlySQL";
-export { validateReadOnlySQL } from "./readOnlySQL";
 import type { CodexToolEnvironment } from "../client/localServer/codexRuns";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
 import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
@@ -219,7 +217,7 @@ export function buildPromptCanvasContext(editor: Editor, explicitShapeIds?: stri
 
 async function createQuery(editor: Editor, args: ToolArguments, env: CodexToolEnvironment, onActivityShape?: (shapeId: string) => void): Promise<ToolResult> {
   const source = getDataShapeOrThrow(editor, requiredString(args, "sourceShapeId"));
-  const sql = formatAgentSQL(validateReadOnlySQL(requiredString(args, "sql")));
+  const sql = formatAgentSQL(requiredString(args, "sql"));
   const desiredName = optionalString(args, "name") ?? "agent_query";
   const shapeId = createShapeId();
   const layout = getAgentLayout(args, source.id, "right");
@@ -278,7 +276,7 @@ async function runExistingQuery(editor: Editor, args: ToolArguments, env: CodexT
   const shape = getShapeOrThrow(editor, shapeId);
   if (shape.type !== "sql-text-area") throw new Error(`Shape ${shapeId} is not a visible SQL query.`);
   const query = shape as SQLTextAreaShape;
-  const sql = validateReadOnlySQL(query.props.text);
+  const sql = query.props.text.trim();
   let result: SQLShapeRunResult;
   try {
     result = await executeSQLShape(editor, env.data, query.id, sql, env.signal);
@@ -307,7 +305,7 @@ async function updateQuery(editor: Editor, args: ToolArguments, env: CodexToolEn
   const shape = getShapeOrThrow(editor, shapeId);
   if (shape.type !== "sql-text-area") throw new Error(`Shape ${shapeId} is not a SQL query.`);
   const query = shape as SQLTextAreaShape;
-  const sql = formatAgentSQL(validateReadOnlySQL(requiredString(args, "sql")));
+  const sql = formatAgentSQL(requiredString(args, "sql"));
   if (!query.meta.agentQueryLayout) {
     trackAgentQueryLayout(editor, query.id, getAgentLayout(args, query.props.upstreamShapeIds?.[0] as TLShapeId | undefined ?? null, "right"));
   }
@@ -370,7 +368,7 @@ async function createChart(editor: Editor, args: ToolArguments, env: CodexToolEn
   if (source.type !== "sql-text-area") throw new Error("Charts must use a SQL query shape as their source.");
   const query = source as SQLTextAreaShape;
   if (query.props.isDirty || query.props.stale || query.props.error || !query.props.lastRunStats) {
-    const result = await executeSQLShape(editor, env.data, query.id, validateReadOnlySQL(query.props.text), env.signal);
+    const result = await executeSQLShape(editor, env.data, query.id, query.props.text.trim(), env.signal);
     if (!result.success) throw new Error(result.error || "The source query failed.");
   }
   env.signal.throwIfAborted();
@@ -471,7 +469,7 @@ async function updateChart(editor: Editor, args: ToolArguments, env: CodexToolEn
   if (!next.x || !next.y) throw new Error("Choose both x and y columns for the chart.");
   const query = source as SQLTextAreaShape;
   if (query.props.isDirty || query.props.stale || query.props.error || !query.props.lastRunStats) {
-    const result = await executeSQLShape(editor, env.data, query.id, validateReadOnlySQL(query.props.text), env.signal);
+    const result = await executeSQLShape(editor, env.data, query.id, query.props.text.trim(), env.signal);
     if (!result.success) throw new Error(result.error || "The source query failed.");
   }
   env.signal.throwIfAborted();

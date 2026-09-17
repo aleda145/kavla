@@ -14,7 +14,6 @@ import { ensureLocalQueryView } from "../SQLTextArea/sqlDagDependencies";
 import { restoreRemoteQueryView } from "../SQLTextArea/restoreRemoteQueryView";
 import { validateDuckDBSyntax } from "../SQLTextArea/editor-validation";
 import { quoteIdentifier } from "../src/duckdb/sql";
-import { validateReadOnlySQL } from "../AgentBlob/readOnlySQL";
 import { normalizeChartRow } from "../Chart/chartOptions";
 
 export class LensUtil extends ShapeUtil<LensShape> {
@@ -72,7 +71,7 @@ export class LensUtil extends ShapeUtil<LensShape> {
         onCodeChange={(code) => update({ code, error: null, generationStatus: "ready", retryCount: 0 })}
         onDataSqlChange={(dataSql) => update({ dataSql: dataSql.trim() ? dataSql : null, error: null, generationStatus: "ready", retryCount: 0 })}
         onDataSqlFormat={(sql) => { try { update({ dataSql: format(sql || shape.props.dataSql || `SELECT * FROM ${quoteIdentifier(source?.props.name || "data")}`, { language: "duckdb" }) }); } catch (error) { update({ error: String(error) }); } }}
-        onDataSqlValidate={async (sql) => { try { validateReadOnlySQL(sql); return validateDuckDBSyntax(sql); } catch (error) { return { message: error instanceof Error ? error.message : String(error) }; } }}
+        onDataSqlValidate={async (sql) => sql.trim() ? validateDuckDBSyntax(sql) : { message: "SQL is required." }}
         onWidgetError={reportError} onDataSqlError={reportError} />
       <div style={{ fontSize: 10, padding: "4px 8px", borderTop: "1px solid #d6d3d1", color: shape.props.error ? "#991b1b" : "#57534e" }}>
         {generating ? "Generating Lens… " : shape.props.error ? `${shape.props.error} ` : ""}{`${rows.data.length.toLocaleString()} rows from ${source?.props.name || "query"}.`} Presentation SQL uses these rows.

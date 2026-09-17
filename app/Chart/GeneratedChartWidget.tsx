@@ -5,7 +5,6 @@ import * as ECharts from "echarts";
 import { tableFromArrays } from "apache-arrow";
 import { DuckDBService } from "@/duckdb-service";
 import { quoteIdentifier } from "../src/duckdb/sql";
-import { validateReadOnlySQL } from "../AgentBlob/readOnlySQL";
 import { getLensVizRuntime } from "../Lens/viz/runtime";
 import type { LensVizRuntime } from "../Lens/viz/runtime";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -643,7 +642,7 @@ function createArrowTableFromRows(rows: Record<string, unknown>[], columns: stri
 
 function createRunSql(rows: Record<string, unknown>[], columns: string[], sourceName?: string | null) {
   return async (sql: string) => {
-    const trimmedSql = validateReadOnlySQL(sql);
+    const trimmedSql = sql.trim();
     if (!trimmedSql) {
       throw new Error("runSql requires a SQL query.");
     }

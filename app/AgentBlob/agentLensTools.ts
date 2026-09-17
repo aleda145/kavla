@@ -9,7 +9,6 @@ import { getUniqueName } from "../util/getUniqueName";
 import { connectShapes } from "../util/shapeConnections";
 import { getAgentLayout, getAgentPlacement } from "./agentLayout";
 import { getAgentDataPreview, resolveAgentDataShape } from "./agentDataTools";
-import { validateReadOnlySQL } from "./readOnlySQL";
 
 export async function runLensTool(editor: Editor, args: Record<string, unknown>, env: CodexToolEnvironment, editing: boolean, onActivityShape?: (id: string) => void): Promise<Record<string, unknown>> {
   const existing = editing ? editor.getShape<LensShape>(String(args.shapeId) as TLShapeId) : undefined;
@@ -19,7 +18,7 @@ export async function runLensTool(editor: Editor, args: Record<string, unknown>,
   const source = resolveAgentDataShape(editor, existing?.props.sourceShapeId || String(args.sourceShapeId || ""));
   if (source.type !== "sql-text-area") throw new Error("Create a visible analytical query before creating a Lens.");
   if (source.props.isDirty || source.props.stale || source.props.error || !source.props.lastRunStats) {
-    const result = await executeSQLShape(editor, env.data, source.id, validateReadOnlySQL(source.props.text), env.signal);
+    const result = await executeSQLShape(editor, env.data, source.id, source.props.text.trim(), env.signal);
     if (!result.success) throw new Error(result.error || "The Lens source query failed.");
   }
   env.signal.throwIfAborted();
@@ -65,7 +64,6 @@ export async function runLensTool(editor: Editor, args: Record<string, unknown>,
       attemptDataSql = generated.dataSql?.trim() || null;
       if (attempt > 1 && attemptCode === previousCode && attemptDataSql === previousDataSql) throw new Error("The Lens generator repeated the same failed code. Stopped without another attempt.");
       try {
-        if (attemptDataSql) validateReadOnlySQL(attemptDataSql);
         await validateGeneratedChartWidget({ isSampled: false, code: attemptCode, dataSql: attemptDataSql, rows: data, columns: schema.map((column) => column.name), columnTypes: Object.fromEntries(schema.map((column) => [column.name, column.type])), sourceName: query.props.name, width: current.props.w - 48, height: current.props.h - 46 });
         env.signal.throwIfAborted();
         const latest = editor.getShape<LensShape>(id);
