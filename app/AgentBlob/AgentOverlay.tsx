@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
-import { LocateFixed, Loader2, Send, Sparkles, Square, Trash2, X } from "lucide-react";
+import { Loader2, Send, Square, Trash2, X } from "lucide-react";
 import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useAgentModels, useAgentStatus } from "../client/localServer/agentStore";
 import { useData } from "../client/useLocalServer";
@@ -11,10 +11,11 @@ import { AgentRuntime } from "./AgentRuntime";
 import { getCanvasBadges, getMentionRanges, getShapeCitations, type ContextBadge } from "./agent-shape-references";
 import { agentClientId, agentRequest, getAgentRuns, isAgentRunActive, useAgentRuns } from "../client/localServer/agentRuns";
 import { getActiveLocalSession, stageCanvas } from "../client/local/localSession";
+import "./agent-chat.css";
 
 const DOCK_ANCHOR_SIZE = 48;
 const CHAT_WIDTH = 340;
-const CHAT_HEIGHT = 360;
+const CHAT_HEIGHT = 330;
 const TOOLBAR_GAP = 6;
 const CHAT_GAP = 12;
 
@@ -30,18 +31,34 @@ function getDockLayout() {
     .map((element) => ({ element, bounds: element.getBoundingClientRect() }))
     .filter(({ bounds }) => bounds.width > 0 && bounds.height > 0)
     .sort((a, b) => b.bounds.bottom - a.bounds.bottom)[0]?.bounds;
+  const agentButton = Array.from(document.querySelectorAll<HTMLElement>("[data-kavla-agent-toolbar]"))
+    .map((element) => element.getBoundingClientRect())
+    .filter((bounds) => bounds.width > 0 && bounds.height > 0)
+    .sort((a, b) => b.bottom - a.bottom)[0];
+  const maxChatX = Math.max(18, window.innerWidth - CHAT_WIDTH - 18);
+  const maxChatY = Math.max(18, window.innerHeight - CHAT_HEIGHT - 18);
+  if (agentButton) {
+    return {
+      chat: {
+        x: Math.max(18, Math.min((toolbar?.right ?? agentButton.right) + TOOLBAR_GAP, maxChatX)),
+        y: Math.max(18, Math.min(agentButton.top - CHAT_HEIGHT - CHAT_GAP, maxChatY)),
+      },
+    };
+  }
+  if (!toolbar) {
+    return {
+      chat: {
+        x: Math.max(18, window.innerWidth - CHAT_WIDTH - 24),
+        y: Math.max(18, window.innerHeight - CHAT_HEIGHT - 92),
+      },
+    };
+  }
   const maxAnchorX = Math.max(18, window.innerWidth - DOCK_ANCHOR_SIZE - 18);
-  const maxAnchorY = Math.max(18, window.innerHeight - DOCK_ANCHOR_SIZE - 18);
-  const anchor = toolbar
-    ? {
-        x: Math.max(18, Math.min(toolbar.right + TOOLBAR_GAP, maxAnchorX)),
-        y: Math.max(18, Math.min(toolbar.top + toolbar.height / 2 - DOCK_ANCHOR_SIZE / 2, maxAnchorY)),
-      }
-    : { x: maxAnchorX, y: maxAnchorY };
+  const anchorX = Math.max(18, Math.min(toolbar.right + TOOLBAR_GAP, maxAnchorX));
   return {
     chat: {
-      x: Math.max(18, Math.min(anchor.x + DOCK_ANCHOR_SIZE - CHAT_WIDTH, window.innerWidth - CHAT_WIDTH - 18)),
-      y: Math.max(18, Math.min(anchor.y - CHAT_HEIGHT - CHAT_GAP, window.innerHeight - CHAT_HEIGHT - 18)),
+      x: Math.max(18, Math.min(anchorX + DOCK_ANCHOR_SIZE - CHAT_WIDTH, maxChatX)),
+      y: Math.max(18, Math.min(toolbar.top - CHAT_HEIGHT - CHAT_GAP, maxChatY)),
     },
   };
 }
@@ -202,7 +219,7 @@ function AgentChatOverlay() {
       window.removeEventListener("resize", update);
       observer?.disconnect();
     };
-  }, []);
+  }, [isOpen]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -291,7 +308,7 @@ function AgentChatOverlay() {
   return (
     <div
       data-kavla-agent-ui
-      style={{ fontFamily: "Inter, sans-serif", inset: 0, pointerEvents: "none", position: "fixed", zIndex: 100000 }}
+      style={{ fontFamily: '"Kavla Agent Inter", sans-serif', inset: 0, pointerEvents: "none", position: "fixed", zIndex: 100000 }}
     >
       <style>{`
         @keyframes kavla-agent-thinking-dot { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
@@ -334,7 +351,6 @@ function AgentChatOverlay() {
               padding: "6px 8px",
             }}
           >
-            <Sparkles color="#6d28d9" size={16} strokeWidth={3} />
             <strong style={{ fontSize: 11, fontWeight: 900, textTransform: "uppercase" }}>Analyst</strong>
             <div style={{ alignItems: "center", display: "flex", gap: 6, marginLeft: "auto" }}>
               <button
@@ -343,9 +359,9 @@ function AgentChatOverlay() {
                 onClick={() => setIsFollowing((value) => !value)}
                 title="Follow active work. Moving around the canvas pauses following."
                 type="button"
-                style={{ display: "flex", alignItems: "center", gap: 3, background: isFollowing ? "#ddd6fe" : "#fff", border: "2px solid #000", borderRadius: 5, height: 24, padding: "0 4px", fontSize: 10, fontWeight: 900, cursor: "pointer" }}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", background: isFollowing ? "#fef08a" : "#fff", color: "#000", border: "2px solid #000", borderRadius: 5, height: 24, padding: "0 6px", fontSize: 9, fontWeight: 900, textTransform: "uppercase", cursor: "pointer" }}
               >
-                <LocateFixed size={12} /> Follow
+                Follow
               </button>
               <button
                 aria-label="Clear chat"
@@ -502,7 +518,7 @@ function AgentChatOverlay() {
                 style={{
                   alignItems: "center",
                   alignSelf: "flex-start",
-                  background: "#ede9fe",
+                  background: "#fef9c3",
                   border: "2px solid #000",
                   borderRadius: 7,
                   boxShadow: "2px 2px 0 0 rgba(0,0,0,.16)",
@@ -510,6 +526,8 @@ function AgentChatOverlay() {
                   fontSize: 12,
                   fontWeight: 900,
                   gap: 7,
+                  lineHeight: 1.35,
+                  maxWidth: "92%",
                   padding: "6px 8px",
                 }}
               >
@@ -541,7 +559,7 @@ function AgentChatOverlay() {
               </div>
             ) : null}
             {showMentions && ready && !isRunning ? (
-              <div id="agent-mention-list" role="listbox" aria-label="Canvas shapes" style={{ position: "absolute", bottom: "100%", left: 7, right: 7, maxHeight: 210, overflowY: "auto", background: "#fff", border: "2px solid #000", borderRadius: 6, boxShadow: "4px 4px 0 #000", zIndex: 1 }}>
+              <div id="agent-mention-list" role="listbox" aria-label="Canvas shapes" style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 8, right: 8, maxHeight: 210, overflowY: "auto", background: "#fff", border: "2px solid #000", borderRadius: 6, boxShadow: "4px 4px 0 #000", zIndex: 1 }}>
                 {mentionSuggestions.length ? mentionSuggestions.map((badge, index) => (
                   <button
                     key={badge.id}
@@ -551,11 +569,11 @@ function AgentChatOverlay() {
                     type="button"
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={() => chooseMention(badge)}
-                    style={{ display: "block", width: "100%", textAlign: "left", background: index === activeMentionIndex ? "#ede9fe" : "#fff", border: 0, borderBottom: "1px solid #e7e5e4", padding: "7px 9px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}
+                    style={{ display: "flex", alignItems: "center", width: "100%", minWidth: 0, textAlign: "left", background: index === activeMentionIndex ? "#ede9fe" : "#fff", border: 0, borderBottom: index === mentionSuggestions.length - 1 ? 0 : "1px solid #e5e7eb", padding: "7px 8px", fontSize: 12, fontWeight: 850, cursor: "pointer" }}
                   >
-                    @{badge.name}
+                    <span style={{ fontFamily: "monospace", background: badge.backgroundColor, borderBottom: `2px solid ${badge.borderBottomColor}`, padding: "0 2px", fontWeight: 900, display: "block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{badge.name}</span>
                   </button>
-                )) : <div style={{ padding: 9, fontSize: 11 }}>No matching shapes</div>}
+                )) : <div style={{ padding: "7px 8px", fontSize: 12, fontWeight: 850, color: "#6b7280" }}>No matching context</div>}
               </div>
             ) : null}
             <div
@@ -563,12 +581,12 @@ function AgentChatOverlay() {
                 background: "#fff",
                 border: "2px solid #000",
                 borderRadius: 6,
-                minHeight: 64,
+                minHeight: 58,
                 overflow: "hidden",
                 position: "relative",
               }}
             >
-              <div ref={highlightsRef} aria-hidden="true" style={{ position: "absolute", inset: 0, padding: "7px 42px 7px 8px", boxSizing: "border-box", whiteSpace: "pre-wrap", overflowWrap: "break-word", overflow: "hidden", font: "12px/1.4 Inter, sans-serif", color: "#000", pointerEvents: "none" }}>
+              <div ref={highlightsRef} aria-hidden="true" style={{ position: "absolute", inset: 0, padding: "7px 56px 7px 8px", boxSizing: "border-box", whiteSpace: "pre-wrap", overflowWrap: "break-word", overflow: "hidden", font: '700 12px/1.35 "Kavla Agent Inter", sans-serif', color: "#000", pointerEvents: "none" }}>
                 {(() => {
                   let offset = 0;
                   return <>{mentionRanges.map((range) => {
@@ -594,7 +612,7 @@ function AgentChatOverlay() {
                 }}
                 onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
                 onKeyDown={onPromptKeyDown}
-                placeholder={contextBadges.length ? "Ask about this · @ to add context" : "Ask about this canvas · @ to mention"}
+                placeholder={contextBadges.length ? "Ask about this" : "Ask about this canvas"}
                 style={{
                   background: "transparent",
                   border: 0,
@@ -602,10 +620,11 @@ function AgentChatOverlay() {
                   color: "transparent",
                   caretColor: "#000",
                   position: "relative",
-                  font: "12px/1.4 Inter, sans-serif",
-                  height: 64,
+                  display: "block",
+                  font: '700 12px/1.35 "Kavla Agent Inter", sans-serif',
+                  height: 58,
                   outline: 0,
-                  padding: "7px 42px 7px 8px",
+                  padding: "7px 56px 7px 8px",
                   resize: "none",
                   width: "100%",
                 }}
