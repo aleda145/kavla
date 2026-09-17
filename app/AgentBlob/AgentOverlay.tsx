@@ -447,7 +447,6 @@ function AgentChatOverlay() {
             {agent.props.entries.map((entry) => {
               const isUser = entry.role === "user";
               const isError = entry.role === "error";
-              const linkedIds = entry.shapeIds ?? [];
               const contextBadges = (entry.contextShapeIds ?? [])
                 .map((id) => badgesById.get(id))
                 .filter((badge): badge is ContextBadge => Boolean(badge));
@@ -468,7 +467,7 @@ function AgentChatOverlay() {
                     whiteSpace: "pre-wrap",
                   }}
                 >
-                  {contextBadges.length ? (
+                  {isUser && contextBadges.length ? (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 5 }}>
                       {contextBadges.map((badge) => (
                         <ContextChip badge={badge} key={badge.id} onClick={() => zoomToShape(badge.id)} />
@@ -476,23 +475,6 @@ function AgentChatOverlay() {
                     </div>
                   ) : null}
                   <AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} />
-                  {linkedIds.length ? (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
-                      {entry.role === "assistant" ? (
-                        <span style={{ width: "100%", color: "#57534e", fontSize: 9, fontWeight: 900 }}>Canvas references</span>
-                      ) : null}
-                      {linkedIds.map((id) => {
-                        const badge = badgesById.get(id);
-                        return badge ? (
-                          <ContextChip badge={badge} key={id} onClick={() => zoomToShape(id)} />
-                        ) : (
-                          <span key={id} title="This canvas shape was removed" style={{ color: "#78716c", fontSize: 10 }}>
-                            Shape removed
-                          </span>
-                        );
-                      })}
-                    </div>
-                  ) : null}
                 </div>
               );
             })}
