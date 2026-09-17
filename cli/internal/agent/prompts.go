@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Full kavla-main prompts, adapted to the local tool protocol and documented runtime differences.
+// Concise role-specific prompts for the local agent runtime.
 // Keep the prose in text files so prompt updates do not require escaping code examples.
 
 //go:embed prompts/agent.txt
@@ -34,4 +34,3 @@ func BuildPrompt(userPrompt string, contextValue interface{}, fallbackHistory st
 	builder.Write(contextJSON)
 	return builder.String(), nil
 }
-
