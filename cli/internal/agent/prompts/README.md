@@ -1,10 +1,10 @@
-These are the full prompts from `kavla-main/tldraw-sync-cloudflare/worker/dataSocket/dagPrompt.ts`, expanded into text and embedded into the local agent runtime by `../prompts.go`:
+These prompts originated in `kavla-main/tldraw-sync-cloudflare/worker/dataSocket/dagPrompt.ts`, were expanded into text, and are embedded into the local agent runtime by `../prompts.go`:
 
 - `agent.txt`: `buildDagOrchestratorSystemPrompt`.
 - `sql.txt`: `buildSQLAgentSystemPrompt`.
 - `lens.txt`: `buildLensWidgetSystemPrompt`, including the complete `getLensVizCatalogPrompt`.
 
-Keep the original analysis, visualization, styling, and editing guidance intact when updating these files. The local integration needs these adaptations:
+Preserve the visualization, styling, and editing guidance when updating these files. The analytical workflow explicitly favors question-driven inspection, visible diagnostics, justified cleaning, and small chained query nodes. Once cleaning exists, subsequent analysis of that population must reuse the cleaned node or its descendants. Outliers and nulls are not automatic exclusions. The local integration also needs these adaptations:
 
 - The agent uses native `kavla` tool calls and chat responses instead of JSON event envelopes.
 - Canvas shape IDs replace the cloud artifact catalog's IDs; argument names match the actual dynamic tool schemas.

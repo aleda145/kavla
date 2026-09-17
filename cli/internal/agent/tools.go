@@ -9,7 +9,7 @@ func dynamicTools() []map[string]interface{} {
 			},
 			"additionalProperties": false,
 		}),
-		tool("create_query", "Create a visible, connected Kavla SQL query shape and then execute it. Every exploratory, profiling, sample, validation, and final analytical query must use this tool so the work remains on the canvas.", objectSchema(map[string]interface{}{
+		tool("create_query", "Create and execute one small, visible SQL step. Use the immediate upstream query as sourceShapeId and read its table name; reuse cleaned nodes instead of repeating their SQL or restarting from raw data. SQL diagnostics and analysis must remain visible; basic column profiles use compute_column_profiles.", objectSchema(map[string]interface{}{
 			"sourceShapeId": map[string]string{"type": "string"},
 			"name":          map[string]string{"type": "string"},
 			"sql":           map[string]string{"type": "string"},
@@ -56,7 +56,7 @@ func dynamicTools() []map[string]interface{} {
 			"shapeId": map[string]string{"type": "string"},
 			"text":    map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 4000},
 		}, "shapeId", "text")),
-        tool("create_analysis_query", "Create a visible query from an analytical instruction. A focused SQL generator writes and repairs this one step up to three attempts.", objectSchema(map[string]interface{}{
+        tool("create_analysis_query", "Create one visible analytical step from an instruction. Set sourceShapeId to the immediate input, using the cleaned query or its descendants once cleaning exists. Request only the next operation, not the whole analysis. A focused SQL generator writes and repairs this one step up to three attempts.", objectSchema(map[string]interface{}{
          "sourceShapeId": map[string]string{"type":"string"}, "instruction": map[string]string{"type":"string"}, "name": map[string]string{"type":"string"}, "layout": layoutSchema(),
         }, "sourceShapeId", "instruction")),
         tool("edit_query", "Edit a selected query using a focused SQL generator. Choose patch_current to edit it in place or branch to preserve it and create a separate analytical branch.", objectSchema(map[string]interface{}{
@@ -117,7 +117,6 @@ func layoutSchema() map[string]interface{} {
 		"additionalProperties": false,
 	}
 }
-
 
 
 

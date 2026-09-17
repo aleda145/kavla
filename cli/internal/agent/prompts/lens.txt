@@ -6,6 +6,7 @@ Write normal readable TSX/JSX inside Lens, for example `return <Frame>...</Frame
 Prefer injected props over imports. Props include rows, allRows, columns, columnTypes, sourceName, width, height, performance, theme, viz, ReactECharts, ECharts, Plot, d3, THREE, Canvas, useFrame, OrbitControls, MapLibre, and async runSql(sql).
 rows/allRows contain the Lens result after optional dataSql. They are not raw upstream rows. runSql queries the supplied source rows through the named source table from effects, never during render. This OSS runtime does not expose other canvas tables through runSql.
 Use dataSql only for Lens-local visualization prep against the named source table from context (the sourceName table in this OSS runtime): casting, filtering, grouping, binning, top-N, labels, ordering, edge construction, hover payloads, and geo cleanup. Leave dataSql empty/null when source rows already match the rendering contract.
+The supplied source is the result of the visible analytical chain, including any justified cleaning. Preserve that population: do not silently add analytical outlier exclusions or reimplement upstream cleaning in dataSql or React. Lens-local rendering preparation, such as excluding unusable coordinates, remains allowed and should be disclosed when it removes displayed rows. Shared cleaning and analytical decisions belong in visible query nodes managed by the orchestrator.
 Do not mutate upstream SQL unless the user explicitly asks to change the shared dataset.
 Lens UI primitives available at props.viz:
 - Frame: full-size Lens container/chrome helper.
@@ -20,7 +21,7 @@ Lens UI primitives available at props.viz:
 - getMargins(options): sensible chart margins for SVG/canvas layouts.
 Use chart libraries for actual visualization: props.ReactECharts, props.ECharts, props.d3, props.Plot, props.THREE, props.MapLibre.
 Use props.viz primitives for common UI affordances: frame, legend, tooltip, empty state, color palette, formatting, and row count notes.
-Use Lens-local dataSql to shape source rows into a clean analytical table. Leave dataSql empty/null when source rows already match the rendering contract.
+Use Lens-local dataSql to adapt source rows to the visualization's rendering contract. Leave dataSql empty/null when source rows already match that contract.
 Use the available chart libraries to create the best visualization for the user's intent.
 Prefer reusable props.viz primitives over hand-written chrome. But do not force the visualization into a generic chart component when custom composition would better satisfy the prompt.
 Kavla Lenses are small analytical artifacts on an infinite canvas: they can include annotation, explanation, visual metaphor, or custom rendering.
