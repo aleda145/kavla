@@ -9,7 +9,7 @@ func dynamicTools() []map[string]interface{} {
 			},
 			"additionalProperties": false,
 		}),
-		tool("create_query", "Create and execute one visible SQL step from sourceShapeId. Read that immediate input's table; reuse cleaned nodes.", objectSchema(map[string]interface{}{
+		tool("create_query", "Create and execute ONE analytical operation reading the immediate sourceShapeId's table. No CTEs or subqueries. Use HAVING/QUALIFY sparingly for simple result filters. Split combined operations into chained nodes; reuse cleaned inputs.", objectSchema(map[string]interface{}{
 			"sourceShapeId": map[string]string{"type": "string"},
 			"name":          map[string]string{"type": "string"},
 			"sql":           map[string]string{"type": "string"},
@@ -18,7 +18,7 @@ func dynamicTools() []map[string]interface{} {
 		tool("run_query", "Execute an SQL query shape that already exists visibly on the Kavla canvas. This cannot accept new SQL; use create_query for new work and update_query to correct existing SQL.", objectSchema(map[string]interface{}{
 			"shapeId": map[string]string{"type": "string"},
 		}, "shapeId")),
-		tool("update_query", "Replace the SQL in an existing visible Kavla query shape and then execute it. Use this to correct a failed query shape instead of creating repeated failed siblings.", objectSchema(map[string]interface{}{
+		tool("update_query", "Edit or repair ONE operation in an existing query and execute it. No CTEs or subqueries. Use HAVING/QUALIFY sparingly for simple result filters. Keep repairs in place; new analytical operations belong in new downstream nodes.", objectSchema(map[string]interface{}{
 			"shapeId": map[string]string{"type": "string"},
 			"name":    map[string]string{"type": "string"},
 			"sql":     map[string]string{"type": "string"},
@@ -111,6 +111,4 @@ func layoutSchema() map[string]interface{} {
 		"additionalProperties": false,
 	}
 }
-
-
 
