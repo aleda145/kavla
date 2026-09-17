@@ -24,7 +24,7 @@ import type { SQLResultTableShape } from "../SQLResultArea/sql-result-table-type
 import { connectShapes } from "../util/shapeConnections";
 import { getUniqueName } from "../util/getUniqueName";
 import { getAgentContextShapeIds } from "./agent-chat-store";
-import { getAgentLayout, getAgentPlacement, reflowAgentQuery, trackAgentQueryLayout } from "./agentLayout";
+import { getAgentLayout, getAgentPlacement, getAgentQueryLayout, getAgentQueryPlacement, reflowAgentQuery, trackAgentQueryLayout } from "./agentLayout";
 
 const SAMPLE_ROW_LIMIT = 20;
 const MAX_TEXT_LENGTH = 500;
@@ -148,6 +148,7 @@ function describeShape(editor: Editor, shape: TLShape): Record<string, unknown> 
       columnStats: compactColumnStats(query.props.columnStats),
       upstreamShapeIds: query.props.upstreamShapeIds,
       linkedTableId: query.props.linkedTableId,
+      layout: query.meta.agentQueryLayout,
       error: query.props.error,
       stale: query.props.stale,
       isDirty: query.props.isDirty,
@@ -219,14 +220,17 @@ async function createQuery(editor: Editor, args: ToolArguments, env: AgentToolEn
   const sql = formatAgentSQL(requiredString(args, "sql"));
   const desiredName = optionalString(args, "name") ?? "agent_query";
   const shapeId = createShapeId();
-  const layout = getAgentLayout(args, source.id, "right");
-  const placement = getAgentPlacement(editor, layout, source.id, getAutoExpandedSQLShapeSize(sql));
+  const layout = getAgentQueryLayout(editor, args, source.id);
+  const size = getAutoExpandedSQLShapeSize(sql);
+  const inputs = getOrderedDependenciesForSQL(editor, sql).immediateUpstreamIds;
+  const placement = getAgentQueryPlacement(editor, layout, size, null, inputs);
   editor.createShape<SQLTextAreaShape>({
     id: shapeId,
     type: "sql-text-area",
     x: placement.x,
     y: placement.y,
     props: {
+      ...size,
       text: sql,
       name: getUniqueName(editor, desiredName),
       showTable: true,
@@ -264,6 +268,7 @@ async function createQuery(editor: Editor, args: ToolArguments, env: AgentToolEn
     shapeId,
     name: created?.props.name,
     linkedTableId: created?.props.linkedTableId,
+    layout,
     rowCount: result.rowCount,
     schema: result.outputSchema,
     sampleRows: result.sampleRows?.slice(0, SAMPLE_ROW_LIMIT) ?? [],

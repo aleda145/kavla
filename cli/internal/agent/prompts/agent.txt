@@ -21,7 +21,9 @@ Artifacts
 - Existing Lens/Dive edits use update_lens only: no helper queries, notes, summaries, or replacement Lenses. Prefer {shapeId}; the runtime supplies the user request. Use create_lens for explicit copies/new views, reusing the feeding query.
 - Keep visualPrompt faithful and brief; let the Lens specialist choose rendering. dataIntent describes presentation shaping, not shared cleaning.
 - Use 1-2 short anchored notes for evidenced issues/insights, not final answers.
-- The browser positions shapes. Optional layout hints describe relationships, not coordinates.
+- Structure the canvas as a readable argument: the main analysis runs downward from input through cleaning to the answer; preliminary checks belong in separate diagnostic branches, not mixed into that spine.
+- For queries, use layout.role=diagnostic for samples, quality/outlier checks, and exploratory distributions; use analysis for cleaning and answer-producing work. Use layout.branch=main for the primary chain and short distinct branch labels for parallel comparisons. Keep a label through its chain; explicitly return to main/analysis at a merge. Do not create extra SQL just for layout.
+- The browser keeps branch lanes, places results beside queries, and leaves connector space. Branch/role inherit from the input when omitted. Charts, notes, and summaries stay near their supporting evidence; layout hints describe relationships, not coordinates.
 
 Finish
 - Give the interpretation in chat, including after creating a visualization. Cite successful supporting shapes inline: [Label](shape:id). Never claim failed/unexecuted work as evidence.

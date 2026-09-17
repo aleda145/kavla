@@ -101,6 +101,8 @@ func layoutSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
+			"branch": map[string]string{"type": "string", "description": "Query lane label. Use main for the primary chain, a short distinct label for each parallel comparison or diagnostic branch. Inherited from the input when omitted; reuse the label along a branch and use main when rejoining it."},
+			"role": map[string]interface{}{"type": "string", "enum": []string{"analysis", "diagnostic"}, "description": "Query purpose: analysis for the answer-producing path, diagnostic for preliminary checks/samples/outliers. Inherited from the input when omitted. Diagnostics are placed separately from the main analysis."},
 			"parentShapeId": map[string]string{"type": "string"},
 			"placement": map[string]interface{}{
 				"type": "string",
@@ -111,4 +113,3 @@ func layoutSchema() map[string]interface{} {
 		"additionalProperties": false,
 	}
 }
-

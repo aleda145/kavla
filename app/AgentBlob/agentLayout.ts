@@ -1,4 +1,4 @@
-import type { Editor, TLShapeId } from "tldraw";
+import type { Editor, TLArrowBinding, TLShapeId } from "tldraw";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 
 export type AgentPlacement = "right" | "below" | "above" | "summary";
@@ -7,6 +7,9 @@ export type AgentLayout = {
   parentShapeId: TLShapeId | null;
   order: number;
   placement: AgentPlacement;
+  branch?: string;
+  role?: "analysis" | "diagnostic";
+  rootShapeId?: TLShapeId;
 };
 
 type LayoutRect = { minX: number; minY: number; maxX: number; maxY: number };
@@ -31,11 +34,149 @@ export function getAgentLayout(
     placement: ["right", "below", "above", "summary"].includes(placement)
       ? placement as AgentPlacement
       : defaultPlacement,
+    ...(typeof layout.branch === "string" && layout.branch.trim() ? { branch: layout.branch.trim() } : {}),
+    ...(layout.role === "analysis" || layout.role === "diagnostic" ? { role: layout.role } : {}),
+    ...(typeof layout.rootShapeId === "string" ? { rootShapeId: layout.rootShapeId as TLShapeId } : {}),
   };
 }
 
 function overlaps(a: LayoutRect, b: LayoutRect) {
   return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
+}
+
+// The analyst chooses semantic branches; the browser owns their geometry.
+export function getAgentQueryLayout(editor: Editor, args: Record<string, unknown>, sourceShapeId: TLShapeId): AgentLayout {
+  const source = editor.getShape<SQLTextAreaShape>(sourceShapeId);
+  const inherited = source?.type === "sql-text-area" ? getQueryLayout(source) : null;
+  const layout = getAgentLayout(args, sourceShapeId, "below");
+  const role = layout.role ?? inherited?.role ?? "analysis";
+  return {
+    ...layout,
+    parentShapeId: sourceShapeId,
+    rootShapeId: inherited?.rootShapeId ?? sourceShapeId,
+    role,
+    branch: layout.branch ?? (role === inherited?.role ? inherited.branch : role === "diagnostic" ? "diagnostics" : "main"),
+  };
+}
+
+function arrowCorridors(editor: Editor, excluded: Set<TLShapeId>): LayoutRect[] {
+  return editor.getCurrentPageShapes().filter((shape) => shape.type === "arrow").flatMap((arrow) => {
+    if (editor.getBindingsFromShape<TLArrowBinding>(arrow, "arrow").some((binding) => excluded.has(binding.toId))) return [];
+    const transform = editor.getShapePageTransform(arrow);
+    const points = editor.getShapeGeometry(arrow).vertices.map((point) => transform.applyToPoint(point));
+    return points.slice(1).map((point, index) => ({
+      minX: Math.min(point.x, points[index].x) - 18,
+      minY: Math.min(point.y, points[index].y) - 18,
+      maxX: Math.max(point.x, points[index].x) + 18,
+      maxY: Math.max(point.y, points[index].y) + 18,
+    }));
+  });
+}
+
+export function getAgentQueryPlacement(
+  editor: Editor,
+  layout: AgentLayout,
+  size: { w: number; h: number },
+  movingShapeId: TLShapeId | null = null,
+  inputShapeIds: TLShapeId[] = [],
+) {
+  const queries = editor.getCurrentPageShapes().filter((shape): shape is SQLTextAreaShape => shape.type === "sql-text-area");
+  const moving = movingShapeId ? editor.getShape<SQLTextAreaShape>(movingShapeId) : null;
+  const excluded = new Set<TLShapeId>();
+  if (moving) {
+    excluded.add(moving.id);
+    if (moving.props.linkedTableId && !editor.getShape(moving.props.linkedTableId as TLShapeId)?.isLocked) excluded.add(moving.props.linkedTableId as TLShapeId);
+    // Expanding a parent pushes its descendants down, rather than jumping past them.
+    const downstream = new Set<TLShapeId>([moving.id]);
+    for (const id of downstream) {
+      for (const query of queries) {
+        if (downstream.has(query.id)) continue;
+        if (query.props.upstreamShapeIds?.includes(id) || getQueryLayout(query)?.parentShapeId === id) {
+          if (!query.isLocked && !query.props.isManuallyResized && getQueryLayout(query)?.branch) {
+            downstream.add(query.id);
+            excluded.add(query.id);
+            if (query.props.linkedTableId && !editor.getShape(query.props.linkedTableId as TLShapeId)?.isLocked) excluded.add(query.props.linkedTableId as TLShapeId);
+          }
+        }
+      }
+    }
+  }
+  const rootBounds = layout.rootShapeId ? editor.getShapePageBounds(layout.rootShapeId) : null;
+  const parentBounds = layout.parentShapeId ? editor.getShapePageBounds(layout.parentShapeId) : null;
+  const origin = rootBounds ?? parentBounds;
+  const resultBounds = moving?.props.linkedTableId ? editor.getShapePageBounds(moving.props.linkedTableId as TLShapeId) : null;
+  const pairWidth = Math.max(size.w, 600) + 80 + Math.max(resultBounds?.w ?? 400, 400);
+  const pairHeight = Math.max(size.h, resultBounds?.h ?? 300);
+  const branchQueries = queries.filter((query) => {
+    const other = getQueryLayout(query);
+    return other?.rootShapeId === layout.rootShapeId && other?.branch === layout.branch && other?.role === layout.role;
+  });
+  let x = origin?.minX ?? editor.getViewportPageBounds().center.x;
+  const existing = branchQueries.find((query) => query.id !== movingShapeId);
+  if (moving) x = editor.getShapePageBounds(moving.id)?.minX ?? x;
+  else if (existing) x = editor.getShapePageBounds(existing.id)?.minX ?? x;
+  else {
+    const lanes = queries.filter((query) => getQueryLayout(query)?.rootShapeId === layout.rootShapeId)
+      .flatMap((query) => {
+        const bounds = editor.getShapePageBounds(query.id);
+        const table = query.props.linkedTableId ? editor.getShapePageBounds(query.props.linkedTableId as TLShapeId) : null;
+        return bounds ? [{ minX: bounds.minX, maxX: Math.max(bounds.minX + 1080, table?.maxX ?? bounds.maxX) }] : [];
+      });
+    if (layout.role === "diagnostic") x = Math.min(x, ...lanes.map((lane) => lane.minX)) - pairWidth - 180;
+    else if (layout.branch !== "main") x = Math.max(x + 1080, ...lanes.map((lane) => lane.maxX)) + 180;
+  }
+  let y = (parentBounds?.maxY ?? origin?.maxY ?? editor.getViewportPageBounds().center.y) + 140;
+  if (moving) y = Math.max(y, editor.getShapePageBounds(moving.id)?.minY ?? y);
+  const inputs = new Set(inputShapeIds.concat(layout.parentShapeId ? [layout.parentShapeId] : []));
+  const predecessors = queries.filter((query) => inputs.has(query.id) || (moving
+    ? moving.props.upstreamShapeIds?.includes(query.id)
+    : branchQueries.includes(query)));
+  for (const query of predecessors) {
+    if (excluded.has(query.id)) continue;
+    const bounds = editor.getShapePageBounds(query.id);
+    const table = query.props.linkedTableId ? editor.getShapePageBounds(query.props.linkedTableId as TLShapeId) : null;
+    y = Math.max(y, (bounds?.maxY ?? y - 140) + 140, (table?.maxY ?? y - 140) + 140);
+  }
+  const occupied = editor.getCurrentPageShapes()
+    .filter((shape) => !excluded.has(shape.id) && !["arrow", "agent-chat", "agent-blob"].includes(shape.type))
+    .filter((shape) => !movingShapeId || (!editor.hasAncestor(movingShapeId, shape.id) && !editor.hasAncestor(shape.id, movingShapeId)))
+    .flatMap((shape) => {
+      const bounds = editor.getShapePageBounds(shape.id);
+      return bounds ? [{ id: shape.id, minX: bounds.minX - 28, minY: bounds.minY - 28, maxX: bounds.maxX + 28, maxY: bounds.maxY + 28 }] : [];
+    });
+  const corridors = arrowCorridors(editor, excluded);
+  const inputBounds = [...new Set([...inputs, ...(moving?.props.upstreamShapeIds ?? [])])]
+    .flatMap((id) => {
+      const bounds = editor.getShapePageBounds(id as TLShapeId);
+      return bounds ? [{ id, bounds }] : [];
+    });
+  const candidates: Array<{ x: number; y: number; score: number }> = [];
+  const startY = y;
+  for (let attempt = 0; attempt < occupied.length + 12; attempt++) {
+    const rect = { minX: x, minY: y, maxX: x + pairWidth, maxY: y + pairHeight };
+    const blockers = occupied.filter((bounds) => overlaps(rect, bounds));
+    if (blockers.length) {
+      y = Math.max(...blockers.map((bounds) => bounds.maxY)) + 140;
+      continue;
+    }
+    let crossings = corridors.filter((bounds) => overlaps(rect, bounds)).length;
+    // Estimate the incoming elbow paths as well as respecting arrows already drawn.
+    for (const input of inputBounds) {
+      const fromX = input.bounds.minX + input.bounds.w / 2;
+      const toX = x + size.w / 2;
+      const midY = (input.bounds.maxY + y) / 2;
+      const route = [
+        { minX: fromX - 18, maxX: fromX + 18, minY: input.bounds.maxY, maxY: midY },
+        { minX: Math.min(fromX, toX) - 18, maxX: Math.max(fromX, toX) + 18, minY: midY - 18, maxY: midY + 18 },
+        { minX: toX - 18, maxX: toX + 18, minY: midY, maxY: y },
+      ];
+      crossings += occupied.filter((bounds) => bounds.id !== input.id && route.some((segment) => overlaps(segment, bounds))).length;
+    }
+    candidates.push({ x, y, score: crossings * 2000 + y - startY });
+    if (!crossings) break;
+    y += 140;
+  }
+  return candidates.sort((a, b) => a.score - b.score)[0] ?? { x, y };
 }
 
 export function getAgentPlacement(
@@ -69,6 +210,7 @@ export function getAgentPlacement(
         maxY: bounds.maxY + 28,
       }] : [];
     });
+  const corridors = arrowCorridors(editor, new Set(movingShapeId ? [movingShapeId] : []));
 
   const xGap = 70;
   const yGap = 60;
@@ -112,6 +254,7 @@ export function getAgentPlacement(
             Math.abs(center.y - anchorCenter.y) +
             directionIndex * 220 +
             depth * 90 +
+            corridors.filter((corridor) => overlaps(rect, corridor)).length * 2000 +
             Math.abs(sideOffset) * 24 +
             Math.abs(sideOffset - layout.order) * 18,
         });
@@ -158,12 +301,41 @@ function hasLayoutCollision(editor: Editor, shapeId: TLShapeId) {
 }
 
 export function reflowAgentQuery(editor: Editor, shapeId: TLShapeId) {
+  reflowQuery(editor, shapeId, new Set());
+}
+
+function reflowQuery(editor: Editor, shapeId: TLShapeId, visited: Set<TLShapeId>) {
+  if (visited.has(shapeId)) return;
+  visited.add(shapeId);
   const query = editor.getShape<SQLTextAreaShape>(shapeId);
   if (query?.type !== "sql-text-area" || query.isLocked || query.props.isManuallyResized) return;
   const layout = getQueryLayout(query);
   if (!layout) return;
   const bounds = editor.getShapePageBounds(shapeId);
   if (!bounds) return;
+  if (layout.branch && layout.rootShapeId) {
+    const placement = getAgentQueryPlacement(editor, layout, { w: bounds.w, h: bounds.h }, shapeId);
+    const origin = editor.getPointInParentSpace(query, placement);
+    if (query.x !== origin.x || query.y !== origin.y) {
+      editor.updateShape({ id: shapeId, type: query.type, x: origin.x, y: origin.y });
+    }
+    const result = query.props.linkedTableId ? editor.getShape(query.props.linkedTableId as TLShapeId) : null;
+    if (result?.type === "sql-result-table" && !result.isLocked) {
+      const resultOrigin = editor.getPointInParentSpace(result, { x: placement.x + bounds.w + 80, y: placement.y });
+      if (result.x !== resultOrigin.x || result.y !== resultOrigin.y) {
+        editor.updateShape({ id: result.id, type: result.type, x: resultOrigin.x, y: resultOrigin.y });
+      }
+    }
+    for (const child of editor.getCurrentPageShapes()) {
+      if (child.type !== "sql-text-area") continue;
+      const childQuery = child as SQLTextAreaShape;
+      if (childQuery.props.upstreamShapeIds?.includes(shapeId) || getQueryLayout(childQuery)?.parentShapeId === shapeId) {
+        reflowQuery(editor, child.id, visited);
+      }
+    }
+    visited.delete(shapeId);
+    return;
+  }
   if (hasLayoutCollision(editor, shapeId)) {
     const placement = getAgentPlacement(editor, layout, layout.parentShapeId, { w: bounds.w, h: bounds.h }, shapeId);
     const origin = editor.getPointInParentSpace(query, placement);
@@ -181,6 +353,13 @@ export function reflowAgentQuery(editor: Editor, shapeId: TLShapeId) {
 
 export function registerAgentQueryReflow(editor: Editor) {
   return editor.sideEffects.registerAfterChangeHandler("shape", (previous, next) => {
+    if (previous.type === "sql-result-table" && next.type === "sql-result-table") {
+      const before = previous.props as { w: number; h: number };
+      const after = next.props as { w: number; h: number; sourceShapeId: string };
+      if (after.w <= before.w && after.h <= before.h) return;
+      editor.run(() => reflowAgentQuery(editor, after.sourceShapeId as TLShapeId), { history: "ignore" });
+      return;
+    }
     if (previous.type !== "sql-text-area" || next.type !== "sql-text-area") return;
     const before = previous as SQLTextAreaShape;
     const after = next as SQLTextAreaShape;
