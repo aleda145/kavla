@@ -1,6 +1,6 @@
 import type { Editor, TLShapeId } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
-import { extractTableNames } from "../util/parseSql";
+import { extractTableNames } from "../util/parseSql.ts";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 
 export type SQLDependencyShape = SQLTextAreaShape | DataSourceShape;
