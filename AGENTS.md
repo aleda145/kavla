@@ -66,3 +66,4 @@ Never remove commented out code. It's there for a reason.
 - We are using typescript. Make sure to assign correct types in React.
 - We favor simplicity over complexity. Keep things grug. Repeated code is OK. We try not to abstract code unless necessary
 - Large files around 1000 LOC is completely fine
+- Do not write tests unless prompted to do so
