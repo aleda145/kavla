@@ -14,39 +14,32 @@ export function getOrderedDependenciesForSQL(
 } {
   const orderedDependencies: SQLDependencyShape[] = [];
   const visited = new Set<TLShapeId>();
-
-  const getOrderedDeps = (shapeId: TLShapeId) => {
-    if (visited.has(shapeId)) return;
-    visited.add(shapeId);
-
-    const currentShape = editor.getShape(shapeId);
-    if (!currentShape || (currentShape.type !== "sql-text-area" && currentShape.type !== "data-source")) {
-      return;
-    }
-
-    const upstreamIds = (currentShape.props as { upstreamShapeIds?: string[] | null }).upstreamShapeIds ?? [];
-    for (const upstreamId of upstreamIds) {
-      getOrderedDeps(upstreamId as TLShapeId);
-    }
-
-    orderedDependencies.push(currentShape as SQLDependencyShape);
-  };
-
-  const immediateUpstreamShapes = extractTableNames(currentText)
-    .map((name) =>
-      editor
-        .getCurrentPageShapes()
-        .find(
-          (shape) =>
-            (shape.type === "data-source" || shape.type === "sql-text-area") &&
-            (shape as SQLDependencyShape).props.name.toLowerCase() === name.toLowerCase()
-        )
-    )
+  const shapes = editor.getCurrentPageShapes().filter(
+    (shape): shape is SQLDependencyShape => shape.type === "sql-text-area" || shape.type === "data-source"
+  );
+  const resolveInputs = (sql: string): SQLDependencyShape[] => extractTableNames(sql)
+    .map((name) => shapes.find((shape) => shape.props.name.toLowerCase() === name.toLowerCase()))
     .filter((shape): shape is SQLDependencyShape => Boolean(shape));
 
+  const getOrderedDeps = (currentShape: SQLDependencyShape) => {
+    if (visited.has(currentShape.id)) return;
+    visited.add(currentShape.id);
+
+    // Saved arrows can lag behind SQL edits or point to deleted nodes.
+    if (currentShape.type === "sql-text-area") {
+      for (const upstreamShape of resolveInputs(currentShape.props.text)) {
+        getOrderedDeps(upstreamShape);
+      }
+    }
+
+    orderedDependencies.push(currentShape);
+  };
+
+  const immediateUpstreamShapes = resolveInputs(currentText);
+
   const immediateUpstreamIds = immediateUpstreamShapes.map((shape) => shape.id);
-  for (const upstreamId of immediateUpstreamIds) {
-    getOrderedDeps(upstreamId);
+  for (const upstreamShape of immediateUpstreamShapes) {
+    getOrderedDeps(upstreamShape);
   }
 
   return { orderedDependencies, immediateUpstreamIds };
