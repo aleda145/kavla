@@ -3,8 +3,7 @@ import test from "node:test";
 import { Box, createTLSchema, defaultShapeSchemas, type Editor, type TLShapeId, type TLShapePartial } from "tldraw";
 import { AgentBlobMigrations } from "./agent-blob-migrations.ts";
 import { AgentBlobProps } from "./agent-blob-props.ts";
-import { CodexAgentMigrations } from "./codex-agent-migrations.ts";
-import { CodexAgentProps } from "./codex-agent-props.ts";
+import { AgentChatProps } from "./agent-chat-props.ts";
 import type { AgentBlobShape } from "./agent-blob-types.ts";
 import { AGENT_BLOB_SHAPE_ID, getAgentBlob, moveAgentBlobToShape, removeAgentBlob, setAgentBlobStatus, startAgentBlob } from "./agent-blob-store.ts";
 
@@ -77,27 +76,23 @@ test("missing targets fall back to the viewport and deleted blobs stay deleted u
   assert.equal(getAgentBlob(editor)!.props.currentJobId, "run:2");
 });
 
-test("adding the blob schema preserves saved chat history and round-trips blob records", () => {
-  const shapes = { ...defaultShapeSchemas, "codex-agent": { props: CodexAgentProps, migrations: CodexAgentMigrations } };
-  const oldSchema = createTLSchema({ shapes });
+test("chat history and blob records round-trip through the canvas schema", () => {
+  const shapes = { ...defaultShapeSchemas, "agent-chat": { props: AgentChatProps } };
   const schema = createTLSchema({ shapes: { ...shapes, "agent-blob": { props: AgentBlobProps, migrations: AgentBlobMigrations } } });
-  const chat = oldSchema.types.shape.create({
-    id: "shape:codex-agent", type: "codex-agent", parentId: "page:page", index: "a1",
+  const chat = schema.types.shape.create({
+    id: "shape:agent-chat", type: "agent-chat", parentId: "page:page", index: "a1",
     props: {
-      w: 1, h: 1, name: "Codex", entries: [{ id: "entry:1", role: "user", text: "Keep my analysis", createdAt: 1 }],
-      codexThreadId: "thread:1", isRunning: false, streamingText: "", activity: null, isOpen: true,
+      w: 1, h: 1, name: "Agent", entries: [{ id: "entry:1", role: "user", text: "Keep my analysis", createdAt: 1 }],
+      threadId: "thread:1", isRunning: false, streamingText: "", activity: null, isOpen: true,
     },
   });
-  const migrated = schema.migrateStoreSnapshot({ schema: oldSchema.serialize(), store: { [chat.id]: chat } });
-  assert.equal(migrated.type, "success");
-  if (migrated.type !== "success") return;
-  assert.deepEqual(migrated.value[chat.id], chat);
+  schema.types.shape.validator.validate(chat);
 
   const { editor } = canvas();
   startAgentBlob(editor, "run:1");
   const blob = getAgentBlob(editor)!;
   schema.types.shape.validator.validate(blob);
-  const snapshot = JSON.parse(JSON.stringify({ schema: schema.serialize(), store: { ...migrated.value, [blob.id]: blob } }));
+  const snapshot = JSON.parse(JSON.stringify({ schema: schema.serialize(), store: { [chat.id]: chat, [blob.id]: blob } }));
   const restored = schema.migrateStoreSnapshot(snapshot);
   assert.equal(restored.type, "success");
   if (restored.type !== "success") return;

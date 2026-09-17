@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 
-export type CodexStatusState = "checking" | "ready" | "missing" | "auth_required" | "error";
+export type AgentStatusState = "checking" | "ready" | "missing" | "auth_required" | "error";
 
-export type CodexStatus = {
-  state: CodexStatusState;
+export type AgentStatus = {
+  state: AgentStatusState;
   message: string;
 };
 
-export type CodexModel = {
+export type AgentModel = {
   id: string;
   model: string;
   displayName: string;
@@ -15,17 +15,17 @@ export type CodexModel = {
   isDefault: boolean;
 };
 
-export type CodexModelSelection = {
-  models: CodexModel[];
+export type AgentModelSelection = {
+  models: AgentModel[];
   mainModel: string;
 };
 
-export type CodexEvent = {
+export type AgentEvent = {
   eventType: "started" | "message_delta" | "tool_started" | "tool_finished" | "completed" | "cancelled" | "error" | "warning";
   data: Record<string, unknown>;
 };
 
-export type CodexToolRequest = {
+export type AgentToolRequest = {
   arguments: Record<string, unknown>;
   callId: string;
   threadId: string;
@@ -33,26 +33,26 @@ export type CodexToolRequest = {
   turnId: string;
 };
 
-export type CodexThread = {
+export type AgentThread = {
   threadId: string;
   resumed: boolean;
   model?: string;
 };
 
-const statusListeners = new Set<(status: CodexStatus) => void>();
-const eventListeners = new Set<(event: CodexEvent) => void>();
-const toolListeners = new Set<(request: CodexToolRequest) => void>();
-const threadListeners = new Set<(thread: CodexThread) => void>();
-const modelListeners = new Set<(selection: CodexModelSelection) => void>();
+const statusListeners = new Set<(status: AgentStatus) => void>();
+const eventListeners = new Set<(event: AgentEvent) => void>();
+const toolListeners = new Set<(request: AgentToolRequest) => void>();
+const threadListeners = new Set<(thread: AgentThread) => void>();
+const modelListeners = new Set<(selection: AgentModelSelection) => void>();
 
-const MAIN_MODEL_KEY = "kavla.codex.mainModel";
+const MAIN_MODEL_KEY = "kavla.agent.mainModel";
 
-let currentStatus: CodexStatus = {
+let currentStatus: AgentStatus = {
   state: "checking",
   message: "Preparing Agent connection…",
 };
 
-let currentModels: CodexModelSelection = {
+let currentModels: AgentModelSelection = {
   models: [],
   mainModel: "",
 };
@@ -73,11 +73,11 @@ function persistModel(key: string, model: string) {
   }
 }
 
-function availableModel(models: CodexModel[], requested: string): string {
+function availableModel(models: AgentModel[], requested: string): string {
   return models.find((model) => model.model === requested || model.id === requested)?.model ?? "";
 }
 
-function defaultMainModel(models: CodexModel[]): string {
+function defaultMainModel(models: AgentModel[]): string {
   return availableModel(models, storedModel(MAIN_MODEL_KEY))
     || availableModel(models, "gpt-5.6-sol")
     || models.find((model) => model.isDefault)?.model
@@ -85,24 +85,24 @@ function defaultMainModel(models: CodexModel[]): string {
     || "";
 }
 
-export function notifyCodexStatus(value: unknown) {
+export function notifyAgentStatus(value: unknown) {
   if (!value || typeof value !== "object") return;
   const candidate = value as Record<string, unknown>;
   if (typeof candidate.state !== "string" || typeof candidate.message !== "string") return;
   if (!["checking", "ready", "missing", "auth_required", "error"].includes(candidate.state)) return;
-  currentStatus = candidate as CodexStatus;
+  currentStatus = candidate as AgentStatus;
   statusListeners.forEach((listener) => listener(currentStatus));
 }
 
-export function notifyCodexEvent(value: unknown) {
+export function notifyAgentEvent(value: unknown) {
   if (!value || typeof value !== "object") return;
   const candidate = value as Record<string, unknown>;
   if (typeof candidate.eventType !== "string") return;
   const data = candidate.data && typeof candidate.data === "object" ? candidate.data as Record<string, unknown> : {};
-  eventListeners.forEach((listener) => listener({ eventType: candidate.eventType as CodexEvent["eventType"], data }));
+  eventListeners.forEach((listener) => listener({ eventType: candidate.eventType as AgentEvent["eventType"], data }));
 }
 
-export function notifyCodexToolRequest(value: unknown) {
+export function notifyAgentToolRequest(value: unknown) {
   if (!value || typeof value !== "object") return;
   const candidate = value as Record<string, unknown>;
   if (typeof candidate.callId !== "string" || typeof candidate.tool !== "string") return;
@@ -119,7 +119,7 @@ export function notifyCodexToolRequest(value: unknown) {
   }));
 }
 
-export function notifyCodexThread(value: unknown) {
+export function notifyAgentThread(value: unknown) {
   if (!value || typeof value !== "object") return;
   const candidate = value as Record<string, unknown>;
   if (typeof candidate.threadId !== "string" || !candidate.threadId.trim()) return;
@@ -131,9 +131,9 @@ export function notifyCodexThread(value: unknown) {
   }));
 }
 
-export function notifyCodexModels(value: unknown) {
+export function notifyAgentModels(value: unknown) {
   const candidates = Array.isArray(value) ? value : [];
-  const models = candidates.flatMap((value): CodexModel[] => {
+  const models = candidates.flatMap((value): AgentModel[] => {
     if (!value || typeof value !== "object") return [];
     const candidate = value as Record<string, unknown>;
     const model = typeof candidate.model === "string" && candidate.model.trim()
@@ -157,7 +157,7 @@ export function notifyCodexModels(value: unknown) {
   modelListeners.forEach((listener) => listener(currentModels));
 }
 
-export function setCodexModelSelection(requested: string) {
+export function setAgentModelSelection(requested: string) {
   const model = availableModel(currentModels.models, requested);
   if (!model) return;
   currentModels = { ...currentModels, mainModel: model };
@@ -165,22 +165,22 @@ export function setCodexModelSelection(requested: string) {
   modelListeners.forEach((listener) => listener(currentModels));
 }
 
-export function subscribeCodexEvents(listener: (event: CodexEvent) => void) {
+export function subscribeAgentEvents(listener: (event: AgentEvent) => void) {
   eventListeners.add(listener);
   return () => { eventListeners.delete(listener); };
 }
 
-export function subscribeCodexToolRequests(listener: (request: CodexToolRequest) => void) {
+export function subscribeAgentToolRequests(listener: (request: AgentToolRequest) => void) {
   toolListeners.add(listener);
   return () => { toolListeners.delete(listener); };
 }
 
-export function subscribeCodexThreads(listener: (thread: CodexThread) => void) {
+export function subscribeAgentThreads(listener: (thread: AgentThread) => void) {
   threadListeners.add(listener);
   return () => { threadListeners.delete(listener); };
 }
 
-export function useCodexStatus(): CodexStatus {
+export function useAgentStatus(): AgentStatus {
   const [status, setStatus] = useState(currentStatus);
   useEffect(() => {
     statusListeners.add(setStatus);
@@ -189,7 +189,7 @@ export function useCodexStatus(): CodexStatus {
   return status;
 }
 
-export function useCodexModels(): CodexModelSelection {
+export function useAgentModels(): AgentModelSelection {
   const [selection, setSelection] = useState(currentModels);
   useEffect(() => {
     modelListeners.add(setSelection);

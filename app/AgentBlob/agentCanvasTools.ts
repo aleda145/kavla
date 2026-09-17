@@ -1,4 +1,4 @@
-import type { CodexToolEnvironment } from "../client/localServer/codexRuns";
+import type { AgentToolEnvironment } from "../client/localServer/agentRuns";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
 import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
 import type { LensShape } from "../Lens/lens-shape-types";
@@ -24,7 +24,7 @@ import { getAutoExpandedSQLShapeSize } from "../SQLTextArea/sqlShapeSize";
 import type { SQLResultTableShape } from "../SQLResultArea/sql-result-table-types";
 import { connectShapes } from "../util/shapeConnections";
 import { getUniqueName } from "../util/getUniqueName";
-import { getAgentContextShapeIds } from "./codex-agent-store";
+import { getAgentContextShapeIds } from "./agent-chat-store";
 import { getAgentLayout, getAgentPlacement, reflowAgentQuery, trackAgentQueryLayout } from "./agentLayout";
 
 const SAMPLE_ROW_LIMIT = 20;
@@ -215,7 +215,7 @@ export function buildPromptCanvasContext(editor: Editor, explicitShapeIds?: stri
   };
 }
 
-async function createQuery(editor: Editor, args: ToolArguments, env: CodexToolEnvironment, onActivityShape?: (shapeId: string) => void): Promise<ToolResult> {
+async function createQuery(editor: Editor, args: ToolArguments, env: AgentToolEnvironment, onActivityShape?: (shapeId: string) => void): Promise<ToolResult> {
   const source = getDataShapeOrThrow(editor, requiredString(args, "sourceShapeId"));
   const sql = formatAgentSQL(requiredString(args, "sql"));
   const desiredName = optionalString(args, "name") ?? "agent_query";
@@ -271,7 +271,7 @@ async function createQuery(editor: Editor, args: ToolArguments, env: CodexToolEn
   });
 }
 
-async function runExistingQuery(editor: Editor, args: ToolArguments, env: CodexToolEnvironment): Promise<ToolResult> {
+async function runExistingQuery(editor: Editor, args: ToolArguments, env: AgentToolEnvironment): Promise<ToolResult> {
   const shapeId = requiredString(args, "shapeId") as TLShapeId;
   const shape = getShapeOrThrow(editor, shapeId);
   if (shape.type !== "sql-text-area") throw new Error(`Shape ${shapeId} is not a visible SQL query.`);
@@ -300,7 +300,7 @@ async function runExistingQuery(editor: Editor, args: ToolArguments, env: CodexT
   });
 }
 
-async function updateQuery(editor: Editor, args: ToolArguments, env: CodexToolEnvironment): Promise<ToolResult> {
+async function updateQuery(editor: Editor, args: ToolArguments, env: AgentToolEnvironment): Promise<ToolResult> {
   const shapeId = requiredString(args, "shapeId") as TLShapeId;
   const shape = getShapeOrThrow(editor, shapeId);
   if (shape.type !== "sql-text-area") throw new Error(`Shape ${shapeId} is not a SQL query.`);
@@ -360,7 +360,7 @@ async function updateQuery(editor: Editor, args: ToolArguments, env: CodexToolEn
   });
 }
 
-async function createChart(editor: Editor, args: ToolArguments, env: CodexToolEnvironment): Promise<ToolResult> {
+async function createChart(editor: Editor, args: ToolArguments, env: AgentToolEnvironment): Promise<ToolResult> {
   const sourceShapeId = requiredString(args, "sourceShapeId") as TLShapeId;
   const selected = getShapeOrThrow(editor, sourceShapeId);
   const resolvedId = "sourceShapeId" in selected.props && typeof selected.props.sourceShapeId === "string" ? selected.props.sourceShapeId : sourceShapeId;
@@ -438,7 +438,7 @@ function createNote(editor: Editor, args: ToolArguments): ToolResult {
   return { shapeId, text: text.slice(0, MAX_TEXT_LENGTH) };
 }
 
-async function updateChart(editor: Editor, args: ToolArguments, env: CodexToolEnvironment): Promise<ToolResult> {
+async function updateChart(editor: Editor, args: ToolArguments, env: AgentToolEnvironment): Promise<ToolResult> {
   const shape = getShapeOrThrow(editor, requiredString(args, "shapeId"));
   if (shape.type !== "chart-shape") throw new Error("The selected shape is not a chart.");
   const chart = shape as ChartShape;
@@ -496,12 +496,12 @@ function updateNote(editor: Editor, args: ToolArguments): ToolResult {
   return { ok: true, shapeId: shape.id, text };
 }
 
-export async function executeCodexCanvasTool(
+export async function executeAgentCanvasTool(
   editor: Editor,
   tool: string,
   args: ToolArguments,
   onActivityShape: ((shapeId: string) => void) | undefined,
-  env: CodexToolEnvironment,
+  env: AgentToolEnvironment,
 ): Promise<ToolResult> {
   env.signal.throwIfAborted();
   switch (tool) {
@@ -543,7 +543,7 @@ export async function executeCodexCanvasTool(
   }
 }
 
-async function generateAnalysisQuery(editor: Editor, args: ToolArguments, env: CodexToolEnvironment, editing: boolean, onActivityShape?: (id: string) => void): Promise<ToolResult> {
+async function generateAnalysisQuery(editor: Editor, args: ToolArguments, env: AgentToolEnvironment, editing: boolean, onActivityShape?: (id: string) => void): Promise<ToolResult> {
   const instruction = requiredString(args, "instruction");
   const source = getDataShapeOrThrow(editor, requiredString(args, editing ? "shapeId" : "sourceShapeId"));
   if (editing && source.type !== "sql-text-area") throw new Error("Select a query to edit.");
@@ -586,7 +586,7 @@ async function generateAnalysisQuery(editor: Editor, args: ToolArguments, env: C
   return { ok: false, shapeId: id, error: lastError, attempts: 3, guidance: "Three focused attempts failed. Keep the visible query and pivot to a simpler analytical step or explain the blocker." };
 }
 
-function createSummary(editor: Editor, args: ToolArguments, env: CodexToolEnvironment): ToolResult {
+function createSummary(editor: Editor, args: ToolArguments, env: AgentToolEnvironment): ToolResult {
   const question = requiredString(args, "question");
   const answer = requiredString(args, "answer");
   if (!Array.isArray(args.sections) || !Array.isArray(args.artifacts)) throw new Error("Summary sections and evidence artifacts are required.");
@@ -606,7 +606,7 @@ function createSummary(editor: Editor, args: ToolArguments, env: CodexToolEnviro
   return { ok: true, shapeId: id, question, answer, evidenceShapeIds: artifacts.map((artifact) => artifact.shapeId) };
 }
 
-export async function hydratePromptCanvasContext(editor: Editor, data: CodexToolEnvironment["data"], shapeIds?: string[]) {
+export async function hydratePromptCanvasContext(editor: Editor, data: AgentToolEnvironment["data"], shapeIds?: string[]) {
   const context = buildPromptCanvasContext(editor, shapeIds);
   const shapes = context.shapes as Record<string, unknown>[];
   await Promise.all(shapes.filter((shape) => shape.type === "query").slice(0, 6).map(async (shape) => {

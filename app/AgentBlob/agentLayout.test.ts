@@ -44,7 +44,7 @@ function canvas(...initial: TestShape[]) {
 function assertClear(state: ReturnType<typeof canvas>, id: TLShapeId) {
   const a = state.bounds(id)!;
   for (const other of state.shapes.values()) {
-    if (other.id === id || ["arrow", "agent-blob", "codex-agent"].includes(other.type)) continue;
+    if (other.id === id || ["arrow", "agent-blob", "agent-chat"].includes(other.type)) continue;
     const b = state.bounds(other.id)!;
     assert.ok(a.maxX <= b.minX - 28 || a.minX >= b.maxX + 28 || a.maxY <= b.minY - 28 || a.minY >= b.maxY + 28, `${id} overlaps ${other.id}`);
   }

@@ -21,7 +21,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aleda145/kavla/cli/internal/codex"
+	"github.com/aleda145/kavla/cli/internal/agent"
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/runner"
 	"github.com/aleda145/kavla/cli/internal/session"
@@ -73,29 +73,29 @@ type Server struct {
 	sourceConfigMu        sync.Mutex
 	shutdownOnce          sync.Once
 
-	codexMu            sync.Mutex
- codexAuthMu sync.Mutex
- codexAuthMode string
- codexAPIKey string
- apiProvider codex.APIConfig
+	agentMu            sync.Mutex
+ agentAuthMu sync.Mutex
+ agentAuthMode string
+ agentAPIKey string
+ apiProvider agent.APIConfig
  agentConfigPath string
- codexAuthChanging bool
- codexJournalMu sync.Mutex
- codexRun *codexRunState
- codexHistory []*codexRunState
-	codexClient        codex.Runtime
-	codexStatus        codex.Status
-	codexContext       context.Context
-	codexCancel        context.CancelFunc
-	codexStarting      bool
-	codexActiveThread  string
-	codexActiveTurn    string
-	codexToolRequests  map[string]json.RawMessage
-	codexModels        []codex.Model
-	codexThreads       map[string]struct{}
-	codexToolCallCount int
-	codexEventMu       sync.Mutex
-	codexSubscribers   map[chan cliRuntimeEvent]struct{}
+ agentAuthChanging bool
+ agentJournalMu sync.Mutex
+ agentRun *agentRunState
+ agentHistory []*agentRunState
+	agentClient        agent.Runtime
+	agentStatus        agent.Status
+	agentContext       context.Context
+	agentCancel        context.CancelFunc
+	agentStarting      bool
+	agentActiveThread  string
+	agentActiveTurn    string
+	agentToolRequests  map[string]json.RawMessage
+	agentModels        []agent.Model
+	agentThreads       map[string]struct{}
+	agentToolCallCount int
+	agentEventMu       sync.Mutex
+	agentSubscribers   map[chan cliRuntimeEvent]struct{}
 }
 
 // SetDocumentChangeHandler registers a callback for successful document
@@ -136,10 +136,10 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		transientDir:      transientDir,
 		transientResults:  make(map[string]transientResult),
 		eventSubscribers:  make(map[chan cliRuntimeEvent]struct{}),
-		codexStatus:       codex.Status{State: "checking", Message: "Checking for Codex CLI…"},
-		codexToolRequests: make(map[string]json.RawMessage),
-		codexThreads:      make(map[string]struct{}),
-		codexSubscribers:  make(map[chan cliRuntimeEvent]struct{}),
+		agentStatus:       agent.Status{State: "checking", Message: "Preparing Agent connection…"},
+		agentToolRequests: make(map[string]json.RawMessage),
+		agentThreads:      make(map[string]struct{}),
+		agentSubscribers:  make(map[chan cliRuntimeEvent]struct{}),
 	}
 	if err := server.loadAgentConfig(); err != nil {
 		_ = os.RemoveAll(transientDir)
@@ -153,12 +153,12 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		_ = os.RemoveAll(transientDir)
 		return nil, fmt.Errorf("start local query session: %w", err)
 	}
- if err := server.loadCodexRuns(); err != nil {
+ if err := server.loadAgentRuns(); err != nil {
   _ = querySession.Close()
   _ = os.RemoveAll(transientDir)
   return nil, fmt.Errorf("load agent run history: %w", err)
  }
-	server.startCodexDetection()
+	server.startAgentDetection()
 	return server, nil
 }
 
@@ -269,8 +269,8 @@ func (s *Server) Close(ctx context.Context) error {
 		s.workerMu.Unlock()
 
 		s.closeRuntimeSubscribers()
-		s.closeCodexSubscribers()
-		s.closeCodex()
+		s.closeAgentSubscribers()
+		s.closeAgent()
 		s.queriesMu.RLock()
 		s.queries.Cancel()
 		s.queriesMu.RUnlock()
@@ -317,15 +317,15 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/cli/sources/{name}", s.sameOriginMutation(s.handleUpdateCLISource))
 	mux.HandleFunc("DELETE /api/cli/sources/{name}", s.sameOriginMutation(s.handleDeleteCLISource))
 	mux.HandleFunc("GET /api/cli/source-paths", s.handleCLISourcePaths)
-	mux.HandleFunc("GET /api/codex/events", s.handleCodexEvents)
- mux.HandleFunc("GET /api/codex/auth", s.handleCodexAuth)
- mux.HandleFunc("POST /api/codex/auth", s.sameOriginMutation(s.handleCodexAuth))
- mux.HandleFunc("POST /api/codex/tool-claims", s.sameOriginMutation(s.handleCodexToolClaim))
- mux.HandleFunc("POST /api/codex/generate", s.sameOriginMutation(s.handleCodexGenerate))
-	mux.HandleFunc("POST /api/codex/prompts", s.sameOriginMutation(s.handleCodexPrompt))
-	mux.HandleFunc("POST /api/codex/cancel", s.sameOriginMutation(s.handleCodexCancel))
-	mux.HandleFunc("POST /api/codex/tool-results", s.sameOriginMutation(s.handleCodexToolResult))
-	mux.HandleFunc("POST /api/codex/retry", s.sameOriginMutation(s.handleCodexRetry))
+	mux.HandleFunc("GET /api/agent/events", s.handleAgentEvents)
+ mux.HandleFunc("GET /api/agent/auth", s.handleAgentAuth)
+ mux.HandleFunc("POST /api/agent/auth", s.sameOriginMutation(s.handleAgentAuth))
+ mux.HandleFunc("POST /api/agent/tool-claims", s.sameOriginMutation(s.handleAgentToolClaim))
+ mux.HandleFunc("POST /api/agent/generate", s.sameOriginMutation(s.handleAgentGenerate))
+	mux.HandleFunc("POST /api/agent/prompts", s.sameOriginMutation(s.handleAgentPrompt))
+	mux.HandleFunc("POST /api/agent/cancel", s.sameOriginMutation(s.handleAgentCancel))
+	mux.HandleFunc("POST /api/agent/tool-results", s.sameOriginMutation(s.handleAgentToolResult))
+	mux.HandleFunc("POST /api/agent/retry", s.sameOriginMutation(s.handleAgentRetry))
 	mux.HandleFunc("POST /api/session/close", s.sameOriginMutation(s.handleSave))
 	mux.HandleFunc("GET /api/session/blobs/{id}", s.handleGetBlob)
 	mux.HandleFunc("GET /api/session/query-results/{id}", s.handleGetTransientResult)
@@ -590,14 +590,14 @@ func (s *Server) handleLoadPath(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "selected Kavla document does not exist", http.StatusBadRequest)
 		return
 	}
-	s.closeCodex()
-	defer s.startCodexDetection()
+	s.closeAgent()
+	defer s.startAgentDetection()
 	if err := s.document.OpenFromPath(filepath.Clean(request.Path)); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
- if err := s.loadCodexRuns(); err != nil { writeAPIError(w, 500, err); return }
- s.publishCodexRuns(false)
+ if err := s.loadAgentRuns(); err != nil { writeAPIError(w, 500, err); return }
+ s.publishAgentRuns(false)
 	s.notifyDocumentChanged()
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -628,8 +628,8 @@ func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.closeCodex()
-	defer s.startCodexDetection()
+	s.closeAgent()
+	defer s.startAgentDetection()
 	if err := s.document.NewAtPath(targetPath, []byte(request.CanvasJSON), request.Overwrite); err != nil {
 		if !request.Overwrite && errors.Is(err, os.ErrExist) {
 			http.Error(w, "A Kavla document with this name already exists.", http.StatusConflict)
@@ -638,8 +638,8 @@ func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
- if err := s.loadCodexRuns(); err != nil { writeAPIError(w, 500, err); return }
- s.publishCodexRuns(false)
+ if err := s.loadAgentRuns(); err != nil { writeAPIError(w, 500, err); return }
+ s.publishAgentRuns(false)
 	s.notifyDocumentChanged()
 	s.writeSavedDocumentResponse(w)
 }

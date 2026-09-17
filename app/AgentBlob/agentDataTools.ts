@@ -1,7 +1,7 @@
 import type { Editor, TLShapeId } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
-import type { CodexToolEnvironment } from "../client/localServer/codexRuns";
+import type { AgentToolEnvironment } from "../client/localServer/agentRuns";
 import { DuckDBService } from "../src/duckdb-service";
 import { quoteIdentifier } from "../src/duckdb/sql";
 import { buildColumnStatsQuery, parseColumnStatsRows } from "../src/duckdb/column-stats-sql";
@@ -21,7 +21,7 @@ export function resolveAgentDataShape(editor: Editor, shapeId: string): DataSour
   throw new Error("Choose a data source or a connected query, table, chart, or Lens.");
 }
 
-export async function getAgentDataPreview(editor: Editor, shapeId: string, data: CodexToolEnvironment["data"], limit: number | null = 5, signal?: AbortSignal): Promise<Record<string, unknown>[]> {
+export async function getAgentDataPreview(editor: Editor, shapeId: string, data: AgentToolEnvironment["data"], limit: number | null = 5, signal?: AbortSignal): Promise<Record<string, unknown>[]> {
   const shape = resolveAgentDataShape(editor, shapeId);
   if (shape.type !== "sql-text-area") throw new Error("Create a visible query to preview this source.");
   if (shape.props.isDirty || shape.props.stale || shape.props.error || !shape.props.lastRunStats) throw new Error("Run the source query first.");
@@ -40,7 +40,7 @@ export async function getAgentDataPreview(editor: Editor, shapeId: string, data:
   } finally { signal?.removeEventListener("abort", cancel); await connection.close(); }
 }
 
-export async function computeAgentProfiles(editor: Editor, args: Record<string, unknown>, env: CodexToolEnvironment): Promise<Record<string, unknown>> {
+export async function computeAgentProfiles(editor: Editor, args: Record<string, unknown>, env: AgentToolEnvironment): Promise<Record<string, unknown>> {
   const shape = resolveAgentDataShape(editor, String(args.shapeId || ""));
   if (shape.type === "sql-text-area" && (shape.props.isDirty || shape.props.stale || shape.props.error)) throw new Error("Run this visible query before profiling its output.");
   const schema = (shape.type === "data-source" ? shape.props.metadata : shape.props.outputSchema) || [];

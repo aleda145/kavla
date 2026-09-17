@@ -2,7 +2,7 @@ import { isLensRuntimeUnavailable } from "../Lens/lens-errors";
 import { createShapeId, type Editor, type TLShapeId } from "tldraw";
 import type { LensShape } from "../Lens/lens-shape-types";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
-import type { CodexToolEnvironment } from "../client/localServer/codexRuns";
+import type { AgentToolEnvironment } from "../client/localServer/agentRuns";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
 import { prepareGeneratedChartWidgetRuntime, validateGeneratedChartWidget } from "../Chart/GeneratedChartWidget";
 import { getUniqueName } from "../util/getUniqueName";
@@ -10,7 +10,7 @@ import { connectShapes } from "../util/shapeConnections";
 import { getAgentLayout, getAgentPlacement } from "./agentLayout";
 import { getAgentDataPreview, resolveAgentDataShape } from "./agentDataTools";
 
-export async function runLensTool(editor: Editor, args: Record<string, unknown>, env: CodexToolEnvironment, editing: boolean, onActivityShape?: (id: string) => void): Promise<Record<string, unknown>> {
+export async function runLensTool(editor: Editor, args: Record<string, unknown>, env: AgentToolEnvironment, editing: boolean, onActivityShape?: (id: string) => void): Promise<Record<string, unknown>> {
   const existing = editing ? editor.getShape<LensShape>(String(args.shapeId) as TLShapeId) : undefined;
   if (editing && existing?.type !== "lens-shape") throw new Error("Choose an existing Lens to edit.");
   const visualPrompt = (typeof args.visualPrompt === "string" ? args.visualPrompt.trim() : "") || (editing ? env.prompt.trim() : "");

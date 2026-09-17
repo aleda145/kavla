@@ -1,27 +1,27 @@
-import { notifyCodexAuth, useCodexAuth, type CodexAuth } from "../localServer/codexAuth";
-import { cancelCodexRun, codexRequest, isCodexRunActive, useCodexRuns } from "../localServer/codexRuns";
+import { notifyAgentAuth, useAgentAuth, type AgentAuth } from "../localServer/agentAuth";
+import { cancelAgentRun, agentRequest, isAgentRunActive, useAgentRuns } from "../localServer/agentRuns";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { CheckCircle2, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
-import { setCodexModelSelection, useCodexModels, useCodexStatus } from "../localServer/codexStore";
+import { setAgentModelSelection, useAgentModels, useAgentStatus } from "../localServer/agentStore";
 import { useData } from "../useLocalServer";
 
 export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void; onOpenChat: () => void }) {
-  const status = useCodexStatus();
-  const modelSelection = useCodexModels();
-  const { retryCodex } = useData();
+  const status = useAgentStatus();
+  const modelSelection = useAgentModels();
+  const { retryAgent } = useData();
   const ready = status.state === "ready";
-  const runs = useCodexRuns();
+  const runs = useAgentRuns();
   const [runError, setRunError] = useState<string | null>(null);
-  const auth = useCodexAuth();
-  const [authMode, setAuthMode] = useState<CodexAuth["mode"]>(auth.mode);
+  const auth = useAgentAuth();
+  const [authMode, setAuthMode] = useState<AgentAuth["mode"]>(auth.mode);
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(auth.baseUrl);
   const [apiModel, setApiModel] = useState(auth.model);
   const [extraHeaders, setExtraHeaders] = useState("");
   const [savingAuth, setSavingAuth] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const hasActiveRun = runs.some(isCodexRunActive);
+  const hasActiveRun = runs.some(isAgentRunActive);
   const authDisabled = savingAuth || hasActiveRun || status.state === "checking";
   const canUseProvider = baseUrl.trim().length > 0 && apiModel.trim().length > 0;
   const sameEndpoint = baseUrl.trim().replace(/\/+$/, "") === auth.baseUrl.replace(/\/+$/, "");
@@ -30,10 +30,10 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
   useEffect(() => { setBaseUrl(auth.baseUrl); setApiModel(auth.model); }, [auth.baseUrl, auth.model]);
   useEffect(() => {
     const controller = new AbortController();
-    void fetch("/api/codex/auth", { credentials: "same-origin", cache: "no-store", signal: controller.signal })
+    void fetch("/api/agent/auth", { credentials: "same-origin", cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Could not load Agent authentication settings.");
-        notifyCodexAuth(await response.json());
+        notifyAgentAuth(await response.json());
       }).catch((error) => { if (!controller.signal.aborted) setAuthError(error instanceof Error ? error.message : String(error)); });
     return () => controller.abort();
   }, []);
@@ -52,13 +52,13 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
         }
         headers = parsed as Record<string, string>;
       }
-      const settings = await codexRequest<CodexAuth>("auth", {
+      const settings = await agentRequest<AgentAuth>("auth", {
         mode: authMode,
         ...(authMode === "apiKey" ? { baseUrl: baseUrl.trim(), model: apiModel.trim(), ...(key ? { apiKey: key } : {}), ...(headers ? { headers } : {}) } : {}),
       });
       setApiKey("");
       setExtraHeaders("");
-      notifyCodexAuth(settings);
+      notifyAgentAuth(settings);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : String(error));
     } finally { setSavingAuth(false); }
@@ -169,7 +169,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
             <div style={{ display: "flex", alignItems: "flex-end", flexWrap: "wrap", gap: 8 }}>
             <label style={{ fontSize: 11, fontWeight: 900, display: "flex", flexDirection: "column", gap: 5, flex: "1 1 180px", minWidth: 0 }}>
               Connection
-              <select aria-label="Agent connection method" value={authMode} disabled={authDisabled} onChange={(event) => { setAuthMode(event.currentTarget.value as CodexAuth["mode"]); setApiKey(""); setExtraHeaders(""); setAuthError(null); }} style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", font: "700 11px Inter, sans-serif" }}>
+              <select aria-label="Agent connection method" value={authMode} disabled={authDisabled} onChange={(event) => { setAuthMode(event.currentTarget.value as AgentAuth["mode"]); setApiKey(""); setExtraHeaders(""); setAuthError(null); }} style={{ height: 34, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", font: "700 11px Inter, sans-serif" }}>
                 <option value="codex">Codex login</option>
                 <option value="apiKey">API provider</option>
               </select>
@@ -228,7 +228,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
               <select
                 aria-label="Main agent model"
                 disabled={!ready || modelSelection.models.length === 0}
-                onChange={(event) => setCodexModelSelection(event.currentTarget.value)}
+                onChange={(event) => setAgentModelSelection(event.currentTarget.value)}
                 style={{
                   background: "#fff",
                   border: "2px solid #000",
@@ -254,9 +254,9 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
             <div style={{ maxHeight: 190, overflowY: "auto", marginTop: 6 }}>
               {[...runs].reverse().slice(0, 10).map((run) => <div key={run.id} style={{ borderTop: "1px solid #d6d3d1", padding: "7px 0", fontSize: 11 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  {isCodexRunActive(run) && <Loader2 size={12} className="animate-spin" />}
+                  {isAgentRunActive(run) && <Loader2 size={12} className="animate-spin" />}
                   <strong style={{ flex: 1 }}>{run.status.replace(/_/g, " ")}</strong>
-                  {isCodexRunActive(run) && <button type="button" onClick={() => { void cancelCodexRun(run.id).catch((error) => setRunError(String(error))); }} style={{ border: "2px solid #000", borderRadius: 4, background: "#fee2e2", cursor: "pointer", fontWeight: 800 }}>Stop</button>}
+                  {isAgentRunActive(run) && <button type="button" onClick={() => { void cancelAgentRun(run.id).catch((error) => setRunError(String(error))); }} style={{ border: "2px solid #000", borderRadius: 4, background: "#fee2e2", cursor: "pointer", fontWeight: 800 }}>Stop</button>}
                 </div>
                 <div style={{ marginTop: 3 }}>{run.prompt.slice(0, 160)}</div>
                 <div style={{ color: "#57534e", fontSize: 10, marginTop: 3 }}>{run.model} · {run.tools.filter((call) => call.status === "completed").length}/{run.tools.length} steps · {new Date(run.createdAt).toLocaleTimeString()}</div>
@@ -270,7 +270,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
             <span style={{ color: "#57534e", fontSize: 10, marginRight: "auto" }}>Config: <code>~/.kavla/agent.yaml</code></span>
             {!ready && status.state !== "checking" ? (
               <button
-                onClick={retryCodex}
+                onClick={retryAgent}
                 style={{
                   alignItems: "center",
                   background: "#fff",

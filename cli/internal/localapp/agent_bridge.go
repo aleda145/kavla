@@ -9,37 +9,37 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aleda145/kavla/cli/internal/codex"
+	"github.com/aleda145/kavla/cli/internal/agent"
 )
 
-const codexOperationTimeout = 45 * time.Second
+const agentOperationTimeout = 45 * time.Second
 
-func (s *Server) startCodexDetection() {
-	s.codexMu.Lock()
-	if s.codexStarting || s.codexClient != nil {
-		s.codexMu.Unlock()
+func (s *Server) startAgentDetection() {
+	s.agentMu.Lock()
+	if s.agentStarting || s.agentClient != nil {
+		s.agentMu.Unlock()
 		return
 	}
-	mode, apiKey, _ := s.codexAuthLocked()
+	mode, apiKey, _ := s.agentAuthLocked()
  config := s.apiProviderLocked()
  config.APIKey = apiKey
-	s.codexStarting = true
-	s.codexStatus = codex.Status{State: "checking", Message: "Preparing Agent connection…"}
+	s.agentStarting = true
+	s.agentStatus = agent.Status{State: "checking", Message: "Preparing Agent connection…"}
 	ctx, cancel := context.WithCancel(context.Background())
-	s.codexContext = ctx
-	s.codexCancel = cancel
-	s.codexMu.Unlock()
-	s.broadcastCodexStatus()
+	s.agentContext = ctx
+	s.agentCancel = cancel
+	s.agentMu.Unlock()
+	s.broadcastAgentStatus()
 
 	s.workerMu.Lock()
 	if s.closing {
 		s.workerMu.Unlock()
 		cancel()
-		s.codexMu.Lock()
-		if s.codexContext == ctx {
-			s.codexStarting = false
+		s.agentMu.Lock()
+		if s.agentContext == ctx {
+			s.agentStarting = false
 		}
-		s.codexMu.Unlock()
+		s.agentMu.Unlock()
 		return
 	}
 	s.workers.Add(1)
@@ -48,140 +48,140 @@ func (s *Server) startCodexDetection() {
 		defer s.workers.Done()
 		onEvent := func(method string, params json.RawMessage) {
 				if ctx.Err() == nil {
-					s.handleCodexEvent(method, params)
+					s.handleAgentEvent(method, params)
 				}
 			}
   onTool := func(requestID json.RawMessage, params json.RawMessage) {
 				if ctx.Err() == nil {
-					s.handleCodexToolCall(requestID, params)
+					s.handleAgentToolCall(requestID, params)
 				}
 			}
   onExit := func(err error) {
 				if ctx.Err() == nil {
-					s.handleCodexExit(err)
+					s.handleAgentExit(err)
 				}
 			}
-  var client codex.Runtime
-  var status codex.Status
+  var client agent.Runtime
+  var status agent.Status
   var err error
   if mode == "apiKey" {
-   apiClient, startErr := codex.NewAPIClient(ctx, config, onEvent, onTool)
+   apiClient, startErr := agent.NewAPIClient(ctx, config, onEvent, onTool)
    err = startErr
-   if err == nil { client = apiClient; status = codex.Status{State: "ready", Message: "API provider configured. Credentials are checked on the first request."} }
+   if err == nil { client = apiClient; status = agent.Status{State: "ready", Message: "API provider configured. Credentials are checked on the first request."} }
   } else {
-   codexClient, startStatus, startErr := codex.Start(ctx, onEvent, onTool, onExit)
+   agentClient, startStatus, startErr := agent.StartCodex(ctx, onEvent, onTool, onExit)
    status, err = startStatus, startErr
-   if codexClient != nil { client = codexClient }
+   if agentClient != nil { client = agentClient }
   }
-		var models []codex.Model
+		var models []agent.Model
 		if err == nil && client != nil && status.State == "ready" {
-			modelsContext, cancelModels := context.WithTimeout(ctx, codexOperationTimeout)
+			modelsContext, cancelModels := context.WithTimeout(ctx, agentOperationTimeout)
 			var modelsErr error
 			models, modelsErr = client.ListModels(modelsContext)
 			cancelModels()
 			if modelsErr != nil {
-				status = codex.Status{State: "error", Message: fmt.Sprintf("Agent models could not be loaded: %v", modelsErr)}
+				status = agent.Status{State: "error", Message: fmt.Sprintf("Agent models could not be loaded: %v", modelsErr)}
 				_ = client.Close()
 				client = nil
 			}
 		}
-		s.codexMu.Lock()
-		if s.codexContext != ctx || ctx.Err() != nil {
-			s.codexMu.Unlock()
+		s.agentMu.Lock()
+		if s.agentContext != ctx || ctx.Err() != nil {
+			s.agentMu.Unlock()
 			if client != nil {
 				_ = client.Close()
 			}
 			return
 		}
-		s.codexStarting = false
+		s.agentStarting = false
 		if err != nil {
-			s.codexStatus = codex.Status{State: "error", Message: fmt.Sprintf("Agent could not start: %v", err)}
+			s.agentStatus = agent.Status{State: "error", Message: fmt.Sprintf("Agent could not start: %v", err)}
 		} else {
-			s.codexClient = client
-			s.codexStatus = status
-			s.codexModels = append([]codex.Model(nil), models...)
+			s.agentClient = client
+			s.agentStatus = status
+			s.agentModels = append([]agent.Model(nil), models...)
 		}
-		s.codexMu.Unlock()
-		s.broadcastCodexStatus()
-		s.broadcastCodexModels()
+		s.agentMu.Unlock()
+		s.broadcastAgentStatus()
+		s.broadcastAgentModels()
 	}()
 }
 
-func (s *Server) retryCodexDetection() {
-	s.closeCodex()
-	s.codexMu.Lock()
-	s.codexStatus = codex.Status{State: "checking", Message: "Preparing Agent connection…"}
-	s.codexMu.Unlock()
-	s.startCodexDetection()
+func (s *Server) retryAgentDetection() {
+	s.closeAgent()
+	s.agentMu.Lock()
+	s.agentStatus = agent.Status{State: "checking", Message: "Preparing Agent connection…"}
+	s.agentMu.Unlock()
+	s.startAgentDetection()
 }
 
-func (s *Server) closeCodex() {
- s.cancelCodexRun("", "The Agent connection closed.")
-	s.codexMu.Lock()
-	client := s.codexClient
-	cancel := s.codexCancel
+func (s *Server) closeAgent() {
+ s.cancelAgentRun("", "The Agent connection closed.")
+	s.agentMu.Lock()
+	client := s.agentClient
+	cancel := s.agentCancel
 	if cancel != nil {
 		cancel()
 	}
-	s.codexClient = nil
-	s.codexStarting = false
-	s.codexCancel = nil
-	s.codexContext = nil
-	s.codexActiveThread = ""
-	s.codexActiveTurn = ""
-	s.codexToolRequests = make(map[string]json.RawMessage)
-	s.codexModels = nil
-	s.codexThreads = make(map[string]struct{})
-	s.codexToolCallCount = 0
-	s.codexMu.Unlock()
+	s.agentClient = nil
+	s.agentStarting = false
+	s.agentCancel = nil
+	s.agentContext = nil
+	s.agentActiveThread = ""
+	s.agentActiveTurn = ""
+	s.agentToolRequests = make(map[string]json.RawMessage)
+	s.agentModels = nil
+	s.agentThreads = make(map[string]struct{})
+	s.agentToolCallCount = 0
+	s.agentMu.Unlock()
 	if client != nil {
 		_ = client.Close()
 	}
 }
 
-func (s *Server) currentCodexStatus() codex.Status {
-	s.codexMu.Lock()
-	defer s.codexMu.Unlock()
-	return s.codexStatus
+func (s *Server) currentAgentStatus() agent.Status {
+	s.agentMu.Lock()
+	defer s.agentMu.Unlock()
+	return s.agentStatus
 }
 
-func (s *Server) currentCodexModels() []codex.Model {
-	s.codexMu.Lock()
-	defer s.codexMu.Unlock()
-	return append([]codex.Model(nil), s.codexModels...)
+func (s *Server) currentAgentModels() []agent.Model {
+	s.agentMu.Lock()
+	defer s.agentMu.Unlock()
+	return append([]agent.Model(nil), s.agentModels...)
 }
 
-func (s *Server) broadcastCodexStatus() {
-	s.broadcastCodexRuntimeEvent(cliRuntimeEvent{name: "status", data: s.currentCodexStatus()})
+func (s *Server) broadcastAgentStatus() {
+	s.broadcastAgentRuntimeEvent(cliRuntimeEvent{name: "status", data: s.currentAgentStatus()})
 }
 
-func (s *Server) broadcastCodexModels() {
-	s.broadcastCodexRuntimeEvent(cliRuntimeEvent{name: "models", data: s.currentCodexModels()})
+func (s *Server) broadcastAgentModels() {
+	s.broadcastAgentRuntimeEvent(cliRuntimeEvent{name: "models", data: s.currentAgentModels()})
 }
 
-func (s *Server) broadcastCodexRuntimeEvent(event cliRuntimeEvent) {
-	s.codexEventMu.Lock()
-	defer s.codexEventMu.Unlock()
-	for subscriber := range s.codexSubscribers {
+func (s *Server) broadcastAgentRuntimeEvent(event cliRuntimeEvent) {
+	s.agentEventMu.Lock()
+	defer s.agentEventMu.Unlock()
+	for subscriber := range s.agentSubscribers {
 		select {
 		case subscriber <- event:
 		default:
-			delete(s.codexSubscribers, subscriber)
+			delete(s.agentSubscribers, subscriber)
 			close(subscriber)
 		}
 	}
 }
 
-func (s *Server) closeCodexSubscribers() {
-	s.codexEventMu.Lock()
-	defer s.codexEventMu.Unlock()
-	for subscriber := range s.codexSubscribers {
-		delete(s.codexSubscribers, subscriber)
+func (s *Server) closeAgentSubscribers() {
+	s.agentEventMu.Lock()
+	defer s.agentEventMu.Unlock()
+	for subscriber := range s.agentSubscribers {
+		delete(s.agentSubscribers, subscriber)
 		close(subscriber)
 	}
 }
 
-func (s *Server) handleCodexEvents(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAgentEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeAPIError(w, http.StatusInternalServerError, fmt.Errorf("streaming is unavailable"))
@@ -191,24 +191,24 @@ func (s *Server) handleCodexEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
 	subscriber := make(chan cliRuntimeEvent, 64)
-	s.codexEventMu.Lock()
-	s.codexSubscribers[subscriber] = struct{}{}
-	s.codexEventMu.Unlock()
+	s.agentEventMu.Lock()
+	s.agentSubscribers[subscriber] = struct{}{}
+	s.agentEventMu.Unlock()
 	defer func() {
-		s.codexEventMu.Lock()
-		if _, exists := s.codexSubscribers[subscriber]; exists {
-			delete(s.codexSubscribers, subscriber)
+		s.agentEventMu.Lock()
+		if _, exists := s.agentSubscribers[subscriber]; exists {
+			delete(s.agentSubscribers, subscriber)
 			close(subscriber)
 		}
-		s.codexEventMu.Unlock()
+		s.agentEventMu.Unlock()
         // Reconnects recover the run snapshot. Claimed work is never replayed; its deadline is authoritative.
 	}()
 
 	if err := writeSSEEvent(w, cliRuntimeEvent{name: "snapshot", data: map[string]interface{}{
-		"status": s.currentCodexStatus(),
-		"models": s.currentCodexModels(),
-  "runs": s.currentCodexRuns(),
-  "auth": s.currentCodexAuth(),
+		"status": s.currentAgentStatus(),
+		"models": s.currentAgentModels(),
+  "runs": s.currentAgentRuns(),
+  "auth": s.currentAgentAuth(),
 	}}); err != nil {
 		return
 	}
@@ -234,7 +234,7 @@ func (s *Server) handleCodexEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type codexPromptRequest struct {
+type agentPromptRequest struct {
  RunID string `json:"runId"`
  DocumentID string `json:"documentId"`
  ClientID string `json:"clientId"`
@@ -245,21 +245,21 @@ type codexPromptRequest struct {
 	Context         interface{} `json:"context"`
 }
 
-func (s *Server) handleCodexPrompt(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAgentPrompt(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
-	var request codexPromptRequest
+	var request agentPromptRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("invalid Codex prompt request"))
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("invalid agent prompt request"))
 		return
 	}
-	if err := s.startCodexPrompt(request); err != nil {
+	if err := s.startAgentPrompt(request); err != nil {
 		writeAPIError(w, http.StatusConflict, err)
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
 
-func resolveCodexModel(models []codex.Model, requestedMain string) (string, error) {
+func resolveAgentModel(models []agent.Model, requestedMain string) (string, error) {
 	if len(models) == 0 {
 		return "", fmt.Errorf("The Agent has no available models")
 	}
@@ -294,24 +294,24 @@ func resolveCodexModel(models []codex.Model, requestedMain string) (string, erro
 	return mainModel, nil
 }
 
-func (s *Server) handleCodexCancel(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAgentCancel(w http.ResponseWriter, r *http.Request) {
  r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
  var request struct { RunID string `json:"runId"` }
  if json.NewDecoder(r.Body).Decode(&request) != nil || request.RunID == "" { writeAPIError(w, 400, fmt.Errorf("runId is required")); return }
- s.cancelCodexRun(request.RunID, "The user stopped the Kavla Agent.")
+ s.cancelAgentRun(request.RunID, "The user stopped the Kavla Agent.")
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleCodexRetry(w http.ResponseWriter, _ *http.Request) {
-	s.retryCodexDetection()
+func (s *Server) handleAgentRetry(w http.ResponseWriter, _ *http.Request) {
+	s.retryAgentDetection()
 	w.WriteHeader(http.StatusAccepted)
 }
 
-func (s *Server) cancelCodexTurn(reason string) {
- s.cancelCodexRun("", reason)
+func (s *Server) cancelAgentTurn(reason string) {
+ s.cancelAgentRun("", reason)
 }
 
-type codexToolResultRequest struct {
+type agentToolResultRequest struct {
  RunID string `json:"runId"`
  ClientID string `json:"clientId"`
 	CallID  string      `json:"callId"`
@@ -320,21 +320,21 @@ type codexToolResultRequest struct {
 	Error   string      `json:"error"`
 }
 
-func (s *Server) handleCodexToolResult(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAgentToolResult(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
-	var request codexToolResultRequest
+	var request agentToolResultRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("invalid Codex tool result request"))
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("invalid agent tool result request"))
 		return
 	}
-	if err := s.acceptCodexToolResult(request); err != nil {
+	if err := s.acceptAgentToolResult(request); err != nil {
 		writeAPIError(w, http.StatusConflict, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func isAllowedCodexCanvasTool(tool string) bool {
+func isAllowedAgentCanvasTool(tool string) bool {
 	switch tool {
 	case "get_canvas_context", "create_query", "run_query", "update_query", "create_chart", "create_note", "update_chart", "update_note", "compute_column_profiles", "create_analysis_query", "edit_query", "create_summary", "create_lens", "update_lens":
 		return true
@@ -343,15 +343,15 @@ func isAllowedCodexCanvasTool(tool string) bool {
 	}
 }
 
-func (s *Server) handleCodexEvent(method string, params json.RawMessage) {
+func (s *Server) handleAgentEvent(method string, params json.RawMessage) {
  var payload map[string]interface{}
  if json.Unmarshal(params, &payload) != nil { return }
  threadID, turnID := turnIdentity(payload)
- s.codexMu.Lock()
- run := s.codexRun
- if !activeCodexRun(run) || threadID != run.ThreadID || (run.TurnID != "" && turnID != "" && run.TurnID != turnID) { s.codexMu.Unlock(); return }
- for _, previous := range s.codexHistory {
-  if previous != run && turnID != "" && previous.ThreadID == threadID && previous.TurnID == turnID { s.codexMu.Unlock(); return }
+ s.agentMu.Lock()
+ run := s.agentRun
+ if !activeAgentRun(run) || threadID != run.ThreadID || (run.TurnID != "" && turnID != "" && run.TurnID != turnID) { s.agentMu.Unlock(); return }
+ for _, previous := range s.agentHistory {
+  if previous != run && turnID != "" && previous.ThreadID == threadID && previous.TurnID == turnID { s.agentMu.Unlock(); return }
  }
  id := run.ID
  switch method {
@@ -381,7 +381,7 @@ func (s *Server) handleCodexEvent(method string, params json.RawMessage) {
  case "item/started":
   item, _ := payload["item"].(map[string]interface{})
   itemType, _ := item["type"].(string)
-  if isForbiddenCodexItem(itemType) { s.codexMu.Unlock(); go s.cancelCodexRun(id, "A non-canvas tool was blocked."); return }
+  if isForbiddenAgentItem(itemType) { s.agentMu.Unlock(); go s.cancelAgentRun(id, "A non-canvas tool was blocked."); return }
  case "turn/completed":
   turn, _ := payload["turn"].(map[string]interface{})
   status, _ := turn["status"].(string)
@@ -389,62 +389,62 @@ func (s *Server) handleCodexEvent(method string, params json.RawMessage) {
   if status == "interrupted" { status, message = "cancelled", "Agent stopped." } else if status == "failed" {
    raw, _ := json.Marshal(turn["error"]); message = string(raw)
   } else { status = "completed" }
-  s.codexMu.Unlock(); s.finishCodexRun(id, status, message); return
+  s.agentMu.Unlock(); s.finishAgentRun(id, status, message); return
  case "error":
   // Codex may retry a model request; the terminal turn event owns completion.
   run.Activity = "Codex reported an error; waiting for the turn outcome…"
  default:
-  s.codexMu.Unlock(); return
+  s.agentMu.Unlock(); return
  }
  run.Revision++
- s.codexMu.Unlock()
- s.publishCodexRuns(method != "item/agentMessage/delta")
+ s.agentMu.Unlock()
+ s.publishAgentRuns(method != "item/agentMessage/delta")
 }
 
-func (s *Server) handleCodexExit(processErr error) {
- s.codexMu.Lock()
- run := s.codexRun
+func (s *Server) handleAgentExit(processErr error) {
+ s.agentMu.Lock()
+ run := s.agentRun
  id := ""
  if run != nil { id = run.ID }
- s.codexMu.Unlock()
- s.finishCodexRun(id, "failed", "Codex stopped before the run finished.")
-	s.codexMu.Lock()
-	if s.codexClient == nil {
-		s.codexMu.Unlock()
+ s.agentMu.Unlock()
+ s.finishAgentRun(id, "failed", "Codex stopped before the run finished.")
+	s.agentMu.Lock()
+	if s.agentClient == nil {
+		s.agentMu.Unlock()
 		return
 	}
-	s.codexClient = nil
-	s.codexActiveThread = ""
-	s.codexActiveTurn = ""
+	s.agentClient = nil
+	s.agentActiveThread = ""
+	s.agentActiveTurn = ""
 	message := "Codex App Server stopped. Retry the Agent to start it again."
 	if processErr != nil {
 		message = fmt.Sprintf("Codex App Server stopped: %v", processErr)
 	}
-	s.codexStatus = codex.Status{State: "error", Message: message}
-	s.codexMu.Unlock()
-	s.broadcastCodexStatus()
-	s.sendCodexEvent("error", map[string]interface{}{"message": message})
+	s.agentStatus = agent.Status{State: "error", Message: message}
+	s.agentMu.Unlock()
+	s.broadcastAgentStatus()
+	s.sendAgentEvent("error", map[string]interface{}{"message": message})
 }
 
-func (s *Server) failCodexTurn(message string) {
-	s.clearCodexActiveTurn()
-	s.sendCodexEvent("error", map[string]interface{}{"message": message})
+func (s *Server) failAgentTurn(message string) {
+	s.clearAgentActiveTurn()
+	s.sendAgentEvent("error", map[string]interface{}{"message": message})
 }
 
-func (s *Server) clearCodexActiveTurn() {
-	s.codexMu.Lock()
-	s.codexActiveThread = ""
-	s.codexActiveTurn = ""
-	s.codexToolRequests = make(map[string]json.RawMessage)
-	s.codexToolCallCount = 0
-	s.codexMu.Unlock()
+func (s *Server) clearAgentActiveTurn() {
+	s.agentMu.Lock()
+	s.agentActiveThread = ""
+	s.agentActiveTurn = ""
+	s.agentToolRequests = make(map[string]json.RawMessage)
+	s.agentToolCallCount = 0
+	s.agentMu.Unlock()
 }
 
-func (s *Server) sendCodexEvent(eventType string, payload map[string]interface{}) {
+func (s *Server) sendAgentEvent(eventType string, payload map[string]interface{}) {
 	if payload == nil {
 		payload = map[string]interface{}{}
 	}
-	s.broadcastCodexRuntimeEvent(cliRuntimeEvent{
+	s.broadcastAgentRuntimeEvent(cliRuntimeEvent{
 		name: "event",
 		data: map[string]interface{}{
 			"eventType": eventType,
@@ -466,7 +466,7 @@ func turnIdentity(payload map[string]interface{}) (string, string) {
 	return threadID, turnID
 }
 
-func isForbiddenCodexItem(itemType string) bool {
+func isForbiddenAgentItem(itemType string) bool {
 	switch itemType {
 	case "commandExecution", "fileChange", "mcpToolCall", "webSearch", "imageGeneration", "collabToolCall":
 		return true

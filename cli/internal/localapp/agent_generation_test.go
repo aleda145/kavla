@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aleda145/kavla/cli/internal/codex"
+	"github.com/aleda145/kavla/cli/internal/agent"
 )
 
 type generationTestRuntime struct {
-	codex.Runtime
+	agent.Runtime
 	generate func(context.Context, string) (map[string]interface{}, error)
 }
 
@@ -35,16 +35,16 @@ func TestGenerationDeadlines(t *testing.T) {
 			s := newAPIAgentTestServer(t)
 			parent, cancel := context.WithTimeout(context.Background(), test.runBudget)
 			defer cancel()
-			run := &codexRunState{ID: "run", ClientID: "owner", Status: "waiting_for_tool", ctx: parent, cancel: cancel}
-			s.codexRun, s.codexHistory = run, []*codexRunState{run}
-			s.codexClient = &generationTestRuntime{generate: func(ctx context.Context, mode string) (map[string]interface{}, error) {
+			run := &agentRunState{ID: "run", ClientID: "owner", Status: "waiting_for_tool", ctx: parent, cancel: cancel}
+			s.agentRun, s.agentHistory = run, []*agentRunState{run}
+			s.agentClient = &generationTestRuntime{generate: func(ctx context.Context, mode string) (map[string]interface{}, error) {
 				deadline, ok := ctx.Deadline()
 				remaining := time.Until(deadline)
 				if !ok || remaining > test.expected || remaining < test.expected-time.Second { t.Errorf("unexpected generation budget: %s", remaining) }
 				return map[string]interface{}{"code": "Lens", "sql": "SELECT 1"}, nil
 			}}
 			w := httptest.NewRecorder()
-			s.handleCodexGenerate(w, httptest.NewRequest(http.MethodPost, "/api/codex/generate", strings.NewReader(`{"runId":"run","clientId":"owner","mode":"`+test.mode+`","prompt":"Generate"}`)))
+			s.handleAgentGenerate(w, httptest.NewRequest(http.MethodPost, "/api/agent/generate", strings.NewReader(`{"runId":"run","clientId":"owner","mode":"`+test.mode+`","prompt":"Generate"}`)))
 			if w.Code != http.StatusOK { t.Fatal(w.Body.String()) }
 		})
 	}
@@ -57,11 +57,11 @@ func TestGenerationReportsWhichDeadlineExpired(t *testing.T) {
 		if runExpired { deadline = time.Now().Add(-time.Second) }
 		parent, cancel := context.WithDeadline(context.Background(), deadline)
 		defer cancel()
-		run := &codexRunState{ID: "run", ClientID: "owner", Status: "waiting_for_tool", ctx: parent, cancel: cancel}
-		s.codexRun, s.codexHistory = run, []*codexRunState{run}
-		s.codexClient = &generationTestRuntime{generate: func(context.Context, string) (map[string]interface{}, error) { return nil, context.DeadlineExceeded }}
+		run := &agentRunState{ID: "run", ClientID: "owner", Status: "waiting_for_tool", ctx: parent, cancel: cancel}
+		s.agentRun, s.agentHistory = run, []*agentRunState{run}
+		s.agentClient = &generationTestRuntime{generate: func(context.Context, string) (map[string]interface{}, error) { return nil, context.DeadlineExceeded }}
 		w := httptest.NewRecorder()
-		s.handleCodexGenerate(w, httptest.NewRequest(http.MethodPost, "/api/codex/generate", strings.NewReader(`{"runId":"run","clientId":"owner","mode":"lens","prompt":"Generate"}`)))
+		s.handleAgentGenerate(w, httptest.NewRequest(http.MethodPost, "/api/agent/generate", strings.NewReader(`{"runId":"run","clientId":"owner","mode":"lens","prompt":"Generate"}`)))
 		expected := "Lens generation exceeded its 10-minute limit"
 		if runExpired { expected = "Agent run exceeded its 15-minute limit" }
 		if w.Code != http.StatusGatewayTimeout || !strings.Contains(w.Body.String(), expected) { t.Fatalf("unexpected timeout error: %d %s", w.Code, w.Body.String()) }
@@ -72,9 +72,9 @@ func TestGenerationStopsWhenBrowserRequestIsCancelled(t *testing.T) {
 	s := newAPIAgentTestServer(t)
 	parent, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
-	run := &codexRunState{ID: "run", ClientID: "owner", Status: "waiting_for_tool", ctx: parent, cancel: cancel}
-	s.codexRun, s.codexHistory = run, []*codexRunState{run}
-	s.codexClient = &generationTestRuntime{generate: func(ctx context.Context, mode string) (map[string]interface{}, error) {
+	run := &agentRunState{ID: "run", ClientID: "owner", Status: "waiting_for_tool", ctx: parent, cancel: cancel}
+	s.agentRun, s.agentHistory = run, []*agentRunState{run}
+	s.agentClient = &generationTestRuntime{generate: func(ctx context.Context, mode string) (map[string]interface{}, error) {
 		select {
 		case <-ctx.Done(): return nil, ctx.Err()
 		case <-time.After(time.Second): t.Error("generation ignored request cancellation"); return nil, context.DeadlineExceeded
@@ -83,6 +83,6 @@ func TestGenerationStopsWhenBrowserRequestIsCancelled(t *testing.T) {
 	requestCtx, cancelRequest := context.WithCancel(context.Background())
 	cancelRequest()
 	w := httptest.NewRecorder()
-	s.handleCodexGenerate(w, httptest.NewRequest(http.MethodPost, "/api/codex/generate", strings.NewReader(`{"runId":"run","clientId":"owner","mode":"lens","prompt":"Generate"}`)).WithContext(requestCtx))
+	s.handleAgentGenerate(w, httptest.NewRequest(http.MethodPost, "/api/agent/generate", strings.NewReader(`{"runId":"run","clientId":"owner","mode":"lens","prompt":"Generate"}`)).WithContext(requestCtx))
 	if !strings.Contains(w.Body.String(), "context canceled") { t.Fatal(w.Body.String()) }
 }

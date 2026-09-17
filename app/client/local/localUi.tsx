@@ -38,8 +38,8 @@ import {
 } from "tldraw";
 import { useCliStatus } from "../localServer/runtimeStore";
 import { Asterisk, Database, FilePlus2, FileTerminal, FolderOpen, Loader2, Save, Sparkles } from "lucide-react";
-import { CodexAgentLayer } from "../../AgentBlob/CodexAgentOverlay";
-import { createOrFocusCodexAgent, getCodexAgent, updateCodexAgent } from "../../AgentBlob/codex-agent-store";
+import { AgentLayer } from "../../AgentBlob/AgentOverlay";
+import { createOrFocusAgentChat, getAgentChat, updateAgentChat } from "../../AgentBlob/agent-chat-store";
 import { LocalRoomInfoPanel } from "./LocalRoomInfoPanel";
 import { LocalAgentDialog } from "./LocalAgentDialog";
 import { LocalSaveDialog } from "./LocalSaveDialog";
@@ -257,7 +257,7 @@ function LocalDocumentControls({
         <LocalAgentDialog
           onClose={() => setShowAgentStatus(false)}
           onOpenChat={() => {
-            createOrFocusCodexAgent(editor);
+            createOrFocusAgentChat(editor);
             setShowAgentStatus(false);
           }}
         />
@@ -350,7 +350,7 @@ function CustomMainMenu() {
 function LocalToolbar(props: ComponentProps<typeof DefaultToolbar>) {
   const editor = useEditor();
   const tools = useTools();
-  const isAgentOpen = useValue("Agent chat open", () => getCodexAgent(editor)?.props.isOpen ?? false, [editor]);
+  const isAgentOpen = useValue("Agent chat open", () => getAgentChat(editor)?.props.isOpen ?? false, [editor]);
   const sourceSelected = useIsToolSelected(tools["data-source"]);
   const sqlSelected = useIsToolSelected(tools["sql-text-area"]);
 
@@ -412,8 +412,8 @@ function LocalToolbar(props: ComponentProps<typeof DefaultToolbar>) {
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            if (isAgentOpen) updateCodexAgent(editor, { isOpen: false });
-            else createOrFocusCodexAgent(editor);
+            if (isAgentOpen) updateAgentChat(editor, { isOpen: false });
+            else createOrFocusAgentChat(editor);
           }}
           onPointerDown={(event) => event.stopPropagation()}
           style={{ position: "relative", border: 0, padding: 0, color: "#6d28d9", cursor: "pointer" }}
@@ -530,7 +530,7 @@ export function useLocalComponents({
       MainMenu: CustomMainMenu,
       PageMenu: null,
       TopPanel: LocalConnectionStatus,
-      InFrontOfTheCanvas: CodexAgentLayer,
+      InFrontOfTheCanvas: AgentLayer,
     }),
     [
       documentName,

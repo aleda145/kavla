@@ -1,4 +1,4 @@
-package codex
+package agent
 
 import (
 	"bytes"
@@ -359,4 +359,3 @@ func (c *APIClient) Generate(ctx context.Context, mode, model, prompt string, ca
 }
 
 var _ Runtime = (*APIClient)(nil)
-var _ Runtime = (*Client)(nil)

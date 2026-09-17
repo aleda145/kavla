@@ -3,7 +3,7 @@ import type { Editor, TLAssetPartial, TLCamera } from "tldraw";
 import { CameraRecordType, parseTldrawJsonFile } from "tldraw";
 import type { DataSourceShape } from "../../DataSource/data-source-types";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
-import { getCodexAgent, updateCodexAgent } from "../../AgentBlob/codex-agent-store";
+import { getAgentChat, updateAgentChat } from "../../AgentBlob/agent-chat-store";
 
 export type KavlaBlobKind = "source" | "asset";
 
@@ -170,8 +170,8 @@ export function loadCanvasJson(editor: Editor, canvasJson: string): void {
       editor.updateShape<LensShape>({ id: shape.id, type: "lens-shape", props: { generationStatus: "error", error: "Lens generation was interrupted. Ask the Agent to continue or edit the code." } });
     }
   }
-  if (getCodexAgent(editor)?.props.isRunning) {
-    updateCodexAgent(editor, { isRunning: false, streamingText: "", activity: null });
+  if (getAgentChat(editor)?.props.isRunning) {
+    updateAgentChat(editor, { isRunning: false, streamingText: "", activity: null });
 
   }
   editor.clearHistory();

@@ -1,15 +1,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
 import { LocateFixed, Loader2, Send, Sparkles, Square, Trash2, X } from "lucide-react";
 import { useEditor, useValue, type TLShapeId } from "tldraw";
-import { useCodexModels, useCodexStatus } from "../client/localServer/codexStore";
+import { useAgentModels, useAgentStatus } from "../client/localServer/agentStore";
 import { useData } from "../client/useLocalServer";
-import { hydratePromptCanvasContext } from "./codexCanvasTools";
-import { appendCodexAgentEntry, createOrFocusCodexAgent, getCodexAgent, updateCodexAgent } from "./codex-agent-store";
+import { hydratePromptCanvasContext } from "./agentCanvasTools";
+import { appendAgentChatEntry, createOrFocusAgentChat, getAgentChat, updateAgentChat } from "./agent-chat-store";
 import { AGENT_BLOB_SHAPE_ID, getAgentBlob, removeAgentBlob, startAgentBlob } from "./agent-blob-store";
-import type { CodexAgentEntry } from "./codex-agent-types";
-import { CodexAgentRuntime } from "./CodexAgentRuntime";
-import { getCanvasBadges, getMentionRanges, getShapeCitations, type ContextBadge } from "./codex-shape-references";
-import { codexClientId, codexRequest, getCodexRuns, isCodexRunActive, useCodexRuns } from "../client/localServer/codexRuns";
+import type { AgentChatEntry } from "./agent-chat-types";
+import { AgentRuntime } from "./AgentRuntime";
+import { getCanvasBadges, getMentionRanges, getShapeCitations, type ContextBadge } from "./agent-shape-references";
+import { agentClientId, agentRequest, getAgentRuns, isAgentRunActive, useAgentRuns } from "../client/localServer/agentRuns";
 import { getActiveLocalSession, stageCanvas } from "../client/local/localSession";
 
 const DOCK_ANCHOR_SIZE = 48;
@@ -46,7 +46,7 @@ function getDockLayout() {
   };
 }
 
-function fallbackHistory(entries: CodexAgentEntry[]): string {
+function fallbackHistory(entries: AgentChatEntry[]): string {
   return entries
     .slice(-40)
     .map((entry) => `${entry.role}: ${entry.text}\nCanvas references: ${[...(entry.contextShapeIds ?? []), ...(entry.shapeIds ?? [])].join(", ")}`)
@@ -101,13 +101,13 @@ function AnswerText({ text, badgesById, onNavigate }: {
   })}{text.slice(offset)}</>;
 }
 
-function CodexChatOverlay() {
+function AgentChatOverlay() {
   const editor = useEditor();
   const dataSocket = useData();
-  const codexStatus = useCodexStatus();
-  const codexModels = useCodexModels();
+  const agentStatus = useAgentStatus();
+  const agentModels = useAgentModels();
   const [prompt, setPrompt] = useState("");
-  const runs = useCodexRuns();
+  const runs = useAgentRuns();
   const [isSending, setIsSending] = useState(false);
   const highlightsRef = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState(0);
@@ -118,9 +118,9 @@ function CodexChatOverlay() {
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const [layout, setLayout] = useState(() => getDockLayout());
   const endRef = useRef<HTMLDivElement>(null);
-  const agent = useValue("Kavla Codex agent", () => getCodexAgent(editor), [editor]);
-  const canvasBadges = useValue("Kavla Codex canvas references", () => getCanvasBadges(editor), [editor]);
-  const selectedIds = useValue("Kavla Codex selection", () => editor.getSelectedShapeIds(), [editor]);
+  const agent = useValue("Kavla agent", () => getAgentChat(editor), [editor]);
+  const canvasBadges = useValue("Kavla agent canvas references", () => getCanvasBadges(editor), [editor]);
+  const selectedIds = useValue("Kavla agent selection", () => editor.getSelectedShapeIds(), [editor]);
   const selectedBadges = canvasBadges.filter((badge) => selectedIds.includes(badge.id as TLShapeId));
   const badgesById = useMemo(() => new Map(canvasBadges.map((badge) => [badge.id, badge])), [canvasBadges]);
   const mentionBadges = [...chosenMentions, ...canvasBadges.filter((badge) => !chosenMentions.some((chosen) => chosen.name === badge.name))];
@@ -139,9 +139,9 @@ function CodexChatOverlay() {
     : [];
   const activeMentionIndex = Math.min(mentionIndex, Math.max(0, mentionSuggestions.length - 1));
   useEffect(() => {
-    if (showMentions) document.getElementById(`codex-mention-${activeMentionIndex}`)?.scrollIntoView({ block: "nearest" });
+    if (showMentions) document.getElementById(`agent-mention-${activeMentionIndex}`)?.scrollIntoView({ block: "nearest" });
   }, [showMentions, activeMentionIndex]);
-  const activeBounds = useValue("Kavla Codex active shape", () => {
+  const activeBounds = useValue("Kavla agent active shape", () => {
     const bounds = editor.getShapePageBounds(AGENT_BLOB_SHAPE_ID);
     return bounds ? { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h } : null;
   }, [editor]);
@@ -185,9 +185,9 @@ function CodexChatOverlay() {
       promptRef.current?.setSelectionRange(nextCursor, nextCursor);
     });
   };
-  const ready = codexStatus.state === "ready";
+  const ready = agentStatus.state === "ready";
   const isOpen = agent?.props.isOpen ?? false;
-  const isRunning = isSending || runs.some(isCodexRunActive) || (agent?.props.isRunning ?? false);
+  const isRunning = isSending || runs.some(isAgentRunActive) || (agent?.props.isRunning ?? false);
 
   useLayoutEffect(() => {
     const update = () => setLayout(getDockLayout());
@@ -220,32 +220,32 @@ function CodexChatOverlay() {
     const text = prompt.trim();
     if (!text || isRunning || !ready) return;
     setIsSending(true);
-    createOrFocusCodexAgent(editor);
-    const currentAgent = getCodexAgent(editor);
+    createOrFocusAgentChat(editor);
+    const currentAgent = getAgentChat(editor);
     const contextShapeIds = contextBadges.map((badge) => badge.id);
     const runId = crypto.randomUUID();
     try {
       editor.run(() => startAgentBlob(editor, runId, contextShapeIds[0]), { history: "ignore" });
       const context = await hydratePromptCanvasContext(editor, dataSocket, contextShapeIds);
-      if (getCodexRuns().some(isCodexRunActive)) throw new Error("The Agent started another run. Wait or stop it before sending.");
+      if (getAgentRuns().some(isAgentRunActive)) throw new Error("The Agent started another run. Wait or stop it before sending.");
       await stageCanvas(editor);
-      await codexRequest("prompts", {
-        runId, clientId: codexClientId, documentId: getActiveLocalSession()?.documentId,
-        prompt: text, threadId: currentAgent?.props.codexThreadId ?? null,
+      await agentRequest("prompts", {
+        runId, clientId: agentClientId, documentId: getActiveLocalSession()?.documentId,
+        prompt: text, threadId: currentAgent?.props.threadId ?? null,
         context: { ...context, mentions: mentionRanges.map(({ badge }) => ({ name: badge.name, shapeId: badge.id })) },
         fallbackHistory: fallbackHistory(currentAgent?.props.entries ?? []),
-        mainModel: codexModels.mainModel,
+        mainModel: agentModels.mainModel,
       });
-      const latest = getCodexAgent(editor);
+      const latest = getAgentChat(editor);
       const userEntry = latest?.props.entries.find((entry) => entry.role === "user" && entry.runId === runId);
-      if (userEntry) updateCodexAgent(editor, { entries: latest!.props.entries.map((entry) => entry.id === userEntry.id ? { ...entry, contextShapeIds } : entry) });
-      else appendCodexAgentEntry(editor, { role: "user", runId, text, contextShapeIds });
+      if (userEntry) updateAgentChat(editor, { entries: latest!.props.entries.map((entry) => entry.id === userEntry.id ? { ...entry, contextShapeIds } : entry) });
+      else appendAgentChatEntry(editor, { role: "user", runId, text, contextShapeIds });
       setPrompt(""); setCursor(0); setChosenMentions([]); setDismissedMention(null);
     } catch (error) {
       if (getAgentBlob(editor)?.props.currentJobId === runId) {
         editor.run(() => removeAgentBlob(editor), { history: "ignore" });
       }
-      appendCodexAgentEntry(editor, { role: "error", text: error instanceof Error ? error.message : String(error) });
+      appendAgentChatEntry(editor, { role: "error", text: error instanceof Error ? error.message : String(error) });
     } finally { setIsSending(false); }
   };
 
@@ -294,7 +294,7 @@ function CodexChatOverlay() {
       style={{ fontFamily: "Inter, sans-serif", inset: 0, pointerEvents: "none", position: "fixed", zIndex: 100000 }}
     >
       <style>{`
-        @keyframes kavla-codex-thinking-dot { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+        @keyframes kavla-agent-thinking-dot { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
       `}</style>
       {isOpen && agent ? (
         <aside
@@ -351,7 +351,7 @@ function CodexChatOverlay() {
                 aria-label="Clear chat"
                 disabled={isRunning}
                 onClick={() =>
-                  updateCodexAgent(editor, { entries: [], codexThreadId: null, streamingText: "", activity: null, historyClearedAt: Date.now() })
+                  updateAgentChat(editor, { entries: [], threadId: null, streamingText: "", activity: null, historyClearedAt: Date.now() })
                 }
                 style={{
                   alignItems: "center",
@@ -386,7 +386,7 @@ function CodexChatOverlay() {
               </div>
               <button
                 aria-label="Close agent chat"
-                onClick={() => updateCodexAgent(editor, { isOpen: false })}
+                onClick={() => updateAgentChat(editor, { isOpen: false })}
                 style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", border: "2px solid #000", borderRadius: 5, height: 24, width: 24, padding: 0, cursor: "pointer" }}
                 title="Close chat"
                 type="button"
@@ -407,9 +407,9 @@ function CodexChatOverlay() {
                 padding: "6px 8px",
               }}
             >
-              {codexStatus.message}
+              {agentStatus.message}
               <button
-                onClick={() => dataSocket.retryCodex()}
+                onClick={() => dataSocket.retryAgent()}
                 style={{
                   background: "#fff",
                   border: "1px solid #000",
@@ -559,11 +559,11 @@ function CodexChatOverlay() {
               </div>
             ) : null}
             {showMentions && ready && !isRunning ? (
-              <div id="codex-mention-list" role="listbox" aria-label="Canvas shapes" style={{ position: "absolute", bottom: "100%", left: 7, right: 7, maxHeight: 210, overflowY: "auto", background: "#fff", border: "2px solid #000", borderRadius: 6, boxShadow: "4px 4px 0 #000", zIndex: 1 }}>
+              <div id="agent-mention-list" role="listbox" aria-label="Canvas shapes" style={{ position: "absolute", bottom: "100%", left: 7, right: 7, maxHeight: 210, overflowY: "auto", background: "#fff", border: "2px solid #000", borderRadius: 6, boxShadow: "4px 4px 0 #000", zIndex: 1 }}>
                 {mentionSuggestions.length ? mentionSuggestions.map((badge, index) => (
                   <button
                     key={badge.id}
-                    id={`codex-mention-${index}`}
+                    id={`agent-mention-${index}`}
                     role="option"
                     aria-selected={index === activeMentionIndex}
                     type="button"
@@ -601,8 +601,8 @@ function CodexChatOverlay() {
                 onScroll={(event) => { if (highlightsRef.current) highlightsRef.current.scrollTop = event.currentTarget.scrollTop; }}
                 aria-label="Ask the Kavla Agent"
                 aria-autocomplete="list"
-                aria-controls={showMentions ? "codex-mention-list" : undefined}
-                aria-activedescendant={showMentions && mentionSuggestions.length ? `codex-mention-${activeMentionIndex}` : undefined}
+                aria-controls={showMentions ? "agent-mention-list" : undefined}
+                aria-activedescendant={showMentions && mentionSuggestions.length ? `agent-mention-${activeMentionIndex}` : undefined}
                 disabled={!ready || isRunning}
                 onChange={(event) => {
                   setPrompt(event.currentTarget.value);
@@ -632,7 +632,7 @@ function CodexChatOverlay() {
               {isRunning ? (
                 <button
                   aria-label="Stop agent"
-                  onClick={() => dataSocket.cancelCodex()}
+                  onClick={() => dataSocket.cancelAgent()}
                   style={{
                     alignItems: "center",
                     background: "#fee2e2",
@@ -686,12 +686,12 @@ function CodexChatOverlay() {
   );
 }
 
-export function CodexAgentLayer() {
+export function AgentLayer() {
   if (!getActiveLocalSession()) return null;
   return (
     <>
-      <CodexAgentRuntime />
-      <CodexChatOverlay />
+      <AgentRuntime />
+      <AgentChatOverlay />
     </>
   );
 }

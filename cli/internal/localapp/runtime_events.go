@@ -26,7 +26,7 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := connection.CloseRead(r.Context())
 
 	cliEvents := make(chan cliRuntimeEvent, 64)
-	codexEvents := make(chan cliRuntimeEvent, 64)
+	agentEvents := make(chan cliRuntimeEvent, 64)
 	// Shutdown closes subscribers before shutting down HTTP. Register while
 	// holding workerMu so an upgraded connection cannot miss that shutdown.
 	s.workerMu.Lock()
@@ -39,17 +39,17 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 	s.eventMu.Lock()
 	s.eventSubscribers[cliEvents] = struct{}{}
 	s.eventMu.Unlock()
-	s.codexEventMu.Lock()
-	s.codexSubscribers[codexEvents] = struct{}{}
-	s.codexEventMu.Unlock()
+	s.agentEventMu.Lock()
+	s.agentSubscribers[agentEvents] = struct{}{}
+	s.agentEventMu.Unlock()
 	s.workerMu.Unlock()
 	defer func() {
 		s.eventMu.Lock()
 		delete(s.eventSubscribers, cliEvents)
 		s.eventMu.Unlock()
-		s.codexEventMu.Lock()
-		delete(s.codexSubscribers, codexEvents)
-		s.codexEventMu.Unlock()
+		s.agentEventMu.Lock()
+		delete(s.agentSubscribers, agentEvents)
+		s.agentEventMu.Unlock()
 	}()
 
 	write := func(stream string, event cliRuntimeEvent) error {
@@ -71,11 +71,11 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 	}}); err != nil {
 		return
 	}
-	if err := write("codex", cliRuntimeEvent{name: "snapshot", data: map[string]interface{}{
-		"status": s.currentCodexStatus(),
-		"models": s.currentCodexModels(),
-		"runs":   s.currentCodexRuns(),
-		"auth":   s.currentCodexAuth(),
+ if err := write("agent", cliRuntimeEvent{name: "snapshot", data: map[string]interface{}{
+		"status": s.currentAgentStatus(),
+		"models": s.currentAgentModels(),
+		"runs":   s.currentAgentRuns(),
+		"auth":   s.currentAgentAuth(),
 	}}); err != nil {
 		return
 	}
@@ -88,8 +88,8 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 			if !open || write("cli", event) != nil {
 				return
 			}
-		case event, open := <-codexEvents:
-			if !open || write("codex", event) != nil {
+		case event, open := <-agentEvents:
+   if !open || write("agent", event) != nil {
 				return
 			}
 		case <-heartbeat.C:

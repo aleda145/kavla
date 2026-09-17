@@ -1,10 +1,10 @@
 import type { TLBaseShape } from "tldraw";
 
-export type CodexAgentEntryRole = "user" | "assistant" | "event" | "error";
+export type AgentChatEntryRole = "user" | "assistant" | "event" | "error";
 
-export type CodexAgentEntry = {
+export type AgentChatEntry = {
   id: string;
-  role: CodexAgentEntryRole;
+  role: AgentChatEntryRole;
   text: string;
   createdAt: number;
   runId?: string;
@@ -13,14 +13,14 @@ export type CodexAgentEntry = {
   contextShapeIds?: string[];
 };
 
-export type CodexAgentShape = TLBaseShape<
-  "codex-agent",
+export type AgentChatShape = TLBaseShape<
+  "agent-chat",
   {
     w: number;
     h: number;
     name: string;
-    entries: CodexAgentEntry[];
-    codexThreadId: string | null;
+    entries: AgentChatEntry[];
+    threadId: string | null;
     isRunning: boolean;
     streamingText: string;
     activity: string | null;

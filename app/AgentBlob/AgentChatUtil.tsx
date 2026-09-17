@@ -1,20 +1,18 @@
 import { HTMLContainer, Rectangle2d, ShapeUtil, type TLShapeUtilCanBeLaidOutOpts } from "tldraw";
-import { CodexAgentMigrations } from "./codex-agent-migrations";
-import { CodexAgentProps } from "./codex-agent-props";
-import type { CodexAgentShape } from "./codex-agent-types";
+import { AgentChatProps } from "./agent-chat-props";
+import type { AgentChatShape } from "./agent-chat-types";
 
-export class CodexAgentUtil extends ShapeUtil<CodexAgentShape> {
-  static override type = "codex-agent" as const;
-  static override props = CodexAgentProps;
-  static override migrations = CodexAgentMigrations;
+export class AgentChatUtil extends ShapeUtil<AgentChatShape> {
+  static override type = "agent-chat" as const;
+  static override props = AgentChatProps;
 
-  getDefaultProps(): CodexAgentShape["props"] {
+  getDefaultProps(): AgentChatShape["props"] {
     return {
       w: 1,
       h: 1,
-      name: "Codex",
+      name: "Agent",
       entries: [],
-      codexThreadId: null,
+      threadId: null,
       isRunning: false,
       streamingText: "",
       activity: null,
@@ -34,7 +32,7 @@ export class CodexAgentUtil extends ShapeUtil<CodexAgentShape> {
   override canTabTo() {
     return false;
   }
-  override canBeLaidOut(_shape: CodexAgentShape, _info: TLShapeUtilCanBeLaidOutOpts) {
+  override canBeLaidOut(_shape: AgentChatShape, _info: TLShapeUtilCanBeLaidOutOpts) {
     return false;
   }
   override hideSelectionBoundsBg() {
@@ -54,7 +52,7 @@ export class CodexAgentUtil extends ShapeUtil<CodexAgentShape> {
     return new Rectangle2d({ width: 1, height: 1, isFilled: false });
   }
 
-  component(shape: CodexAgentShape) {
+  component(shape: AgentChatShape) {
     return <HTMLContainer id={shape.id} style={{ display: "none" }} />;
   }
 

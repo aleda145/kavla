@@ -1,4 +1,4 @@
-These are the full prompts from `kavla-main/tldraw-sync-cloudflare/worker/dataSocket/dagPrompt.ts`, expanded into text and embedded into the local Codex client by `../prompts.go`:
+These are the full prompts from `kavla-main/tldraw-sync-cloudflare/worker/dataSocket/dagPrompt.ts`, expanded into text and embedded into the local agent runtime by `../prompts.go`:
 
 - `agent.txt`: `buildDagOrchestratorSystemPrompt`.
 - `sql.txt`: `buildSQLAgentSystemPrompt`.
@@ -6,10 +6,10 @@ These are the full prompts from `kavla-main/tldraw-sync-cloudflare/worker/dataSo
 
 Keep the original analysis, visualization, styling, and editing guidance intact when updating these files. The local integration needs these adaptations:
 
-- Codex uses native `kavla` tool calls and chat responses instead of JSON event envelopes.
+- The agent uses native `kavla` tool calls and chat responses instead of JSON event envelopes.
 - Canvas shape IDs replace the cloud artifact catalog's IDs; argument names match the actual dynamic tool schemas.
 - Structured summaries use `create_summary` rather than a `final_answer` event with `display: "summary"`.
-- Focused generators return flat JSON objects consumed by `Client.Generate`; SQL is under `sql` rather than `finalAnswer`.
+- Focused generators return flat JSON objects consumed by `Runtime.Generate`; SQL is under `sql` rather than `finalAnswer`.
 - Lens requires a query-backed source and loads its complete result without a row cap. Its presentation SQL runs over those supplied rows, not arbitrary canvas tables. Generation context includes only a small sample for the model; validation and rendering use the complete result. The prompts describe these actual runtime constraints.
 - `update_lens` may omit `visualPrompt`, passing the full user request through to the generator as in the original app.
 - External network requests are allowed without a domain allowlist. Browser CORS, resource policies, and mixed-content rules still apply.

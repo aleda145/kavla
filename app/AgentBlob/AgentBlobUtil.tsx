@@ -4,7 +4,7 @@ import { Loader2, Sparkles } from "lucide-react";
 import { AgentBlobMigrations } from "./agent-blob-migrations";
 import { AgentBlobProps } from "./agent-blob-props";
 import type { AgentBlobShape, AgentBlobStatus } from "./agent-blob-types";
-import { createOrFocusCodexAgent } from "./codex-agent-store";
+import { createOrFocusAgentChat } from "./agent-chat-store";
 
 function statusLabel(status: AgentBlobStatus) {
   if (status === "thinking") return "Thinking";
@@ -28,7 +28,7 @@ export class AgentBlobUtil extends ShapeUtil<AgentBlobShape> {
   }
 
   override onDoubleClick() {
-    createOrFocusCodexAgent(this.editor);
+    createOrFocusAgentChat(this.editor);
   }
 
   getDefaultProps(): AgentBlobShape["props"] {

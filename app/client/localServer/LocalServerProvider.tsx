@@ -1,15 +1,15 @@
-import { notifyCodexAuth } from "./codexAuth";
-import { notifyCodexRuns, codexClientId, getCodexRuns, isCodexRunActive, cancelCodexRun } from "./codexRuns";
+import { notifyAgentAuth } from "./agentAuth";
+import { notifyAgentRuns, agentClientId, getAgentRuns, isAgentRunActive, cancelAgentRun } from "./agentRuns";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { tableFromIPC } from "apache-arrow";
 import { getActiveLocalSession } from "../local/localSession";
 import {
-  notifyCodexEvent,
-  notifyCodexModels,
-  notifyCodexStatus,
-  notifyCodexThread,
-  notifyCodexToolRequest,
-} from "./codexStore";
+  notifyAgentEvent,
+  notifyAgentModels,
+  notifyAgentStatus,
+  notifyAgentThread,
+  notifyAgentToolRequest,
+} from "./agentStore";
 import {
   notifyCliOutputHistory,
   notifyCliOutputLine,
@@ -63,8 +63,8 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
     if (!getActiveLocalSession()) {
       notifyCliStatus(false);
       notifyCliSources([]);
-      notifyCodexStatus({ state: "missing", message: "Run Kavla through the CLI or desktop app to use the Agent." });
-      notifyCodexModels([]);
+      notifyAgentStatus({ state: "missing", message: "Run Kavla through the CLI or desktop app to use the Agent." });
+      notifyAgentModels([]);
       return;
     }
 
@@ -78,11 +78,11 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
 
     const disconnected = () => {
       notifyCliStatus(false);
-      notifyCodexStatus({ state: "error", message: "The Kavla server connection is disconnected. Reconnecting…" });
+      notifyAgentStatus({ state: "error", message: "The Kavla server connection is disconnected. Reconnecting…" });
     };
 
     const receiveEvent = (message: MessageEvent<string>) => {
-      const event = JSON.parse(message.data) as { stream: "cli" | "codex"; name: string; data: unknown };
+      const event = JSON.parse(message.data) as { stream: "cli" | "agent"; name: string; data: unknown };
       if (event.stream === "cli") {
         switch (event.name) {
           case "snapshot": {
@@ -99,36 +99,36 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
             notifyCliOutputLine(event.data as CliOutputLine);
             break;
         }
-      } else if (event.stream === "codex") {
+      } else if (event.stream === "agent") {
         switch (event.name) {
           case "snapshot": {
             const snapshot = event.data as { status?: unknown; models?: unknown; runs?: unknown; auth?: unknown };
-            notifyCodexStatus(snapshot.status);
-            notifyCodexModels(snapshot.models);
-            notifyCodexRuns(snapshot.runs);
-            notifyCodexAuth(snapshot.auth);
+            notifyAgentStatus(snapshot.status);
+            notifyAgentModels(snapshot.models);
+            notifyAgentRuns(snapshot.runs);
+            notifyAgentAuth(snapshot.auth);
             break;
           }
           case "auth":
-            notifyCodexAuth(event.data);
+            notifyAgentAuth(event.data);
             break;
           case "runs":
-            notifyCodexRuns(event.data);
+            notifyAgentRuns(event.data);
             break;
           case "status":
-            notifyCodexStatus(event.data);
+            notifyAgentStatus(event.data);
             break;
           case "models":
-            notifyCodexModels(event.data);
+            notifyAgentModels(event.data);
             break;
           case "event":
-            notifyCodexEvent(event.data);
+            notifyAgentEvent(event.data);
             break;
           case "tool_request":
-            notifyCodexToolRequest(event.data);
+            notifyAgentToolRequest(event.data);
             break;
           case "thread":
-            notifyCodexThread(event.data);
+            notifyAgentThread(event.data);
             break;
         }
       }
@@ -299,36 +299,36 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const reportCodexRequestError = useCallback((error: unknown) => {
-    notifyCodexEvent({
+  const reportAgentRequestError = useCallback((error: unknown) => {
+    notifyAgentEvent({
       eventType: "error",
       data: { message: error instanceof Error ? error.message : String(error) },
     });
   }, []);
 
-  const sendCodexPrompt = useCallback<LocalServerContextType["sendCodexPrompt"]>(
+  const sendAgentPrompt = useCallback<LocalServerContextType["sendAgentPrompt"]>(
     (payload) => {
-      void postJSON("/api/codex/prompts", { ...payload, clientId: codexClientId, documentId: getActiveLocalSession()?.documentId }).catch(reportCodexRequestError);
+      void postJSON("/api/agent/prompts", { ...payload, clientId: agentClientId, documentId: getActiveLocalSession()?.documentId }).catch(reportAgentRequestError);
     },
-    [reportCodexRequestError]
+    [reportAgentRequestError]
   );
 
-  const sendCodexToolResult = useCallback<LocalServerContextType["sendCodexToolResult"]>(
+  const sendAgentToolResult = useCallback<LocalServerContextType["sendAgentToolResult"]>(
     (payload) => {
-      void postJSON("/api/codex/tool-results", { ...payload, clientId: codexClientId }).catch(reportCodexRequestError);
+      void postJSON("/api/agent/tool-results", { ...payload, clientId: agentClientId }).catch(reportAgentRequestError);
     },
-    [reportCodexRequestError]
+    [reportAgentRequestError]
   );
 
-  const cancelCodex = useCallback<LocalServerContextType["cancelCodex"]>(() => {
-    const run = getCodexRuns().find(isCodexRunActive);
-    if (run) void cancelCodexRun(run.id).catch(reportCodexRequestError);
-  }, [reportCodexRequestError]);
+  const cancelAgent = useCallback<LocalServerContextType["cancelAgent"]>(() => {
+    const run = getAgentRuns().find(isAgentRunActive);
+    if (run) void cancelAgentRun(run.id).catch(reportAgentRequestError);
+  }, [reportAgentRequestError]);
 
-  const retryCodex = useCallback<LocalServerContextType["retryCodex"]>(() => {
-    notifyCodexStatus({ state: "checking", message: "Preparing Agent connection…" });
-    void postJSON("/api/codex/retry", {}).catch(reportCodexRequestError);
-  }, [reportCodexRequestError]);
+  const retryAgent = useCallback<LocalServerContextType["retryAgent"]>(() => {
+    notifyAgentStatus({ state: "checking", message: "Preparing Agent connection…" });
+    void postJSON("/api/agent/retry", {}).catch(reportAgentRequestError);
+  }, [reportAgentRequestError]);
 
   const context = useMemo<LocalServerContextType>(
     () => ({
@@ -342,10 +342,10 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       getQueryResultPage,
       runRemoteQuery,
       cancelRemoteQuery,
-      sendCodexPrompt,
-      sendCodexToolResult,
-      cancelCodex,
-      retryCodex,
+      sendAgentPrompt,
+      sendAgentToolResult,
+      cancelAgent,
+      retryAgent,
     }),
     [
       cancelRemoteQuery,
@@ -357,10 +357,10 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       prepareQueryResultDownload,
       prepareSourceDownload,
       runRemoteQuery,
-      sendCodexPrompt,
-      sendCodexToolResult,
-      cancelCodex,
-      retryCodex,
+      sendAgentPrompt,
+      sendAgentToolResult,
+      cancelAgent,
+      retryAgent,
     ]
   );
 

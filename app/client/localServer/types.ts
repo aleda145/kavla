@@ -38,7 +38,7 @@ export interface QueryResultPage {
   rows: Record<string, unknown>[];
 }
 
-export interface CodexPromptPayload {
+export interface AgentPromptPayload {
   runId: string;
   prompt: string;
   threadId: string | null;
@@ -47,7 +47,7 @@ export interface CodexPromptPayload {
   mainModel?: string;
 }
 
-export interface CodexToolResultPayload {
+export interface AgentToolResultPayload {
   runId: string;
   callId: string;
   success: boolean;
@@ -79,8 +79,8 @@ export interface LocalServerContextType {
   }>;
   getQueryResultPage: (payload: QueryResultPagePayload) => Promise<QueryResultPage>;
   cancelRemoteQuery: (shapeId: string, queryName?: string) => void;
-  sendCodexPrompt: (payload: CodexPromptPayload) => void;
-  sendCodexToolResult: (payload: CodexToolResultPayload) => void;
-  cancelCodex: () => void;
-  retryCodex: () => void;
+  sendAgentPrompt: (payload: AgentPromptPayload) => void;
+  sendAgentToolResult: (payload: AgentToolResultPayload) => void;
+  cancelAgent: () => void;
+  retryAgent: () => void;
 }

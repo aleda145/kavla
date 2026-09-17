@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aleda145/kavla/cli/internal/codex"
+	"github.com/aleda145/kavla/cli/internal/agent"
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"gopkg.in/yaml.v3"
 )
@@ -34,21 +34,21 @@ func (s *Server) loadAgentConfig() error {
 	var saved agentConfig
 	if err := yaml.Unmarshal(data, &saved); err != nil { return fmt.Errorf("invalid Agent config in %s: %w", path, err) }
 	if saved.Mode != "codex" && saved.Mode != "apiKey" { return fmt.Errorf("Agent config %s must select mode codex or apiKey", path) }
-	provider := withAPIProviderDefaults(codex.APIConfig{BaseURL: saved.BaseURL, Model: saved.Model, APIKey: saved.APIKey, Headers: saved.Headers})
+	provider := withAPIProviderDefaults(agent.APIConfig{BaseURL: saved.BaseURL, Model: saved.Model, APIKey: saved.APIKey, Headers: saved.Headers})
 	if saved.Mode == "apiKey" {
 		if err := provider.Validate(); err != nil { return fmt.Errorf("invalid Agent config %s: %w", path, err) }
 	} else {
 		provider.APIKey, provider.Headers = "", nil
 	}
-	s.codexMu.Lock()
-	s.codexAuthMode, s.codexAPIKey = saved.Mode, provider.APIKey
+	s.agentMu.Lock()
+	s.agentAuthMode, s.agentAPIKey = saved.Mode, provider.APIKey
 	provider.APIKey = ""
 	s.apiProvider = provider
-	s.codexMu.Unlock()
+	s.agentMu.Unlock()
 	return nil
 }
 
-func (s *Server) saveAgentConfig(mode string, provider codex.APIConfig) error {
+func (s *Server) saveAgentConfig(mode string, provider agent.APIConfig) error {
 	path, err := s.agentConfigFilePath()
 	if err != nil { return fmt.Errorf("locate Agent config: %w", err) }
 	data, err := yaml.Marshal(agentConfig{Mode: mode, BaseURL: provider.BaseURL, Model: provider.Model, APIKey: provider.APIKey, Headers: provider.Headers})

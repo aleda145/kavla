@@ -59,7 +59,7 @@ export function getAgentPlacement(
     height: 0,
   };
   const occupied = editor.getCurrentPageShapes()
-    .filter((shape) => shape.id !== movingShapeId && shape.type !== "arrow" && shape.type !== "codex-agent" && shape.type !== "agent-blob")
+    .filter((shape) => shape.id !== movingShapeId && shape.type !== "arrow" && shape.type !== "agent-chat" && shape.type !== "agent-blob")
     .flatMap((shape) => {
       const bounds = editor.getShapePageBounds(shape.id);
       return bounds ? [{
@@ -144,7 +144,7 @@ function hasLayoutCollision(editor: Editor, shapeId: TLShapeId) {
   const bounds = editor.getShapePageBounds(shapeId);
   if (!bounds) return false;
   return editor.getCurrentPageShapes().some((other) => {
-    if (other.id === shapeId || ["arrow", "codex-agent", "agent-blob"].includes(other.type)) return false;
+    if (other.id === shapeId || ["arrow", "agent-chat", "agent-blob"].includes(other.type)) return false;
     // Frames and groups contain their children intentionally.
     if (editor.hasAncestor(shapeId, other.id) || editor.hasAncestor(other.id, shapeId)) return false;
     const otherBounds = editor.getShapePageBounds(other.id);

@@ -2,7 +2,7 @@ import type { LocalServerContextType } from "./types";
 import { useSyncExternalStore } from "react";
 import { getActiveLocalSession } from "../local/localSession";
 
-export type CodexToolCall = {
+export type AgentToolCall = {
   callId: string;
   tool: string;
   arguments: Record<string, unknown>;
@@ -12,7 +12,7 @@ export type CodexToolCall = {
   error?: string;
   startedAt: number;
 };
-export type CodexRun = {
+export type AgentRun = {
   id: string;
   documentId: string;
   clientId: string;
@@ -26,25 +26,25 @@ export type CodexRun = {
   activity: string;
   createdAt: number;
   revision: number;
-  tools: CodexToolCall[];
+  tools: AgentToolCall[];
 };
-let runs: CodexRun[] = [];
-let cachedRuns: CodexRun[] = [];
-let cachedSource: CodexRun[] | null = null;
+let runs: AgentRun[] = [];
+let cachedRuns: AgentRun[] = [];
+let cachedSource: AgentRun[] | null = null;
 let cachedDocument: string | undefined;
 const listeners = new Set<() => void>();
 let clientId: string;
 try {
-  clientId = sessionStorage.getItem("kavla.codex.client") || crypto.randomUUID();
-  sessionStorage.setItem("kavla.codex.client", clientId);
+  clientId = sessionStorage.getItem("kavla.agent.client") || crypto.randomUUID();
+  sessionStorage.setItem("kavla.agent.client", clientId);
 } catch {
   clientId = crypto.randomUUID();
 }
-export const codexClientId = clientId;
-export const isCodexRunActive = (run: CodexRun) => ["planning", "running", "waiting_for_tool"].includes(run.status);
-export function notifyCodexRuns(value: unknown) {
+export const agentClientId = clientId;
+export const isAgentRunActive = (run: AgentRun) => ["planning", "running", "waiting_for_tool"].includes(run.status);
+export function notifyAgentRuns(value: unknown) {
   if (!Array.isArray(value)) { if (value === null) value = []; else return; }
-  const incoming = value as CodexRun[];
+  const incoming = value as AgentRun[];
   runs = incoming.filter((run) => run && typeof run.documentId === "string" && typeof run.id === "string" && Array.isArray(run.tools))
     .map((run) => {
       const previous = runs.find((item) => item.id === run.id);
@@ -52,7 +52,7 @@ export function notifyCodexRuns(value: unknown) {
     });
   listeners.forEach((listener) => listener());
 }
-export function getCodexRuns() {
+export function getAgentRuns() {
   const documentId = getActiveLocalSession()?.documentId;
   if (cachedSource !== runs || cachedDocument !== documentId) {
     cachedSource = runs;
@@ -61,11 +61,11 @@ export function getCodexRuns() {
   }
   return cachedRuns;
 }
-export function useCodexRuns() {
-  return useSyncExternalStore((listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; }, getCodexRuns);
+export function useAgentRuns() {
+  return useSyncExternalStore((listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; }, getAgentRuns);
 }
-export async function codexRequest<T>(path: string, payload: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`/api/codex/${path}`, {
+export async function agentRequest<T>(path: string, payload: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`/api/agent/${path}`, {
     method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload, (_key, value: unknown) => typeof value === "bigint" ? value.toString() : value), signal,
   });
   const text = await response.text();
@@ -76,21 +76,21 @@ export async function codexRequest<T>(path: string, payload: unknown, signal?: A
   }
   return (text ? JSON.parse(text) : undefined) as T;
 }
-export function cancelCodexRun(runId: string) {
-  window.dispatchEvent(new CustomEvent("kavla:cancel-codex-run", { detail: runId }));
-  return codexRequest<void>("cancel", { runId });
+export function cancelAgentRun(runId: string) {
+  window.dispatchEvent(new CustomEvent("kavla:cancel-agent-run", { detail: runId }));
+  return agentRequest<void>("cancel", { runId });
 }
-export type CodexGeneration = { sql?: string; name?: string; strategy?: string; title?: string; description?: string; code?: string; dataSql?: string | null };
-export type CodexToolEnvironment = {
+export type AgentGeneration = { sql?: string; name?: string; strategy?: string; title?: string; description?: string; code?: string; dataSql?: string | null };
+export type AgentToolEnvironment = {
   runId: string;
   data: LocalServerContextType;
   signal: AbortSignal;
   prompt: string;
-  generate: (mode: "sql" | "lens", prompt: string, context: unknown) => Promise<CodexGeneration>;
+  generate: (mode: "sql" | "lens", prompt: string, context: unknown) => Promise<AgentGeneration>;
 };
-export function createCodexToolEnvironment(run: CodexRun, signal: AbortSignal, data: LocalServerContextType): CodexToolEnvironment {
+export function createAgentToolEnvironment(run: AgentRun, signal: AbortSignal, data: LocalServerContextType): AgentToolEnvironment {
   return {
     runId: run.id, signal, data, prompt: run.prompt,
-    generate: (mode, prompt, context) => codexRequest("generate", { runId: run.id, clientId: codexClientId, mode, prompt, context }, signal),
+    generate: (mode, prompt, context) => agentRequest("generate", { runId: run.id, clientId: agentClientId, mode, prompt, context }, signal),
   };
 }

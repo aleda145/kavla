@@ -7,34 +7,34 @@ import (
  "os"
  "strings"
 
- "github.com/aleda145/kavla/cli/internal/codex"
+ "github.com/aleda145/kavla/cli/internal/agent"
 )
 
 // Entered settings are saved in the user's Agent config, never the document or run journal.
 // OPENAI_API_KEY supports persistent configuration through the server environment.
 // Saved settings take precedence; environment settings provide defaults when missing.
-func (s *Server) codexAuthLocked() (mode, key, source string) {
- mode = s.codexAuthMode
+func (s *Server) agentAuthLocked() (mode, key, source string) {
+ mode = s.agentAuthMode
  if mode == "codex" { return mode, "", "" }
- if s.codexAPIKey != "" { return "apiKey", s.codexAPIKey, "config" }
+ if s.agentAPIKey != "" { return "apiKey", s.agentAPIKey, "config" }
  if key = environmentAPIKey(s.apiProviderLocked().BaseURL); key != "" { return "apiKey", key, "environment" }
  if mode == "apiKey" || strings.TrimSpace(os.Getenv("KAVLA_AI_BASE_URL")) != "" { return "apiKey", "", "" }
  return "codex", "", ""
 }
 
-func (s *Server) currentCodexAuth() map[string]interface{} {
- s.codexMu.Lock()
- defer s.codexMu.Unlock()
- mode, key, source := s.codexAuthLocked()
+func (s *Server) currentAgentAuth() map[string]interface{} {
+ s.agentMu.Lock()
+ defer s.agentMu.Unlock()
+ mode, key, source := s.agentAuthLocked()
  config := s.apiProviderLocked()
  return map[string]interface{}{"mode": mode, "hasApiKey": key != "", "hasEnvironmentKey": environmentAPIKey(config.BaseURL) != "", "keySource": source, "baseUrl": config.BaseURL, "model": config.Model, "hasHeaders": len(config.Headers) > 0}
 }
 
-func (s *Server) handleCodexAuth(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAgentAuth(w http.ResponseWriter, r *http.Request) {
  w.Header().Set("Cache-Control", "no-store")
  if r.Method == http.MethodGet {
   w.Header().Set("Content-Type", "application/json")
-  _ = json.NewEncoder(w).Encode(s.currentCodexAuth())
+  _ = json.NewEncoder(w).Encode(s.currentAgentAuth())
   return
  }
  r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
@@ -46,11 +46,11 @@ func (s *Server) handleCodexAuth(w http.ResponseWriter, r *http.Request) {
   writeAPIError(w, 400, fmt.Errorf("choose Codex login or an API provider")); return
  }
  key := strings.TrimSpace(request.APIKey)
- s.codexAuthMu.Lock()
- defer s.codexAuthMu.Unlock()
- s.codexMu.Lock()
- if activeCodexRun(s.codexRun) {
-  s.codexMu.Unlock(); writeAPIError(w, 409, fmt.Errorf("stop the current Agent run before changing authentication")); return
+ s.agentAuthMu.Lock()
+ defer s.agentAuthMu.Unlock()
+ s.agentMu.Lock()
+ if activeAgentRun(s.agentRun) {
+  s.agentMu.Unlock(); writeAPIError(w, 409, fmt.Errorf("stop the current Agent run before changing authentication")); return
  }
  config := s.apiProviderLocked()
  previousURL := config.BaseURL
@@ -59,29 +59,29 @@ func (s *Server) handleCodexAuth(w http.ResponseWriter, r *http.Request) {
  if config.BaseURL != previousURL {
   // Never carry an existing key or secret headers to a newly selected endpoint.
   config.Headers = nil
- } else if key == "" { key = s.codexAPIKey }
+ } else if key == "" { key = s.agentAPIKey }
  if request.Headers != nil { config.Headers = *request.Headers }
  config.APIKey = key
  if request.Mode == "apiKey" {
-  if err := config.Validate(); err != nil { s.codexMu.Unlock(); writeAPIError(w, 400, err); return }
+  if err := config.Validate(); err != nil { s.agentMu.Unlock(); writeAPIError(w, 400, err); return }
  } else {
   key, config.APIKey, config.Headers = "", "", nil
  }
- if err := s.saveAgentConfig(request.Mode, config); err != nil { s.codexMu.Unlock(); writeAPIError(w, 500, err); return }
- // Prevent a prompt from starting between changing credentials and restarting Codex.
- s.codexAuthChanging = true
- s.codexAuthMode = request.Mode
- s.codexAPIKey = key
+ if err := s.saveAgentConfig(request.Mode, config); err != nil { s.agentMu.Unlock(); writeAPIError(w, 500, err); return }
+ // Prevent a prompt from starting between changing credentials and restarting the agent.
+ s.agentAuthChanging = true
+ s.agentAuthMode = request.Mode
+ s.agentAPIKey = key
  config.APIKey = ""
  s.apiProvider = config
- if request.Mode == "codex" { s.codexAPIKey = ""; s.apiProvider.Headers = nil }
- s.codexMu.Unlock()
- s.retryCodexDetection()
- s.codexMu.Lock()
- s.codexAuthChanging = false
- s.codexMu.Unlock()
- settings := s.currentCodexAuth()
- s.broadcastCodexRuntimeEvent(cliRuntimeEvent{name: "auth", data: settings})
+ if request.Mode == "codex" { s.agentAPIKey = ""; s.apiProvider.Headers = nil }
+ s.agentMu.Unlock()
+ s.retryAgentDetection()
+ s.agentMu.Lock()
+ s.agentAuthChanging = false
+ s.agentMu.Unlock()
+ settings := s.currentAgentAuth()
+ s.broadcastAgentRuntimeEvent(cliRuntimeEvent{name: "auth", data: settings})
  w.Header().Set("Content-Type", "application/json")
  _ = json.NewEncoder(w).Encode(settings)
 }
@@ -89,7 +89,7 @@ func (s *Server) handleCodexAuth(w http.ResponseWriter, r *http.Request) {
 func environmentAPIBaseURL() string {
  baseURL := strings.TrimSpace(os.Getenv("KAVLA_AI_BASE_URL"))
  if baseURL == "" { baseURL = strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")) }
- if baseURL == "" { baseURL = codex.DefaultAPIBaseURL }
+ if baseURL == "" { baseURL = agent.DefaultAPIBaseURL }
  return strings.TrimRight(baseURL, "/")
 }
 
@@ -98,19 +98,19 @@ func environmentAPIKey(baseURL string) string {
   if key := strings.TrimSpace(os.Getenv("KAVLA_AI_API_KEY")); key != "" { return key }
  }
  openAIURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), "/")
- if openAIURL == "" { openAIURL = codex.DefaultAPIBaseURL }
+ if openAIURL == "" { openAIURL = agent.DefaultAPIBaseURL }
  if baseURL == openAIURL { return strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) }
  return ""
 }
 
-// Caller holds codexMu. Headers are replaced as a whole and never mutated.
-func (s *Server) apiProviderLocked() codex.APIConfig {
+// Caller holds agentMu. Headers are replaced as a whole and never mutated.
+func (s *Server) apiProviderLocked() agent.APIConfig {
  return withAPIProviderDefaults(s.apiProvider)
 }
 
-func withAPIProviderDefaults(config codex.APIConfig) codex.APIConfig {
+func withAPIProviderDefaults(config agent.APIConfig) agent.APIConfig {
  if config.BaseURL == "" { config.BaseURL = environmentAPIBaseURL() }
  if config.Model == "" { config.Model = strings.TrimSpace(os.Getenv("KAVLA_AI_MODEL")) }
- if config.Model == "" { config.Model = codex.DefaultAPIModel }
+ if config.Model == "" { config.Model = agent.DefaultAPIModel }
  return config
 }
