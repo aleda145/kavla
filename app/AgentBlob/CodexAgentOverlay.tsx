@@ -1,12 +1,13 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
-import { Bot, ExternalLink, Loader2, Send, Sparkles, Square, Trash2 } from "lucide-react";
-import { useEditor, useValue, type TLShape, type TLShapeId } from "tldraw";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
+import { Bot, LocateFixed, Loader2, Send, Sparkles, Square, Trash2 } from "lucide-react";
+import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useCodexModels, useCodexStatus } from "../client/localServer/codexStore";
 import { useData } from "../client/useLocalServer";
 import { buildPromptCanvasContext } from "./codexCanvasTools";
 import { appendCodexAgentEntry, createOrFocusCodexAgent, getCodexAgent, updateCodexAgent } from "./codex-agent-store";
 import type { CodexAgentEntry } from "./codex-agent-types";
 import { CodexAgentRuntime } from "./CodexAgentRuntime";
+import { getCanvasBadges, getMentionRanges, getShapeCitations, type ContextBadge } from "./codex-shape-references";
 import { getActiveLocalSession } from "../client/local/localSession";
 
 const LAUNCHER_SIZE = 48;
@@ -15,41 +16,8 @@ const CHAT_HEIGHT = 360;
 const TOOLBAR_GAP = 6;
 const CHAT_GAP = 12;
 
-type ContextBadge = {
-  id: string;
-  name: string;
-  backgroundColor: string;
-  borderBottomColor: string;
-};
-
 function stopOverlayEvent(event: SyntheticEvent) {
   event.stopPropagation();
-}
-
-function getShapeName(shape: TLShape): string {
-  if ("name" in shape.props && typeof shape.props.name === "string" && shape.props.name.trim()) {
-    return shape.props.name.trim();
-  }
-  if (shape.type === "note") return "note";
-  if (shape.type === "sql-result-table") return "result";
-  return shape.type.replace(/-/g, " ");
-}
-
-function getShapeColors(shape: TLShape) {
-  if (shape.type === "data-source") return { backgroundColor: "#dbeafe", borderBottomColor: "#3b82f6" };
-  if (shape.type === "sql-text-area") return { backgroundColor: "#fef9c3", borderBottomColor: "#ca8a04" };
-  if (shape.type === "sql-result-table") return { backgroundColor: "#dcfce7", borderBottomColor: "#16a34a" };
-  if (shape.type === "chart-shape") return { backgroundColor: "#fce7f3", borderBottomColor: "#db2777" };
-  if (shape.type === "note") return { backgroundColor: "#ffedd5", borderBottomColor: "#f97316" };
-  return { backgroundColor: "#fff", borderBottomColor: "#000" };
-}
-
-function getContextBadge(shape: TLShape): ContextBadge {
-  return { id: shape.id, name: getShapeName(shape), ...getShapeColors(shape) };
-}
-
-function isContextShape(shape: TLShape) {
-  return ["data-source", "sql-text-area", "sql-result-table", "chart-shape", "note"].includes(shape.type);
 }
 
 function getDockLayout() {
@@ -81,7 +49,7 @@ function fallbackHistory(entries: CodexAgentEntry[]): string {
   return entries
     .filter((entry) => entry.role === "user" || entry.role === "assistant")
     .slice(-20)
-    .map((entry) => `${entry.role === "user" ? "User" : "Assistant"}: ${entry.text}`)
+    .map((entry) => `${entry.role === "user" ? "User" : "Assistant"}: ${entry.text}\nCanvas references: ${[...(entry.contextShapeIds ?? []), ...(entry.shapeIds ?? [])].join(", ")}`)
     .join("\n\n")
     .slice(-24_000);
 }
@@ -113,20 +81,107 @@ function ContextChip({ badge, onClick }: { badge: ContextBadge; onClick: () => v
   );
 }
 
-function CodexChatOverlay() {
+function AnswerText({ text, badgesById, onNavigate }: {
+  text: string;
+  badgesById: Map<string, ContextBadge>;
+  onNavigate: (shapeId: string) => void;
+}) {
+  const citations = getShapeCitations(text);
+  let offset = 0;
+  return <>{citations.map((citation) => {
+    const before = text.slice(offset, citation.from);
+    offset = citation.to;
+    const badge = badgesById.get(citation.shapeId);
+    return <span key={citation.from}>{before}{badge ? (
+      <button type="button" onClick={() => onNavigate(citation.shapeId)} title={`Go to ${badge.name}`}
+        style={{ display: "inline", background: badge.backgroundColor, border: 0, borderBottom: `2px solid ${badge.borderBottomColor}`, padding: "0 2px", font: "inherit", cursor: "pointer" }}>
+        {citation.label}
+      </button>
+    ) : <span title="This canvas shape is unavailable">{citation.label}</span>}</span>;
+  })}{text.slice(offset)}</>;
+}
+
+function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
   const editor = useEditor();
   const dataSocket = useData();
   const codexStatus = useCodexStatus();
   const codexModels = useCodexModels();
   const [prompt, setPrompt] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [dismissedMention, setDismissedMention] = useState<string | null>(null);
+  const [chosenMentions, setChosenMentions] = useState<ContextBadge[]>([]);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   const [layout, setLayout] = useState(() => getDockLayout());
   const endRef = useRef<HTMLDivElement>(null);
   const agent = useValue("Kavla Codex agent", () => getCodexAgent(editor), [editor]);
-  const selectedBadges = useValue(
-    "Kavla Codex context selection",
-    () => editor.getSelectedShapes().filter(isContextShape).map(getContextBadge),
-    [editor]
-  );
+  const canvasBadges = useValue("Kavla Codex canvas references", () => getCanvasBadges(editor), [editor]);
+  const selectedIds = useValue("Kavla Codex selection", () => editor.getSelectedShapeIds(), [editor]);
+  const selectedBadges = canvasBadges.filter((badge) => selectedIds.includes(badge.id as TLShapeId));
+  const badgesById = useMemo(() => new Map(canvasBadges.map((badge) => [badge.id, badge])), [canvasBadges]);
+  const mentionBadges = [...chosenMentions, ...canvasBadges.filter((badge) => !chosenMentions.some((chosen) => chosen.name === badge.name))];
+  const mentionRanges = getMentionRanges(prompt, mentionBadges);
+  const contextBadges = Array.from(new Map([
+    ...selectedBadges,
+    ...mentionRanges.map((range) => badgesById.get(range.badge.id)).filter((badge): badge is ContextBadge => Boolean(badge)),
+  ].map((badge) => [badge.id, badge])).values());
+  const mentionMatch = prompt.slice(0, cursor).match(/(?:^|[\s({])@([^@\n]*)$/);
+  const mentionStart = mentionMatch ? cursor - mentionMatch[1].length - 1 : -1;
+  const mentionKey = `${mentionStart}:${cursor}:${prompt}`;
+  const completedMention = mentionRanges.some((range) => range.from === mentionStart && range.to < cursor);
+  const showMentions = Boolean(mentionMatch && !completedMention && dismissedMention !== mentionKey);
+  const mentionSuggestions = showMentions
+    ? canvasBadges.filter((badge) => badge.name.toLowerCase().includes(mentionMatch![1].toLowerCase())).slice(0, 8)
+    : [];
+  const activeMentionIndex = Math.min(mentionIndex, Math.max(0, mentionSuggestions.length - 1));
+  useEffect(() => {
+    if (showMentions) document.getElementById(`codex-mention-${activeMentionIndex}`)?.scrollIntoView({ block: "nearest" });
+  }, [showMentions, activeMentionIndex]);
+  const activeBounds = useValue("Kavla Codex active shape", () => {
+    const bounds = activeShapeId ? editor.getShapePageBounds(activeShapeId as TLShapeId) : null;
+    return bounds ? { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h } : null;
+  }, [editor, activeShapeId]);
+
+  useEffect(() => {
+    if (!isFollowing || !activeBounds) return;
+    editor.zoomToBounds(activeBounds, { targetZoom: editor.getZoomLevel(), inset: 80, animation: { duration: 220 } });
+  }, [editor, isFollowing, activeBounds]);
+
+  useEffect(() => {
+    const pauseFollowing = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest("[data-kavla-agent-ui]")) return;
+      setIsFollowing(false);
+    };
+    const container = editor.getContainer();
+    const pauseForNavigationKey = (event: globalThis.KeyboardEvent) => {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", "+", "-", "="].includes(event.key)) {
+        pauseFollowing(event);
+      }
+    };
+    container.addEventListener("pointerdown", pauseFollowing, true);
+    container.addEventListener("wheel", pauseFollowing, true);
+    container.addEventListener("keydown", pauseForNavigationKey, true);
+    return () => {
+      container.removeEventListener("pointerdown", pauseFollowing, true);
+      container.removeEventListener("wheel", pauseFollowing, true);
+      container.removeEventListener("keydown", pauseForNavigationKey, true);
+    };
+  }, [editor]);
+
+  const chooseMention = (badge: ContextBadge) => {
+    const token = `@${badge.name} `;
+    const nextPrompt = prompt.slice(0, mentionStart) + token + prompt.slice(cursor);
+    const nextCursor = mentionStart + token.length;
+    setChosenMentions((current) => [...current.filter((item) => item.name !== badge.name), badge]);
+    setPrompt(nextPrompt);
+    setCursor(nextCursor);
+    setMentionIndex(0);
+    requestAnimationFrame(() => {
+      promptRef.current?.focus();
+      promptRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  };
   const ready = codexStatus.state === "ready";
   const isOpen = agent?.props.isOpen ?? false;
   const isRunning = agent?.props.isRunning ?? false;
@@ -150,21 +205,10 @@ function CodexChatOverlay() {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [agent?.props.entries, agent?.props.streamingText, agent?.props.activity]);
 
-  const badgesById = useMemo(() => {
-    return new Map(
-      editor
-        .getCurrentPageShapes()
-        .filter(isContextShape)
-        .map((shape) => {
-          const badge = getContextBadge(shape);
-          return [badge.id, badge] as const;
-        })
-    );
-  }, [editor, agent?.props.entries, selectedBadges]);
-
   const zoomToShape = (shapeId: string) => {
     const id = shapeId as TLShapeId;
     if (!editor.getShape(id)) return;
+    setIsFollowing(false);
     editor.select(id);
     editor.zoomToSelection({ animation: { duration: 220 } });
   };
@@ -174,22 +218,46 @@ function CodexChatOverlay() {
     if (!text || isRunning || !ready) return;
     createOrFocusCodexAgent(editor);
     const currentAgent = getCodexAgent(editor);
-    const contextShapeIds = selectedBadges.map((badge) => badge.id);
+    const contextShapeIds = contextBadges.map((badge) => badge.id);
     appendCodexAgentEntry(editor, { role: "user", text, contextShapeIds });
     updateCodexAgent(editor, { isRunning: true, streamingText: "", activity: "Starting Codex…", isOpen: true });
     dataSocket.sendCodexPrompt({
       prompt: text,
       threadId: currentAgent?.props.codexThreadId ?? null,
-      context: buildPromptCanvasContext(editor, contextShapeIds),
+      context: {
+        ...buildPromptCanvasContext(editor, contextShapeIds),
+        mentions: mentionRanges.map(({ badge }) => ({ name: badge.name, shapeId: badge.id })),
+      },
       fallbackHistory: fallbackHistory(currentAgent?.props.entries ?? []),
       mainModel: codexModels.mainModel,
       layoutModel: codexModels.layoutModel,
     });
     setPrompt("");
+    setCursor(0);
+    setChosenMentions([]);
+    setDismissedMention(null);
   };
 
   const onPromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     event.stopPropagation();
+    if (event.nativeEvent.isComposing) return;
+    if (showMentions) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDismissedMention(mentionKey);
+        return;
+      }
+      if (mentionSuggestions.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+        event.preventDefault();
+        setMentionIndex((activeMentionIndex + (event.key === "ArrowDown" ? 1 : -1) + mentionSuggestions.length) % mentionSuggestions.length);
+        return;
+      }
+      if (mentionSuggestions.length && (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey))) {
+        event.preventDefault();
+        chooseMention(mentionSuggestions[activeMentionIndex]);
+        return;
+      }
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       send();
@@ -200,6 +268,7 @@ function CodexChatOverlay() {
 
   return (
     <div
+      data-kavla-agent-ui
       style={{ fontFamily: "Inter, sans-serif", inset: 0, pointerEvents: "none", position: "fixed", zIndex: 100000 }}
     >
       <style>{`
@@ -293,6 +362,16 @@ function CodexChatOverlay() {
             <strong style={{ fontSize: 11, fontWeight: 900, textTransform: "uppercase" }}>Analyst</strong>
             <div style={{ alignItems: "center", display: "flex", gap: 6, marginLeft: "auto" }}>
               <button
+                aria-label="Follow analyst"
+                aria-pressed={isFollowing}
+                onClick={() => setIsFollowing((value) => !value)}
+                title="Follow active work. Moving around the canvas pauses following."
+                type="button"
+                style={{ display: "flex", alignItems: "center", gap: 3, background: isFollowing ? "#fef08a" : "#fff", border: "2px solid #000", borderRadius: 5, height: 24, padding: "0 4px", fontSize: 10, fontWeight: 900, cursor: "pointer" }}
+              >
+                <LocateFixed size={12} /> Follow
+              </button>
+              <button
                 aria-label="Clear chat"
                 disabled={isRunning}
                 onClick={() =>
@@ -377,8 +456,7 @@ function CodexChatOverlay() {
           >
             {agent.props.entries.length === 0 ? (
               <div style={{ color: "#57534e", fontSize: 12, lineHeight: 1.45, padding: 4 }}>
-                Select something on the canvas to add it as context, then ask Codex to explore it or create analytical
-                work.
+                Select shapes or type @ to mention them, then ask Codex to explore, create, or edit your analysis.
               </div>
             ) : null}
             {agent.props.entries.map((entry) => {
@@ -412,30 +490,20 @@ function CodexChatOverlay() {
                       ))}
                     </div>
                   ) : null}
-                  {entry.text}
+                  <AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} />
                   {linkedIds.length ? (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>
+                      {entry.role === "assistant" ? (
+                        <span style={{ width: "100%", color: "#57534e", fontSize: 9, fontWeight: 900 }}>Canvas references</span>
+                      ) : null}
                       {linkedIds.map((id) => {
                         const badge = badgesById.get(id);
                         return badge ? (
                           <ContextChip badge={badge} key={id} onClick={() => zoomToShape(id)} />
                         ) : (
-                          <button
-                            key={id}
-                            onClick={() => zoomToShape(id)}
-                            style={{
-                              background: "#ccfbf1",
-                              border: 0,
-                              borderBottom: "2px solid #0f766e",
-                              cursor: "pointer",
-                              fontFamily: "monospace",
-                              fontSize: 11,
-                              fontWeight: 900,
-                            }}
-                            type="button"
-                          >
-                            <ExternalLink size={10} /> Canvas shape
-                          </button>
+                          <span key={id} title="This canvas shape was removed" style={{ color: "#78716c", fontSize: 10 }}>
+                            Shape removed
+                          </span>
                         );
                       })}
                     </div>
@@ -484,8 +552,8 @@ function CodexChatOverlay() {
             <div ref={endRef} />
           </div>
 
-          <div style={{ background: "#fff", borderRadius: "0 0 9px 9px", borderTop: "3px solid #000", padding: 7 }}>
-            {selectedBadges.length ? (
+          <div style={{ background: "#fff", borderRadius: "0 0 9px 9px", borderTop: "3px solid #000", padding: 7, position: "relative" }}>
+            {contextBadges.length ? (
               <div
                 style={{
                   alignItems: "center",
@@ -500,9 +568,27 @@ function CodexChatOverlay() {
                 <span style={{ color: "#57534e", fontSize: 9, fontWeight: 900, textTransform: "uppercase" }}>
                   Context
                 </span>
-                {selectedBadges.map((badge) => (
+                {contextBadges.map((badge) => (
                   <ContextChip badge={badge} key={badge.id} onClick={() => zoomToShape(badge.id)} />
                 ))}
+              </div>
+            ) : null}
+            {showMentions && ready && !isRunning ? (
+              <div id="codex-mention-list" role="listbox" aria-label="Canvas shapes" style={{ position: "absolute", bottom: "100%", left: 7, right: 7, maxHeight: 210, overflowY: "auto", background: "#fff", border: "2px solid #000", borderRadius: 6, boxShadow: "4px 4px 0 #000", zIndex: 1 }}>
+                {mentionSuggestions.length ? mentionSuggestions.map((badge, index) => (
+                  <button
+                    key={badge.id}
+                    id={`codex-mention-${index}`}
+                    role="option"
+                    aria-selected={index === activeMentionIndex}
+                    type="button"
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => chooseMention(badge)}
+                    style={{ display: "block", width: "100%", textAlign: "left", background: index === activeMentionIndex ? "#fef9c3" : "#fff", border: 0, borderBottom: "1px solid #e7e5e4", padding: "7px 9px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}
+                  >
+                    @{badge.name}
+                  </button>
+                )) : <div style={{ padding: 9, fontSize: 11 }}>No matching shapes</div>}
               </div>
             ) : null}
             <div
@@ -516,11 +602,21 @@ function CodexChatOverlay() {
               }}
             >
               <textarea
+                ref={promptRef}
                 aria-label="Ask the Kavla Agent"
+                aria-autocomplete="list"
+                aria-controls={showMentions ? "codex-mention-list" : undefined}
+                aria-activedescendant={showMentions && mentionSuggestions.length ? `codex-mention-${activeMentionIndex}` : undefined}
                 disabled={!ready || isRunning}
-                onChange={(event) => setPrompt(event.currentTarget.value)}
+                onChange={(event) => {
+                  setPrompt(event.currentTarget.value);
+                  setCursor(event.currentTarget.selectionStart);
+                  setMentionIndex(0);
+                  setDismissedMention(null);
+                }}
+                onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
                 onKeyDown={onPromptKeyDown}
-                placeholder={selectedBadges.length ? "Ask about this" : "Ask about this canvas"}
+                placeholder={contextBadges.length ? "Ask about this · @ to add context" : "Ask about this canvas · @ to mention"}
                 style={{
                   background: "transparent",
                   border: 0,
@@ -593,11 +689,13 @@ function CodexChatOverlay() {
 }
 
 export function CodexAgentLayer() {
+  const [activeShapeId, setActiveShapeId] = useState<string | null>(null);
+  const onActivityShape = useCallback((shapeId: string) => setActiveShapeId(shapeId), []);
   if (!getActiveLocalSession()) return null;
   return (
     <>
-      <CodexAgentRuntime />
-      <CodexChatOverlay />
+      <CodexAgentRuntime onActivityShape={onActivityShape} />
+      <CodexChatOverlay activeShapeId={activeShapeId} />
     </>
   );
 }

@@ -730,6 +730,21 @@ func dynamicTools() []map[string]interface{} {
 			"text":          map[string]string{"type": "string"},
 			"layout":        layoutSchema(),
 		}, "text")),
+		tool("update_chart", "Edit an existing chart in place. Keep its source query, position, and size. Omitted settings stay unchanged; use color: null to remove grouping and limit: null to remove the row limit.", objectSchema(map[string]interface{}{
+			"shapeId":       map[string]string{"type": "string"},
+			"name":          map[string]string{"type": "string"},
+			"chartType":     map[string]interface{}{"type": "string", "enum": []string{"scatter", "line", "bar", "area"}},
+			"x":             map[string]string{"type": "string"},
+			"y":             map[string]string{"type": "string"},
+			"color":         map[string]interface{}{"type": []string{"string", "null"}},
+			"yAxisScale":    map[string]interface{}{"type": "string", "enum": []string{"default", "auto", "zero"}},
+			"isStacked":     map[string]string{"type": "boolean"},
+			"limit":         map[string]interface{}{"type": []string{"integer", "null"}, "minimum": 1},
+		}, "shapeId")),
+		tool("update_note", "Replace the text of an existing note in place, preserving its position, size, and style. Supply the complete replacement text, up to 4000 characters.", objectSchema(map[string]interface{}{
+			"shapeId": map[string]string{"type": "string"},
+			"text":    map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 4000},
+		}, "shapeId", "text")),
 	}
 	return []map[string]interface{}{{
 		"type":        "namespace",
@@ -783,6 +798,10 @@ Analyze by decomposition. Prefer small, readable chained query shapes that each 
 Inspect the schema and precomputed column statistics already present in canvas context before relying on column names. LIMIT and sample results are only evidence about examples and formatting; final counts, rates, rankings, and comparisons must operate on the full relevant source or a full-size filtered query result. Avoid CTEs, nested subqueries, window functions, and joins when several simple chained shapes express the reasoning more clearly.
 
 Create charts only when the user explicitly requests a chart. Use create_note only for a short, evidence-backed breadcrumb such as a data-quality issue or analytical assumption; do not use notes as the final answer.
+
+Resolve @mentions using the mentions list in the canvas context, which maps the user's displayed names to shape IDs. When the user asks to change an existing chart or note, use update_chart or update_note on that shape rather than creating a replacement. Read its current settings or text from context first, and change only what the user requested. The update_chart tool preserves the source query; requests to change the underlying analysis should explicitly update that query when appropriate.
+
+In final answers, link statements to the existing canvas shapes that support them using Markdown links with a shape ID target, for example [Survival by class](shape:abc123). Use only actual shape IDs supplied in canvas context or successful tool results. Prefer links to the supporting query and result table for numerical claims, and link charts or notes when discussing those artifacts. Do not cite a failed query as successful evidence. These links let the user navigate directly to the work behind the answer.
 
 Use at most four canvas tool calls for one user turn. Prefer the smallest useful visible DAG, then answer from the best successful evidence instead of creating redundant branches.
 

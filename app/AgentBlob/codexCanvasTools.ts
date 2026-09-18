@@ -193,6 +193,9 @@ function describeShape(shape: TLShape): Record<string, unknown> | null {
       x: chart.props.x,
       y: chart.props.y,
       color: chart.props.color,
+      yAxisScale: chart.props.yAxisScale,
+      isStacked: chart.props.isStacked,
+      limit: chart.props.limit,
     };
   }
   if (shape.type === "sql-result-table") {
@@ -210,9 +213,17 @@ export function buildPromptCanvasContext(editor: Editor, explicitShapeIds?: stri
   const contextShapeIds = explicitShapeIds?.length
     ? explicitShapeIds.map((id) => id as TLShapeId)
     : getAgentContextShapeIds(editor);
+  // A chart edit needs the source schema as well as the chart's current settings.
+  const includedIds = new Set(contextShapeIds);
+  for (const id of contextShapeIds) {
+    const shape = editor.getShape(id);
+    if (shape?.type !== "chart-shape") continue;
+    const sourceId = (shape as ChartShape).props.sourceShapeId;
+    if (sourceId) includedIds.add(sourceId as TLShapeId);
+  }
   return {
     selectedShapeIds,
-    shapes: contextShapeIds
+    shapes: Array.from(includedIds)
       .map((id) => editor.getShape(id))
       .filter((shape): shape is TLShape => Boolean(shape))
       .map(describeShape)
@@ -221,7 +232,7 @@ export function buildPromptCanvasContext(editor: Editor, explicitShapeIds?: stri
   };
 }
 
-async function createQuery(editor: Editor, args: ToolArguments): Promise<ToolResult> {
+async function createQuery(editor: Editor, args: ToolArguments, onActivityShape?: (shapeId: string) => void): Promise<ToolResult> {
   const source = getDataShapeOrThrow(editor, requiredString(args, "sourceShapeId"));
   const sql = formatAgentSQL(validateReadOnlySQL(requiredString(args, "sql")));
   const desiredName = optionalString(args, "name") ?? "agent_query";
@@ -254,6 +265,7 @@ async function createQuery(editor: Editor, args: ToolArguments): Promise<ToolRes
     y: finalPlacement.y,
   });
   connectShapes(editor, source.id, shapeId);
+  onActivityShape?.(shapeId);
   await waitForShapeMount();
   let result: SQLShapeRunResult;
   try {
@@ -490,10 +502,63 @@ function createNote(editor: Editor, args: ToolArguments): ToolResult {
   return { shapeId, text: text.slice(0, MAX_TEXT_LENGTH) };
 }
 
+function updateChart(editor: Editor, args: ToolArguments): ToolResult {
+  const shape = getShapeOrThrow(editor, requiredString(args, "shapeId"));
+  if (shape.type !== "chart-shape") throw new Error("The selected shape is not a chart.");
+  const chart = shape as ChartShape;
+  const changes: Partial<ChartShape["props"]> = {};
+  for (const key of ["chartType", "x", "y", "yAxisScale"] as const) {
+    if (key in args) changes[key] = requiredString(args, key);
+  }
+  if ("name" in args) changes.name = getUniqueName(editor, requiredString(args, "name"), chart.id);
+  if ("color" in args) changes.color = args.color === null ? null : requiredString(args, "color");
+  if ("isStacked" in args) {
+    if (typeof args.isStacked !== "boolean") throw new Error("isStacked must be a boolean.");
+    changes.isStacked = args.isStacked;
+  }
+  if ("limit" in args) {
+    if (args.limit !== null && (typeof args.limit !== "number" || !Number.isSafeInteger(args.limit) || args.limit < 1)) {
+      throw new Error("limit must be a positive integer or null.");
+    }
+    changes.limit = args.limit as number | null;
+  }
+  if (!Object.keys(changes).length) throw new Error("Provide at least one chart setting to change.");
+  const next = { ...chart.props, ...changes };
+  if (!next.chartType || !["scatter", "line", "bar", "area"].includes(next.chartType)) {
+    throw new Error(`Unsupported chart type ${next.chartType}.`);
+  }
+  if (!["default", "auto", "zero"].includes(next.yAxisScale)) throw new Error("Unsupported y-axis scale.");
+  const source = next.sourceShapeId ? editor.getShape(next.sourceShapeId as TLShapeId) : null;
+  if (!source || source.type !== "sql-text-area") throw new Error("The chart is not connected to an existing SQL query.");
+  if (!next.x || !next.y) throw new Error("Choose both x and y columns for the chart.");
+  const schema = (source as SQLTextAreaShape).props.outputSchema;
+  if (!schema?.length) throw new Error("Run the chart's source query before editing its settings.");
+  const columns = new Set(schema.map((column) => column.name));
+  for (const column of [next.x, next.y, next.color]) {
+    if (column && !columns.has(column)) throw new Error(`Column ${column} is not in the chart's source query.`);
+  }
+  if (!["bar", "area"].includes(next.chartType) || !next.color) {
+    if (args.isStacked === true) throw new Error("Stacking needs a bar or area chart with a grouping column.");
+    changes.isStacked = false;
+  }
+  editor.updateShape<ChartShape>({ id: chart.id, type: "chart-shape", props: changes });
+  return { ok: true, shapeId: chart.id, sourceShapeId: next.sourceShapeId, chart: { ...next, ...changes } };
+}
+
+function updateNote(editor: Editor, args: ToolArguments): ToolResult {
+  const shape = getShapeOrThrow(editor, requiredString(args, "shapeId"));
+  if (shape.type !== "note") throw new Error("The selected shape is not a note.");
+  const text = requiredString(args, "text");
+  if (text.length > 4000) throw new Error("Keep note text within 4,000 characters.");
+  editor.updateShape<TLNoteShape>({ id: shape.id, type: "note", props: { richText: toRichText(text) } });
+  return { ok: true, shapeId: shape.id, text };
+}
+
 export async function executeCodexCanvasTool(
   editor: Editor,
   tool: string,
   args: ToolArguments,
+  onActivityShape?: (shapeId: string) => void,
 ): Promise<ToolResult> {
   switch (tool) {
     case "get_canvas_context": {
@@ -512,7 +577,7 @@ export async function executeCodexCanvasTool(
       });
     }
     case "create_query":
-      return createQuery(editor, args);
+      return createQuery(editor, args, onActivityShape);
     case "run_query":
       return runExistingQuery(editor, args);
     case "update_query":
@@ -521,6 +586,10 @@ export async function executeCodexCanvasTool(
       return createChart(editor, args);
     case "create_note":
       return createNote(editor, args);
+    case "update_chart":
+      return updateChart(editor, args);
+    case "update_note":
+      return updateNote(editor, args);
     default:
       throw new Error(`Unknown Kavla Agent tool ${tool}.`);
   }

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useEditor } from "tldraw";
+import { useEditor, type TLShapeId } from "tldraw";
 import {
   subscribeCodexEvents,
   subscribeCodexThreads,
@@ -9,6 +9,7 @@ import {
 import { useData } from "../client/useLocalServer";
 import { executeCodexCanvasTool } from "./codexCanvasTools";
 import { appendCodexAgentEntry, getCodexAgent, updateCodexAgent } from "./codex-agent-store";
+import { getShapeCitations } from "./codex-shape-references";
 
 function messageFromData(data: Record<string, unknown>, fallback: string): string {
   if (typeof data.message === "string" && data.message.trim()) return data.message;
@@ -27,11 +28,12 @@ function toolLabel(data: Record<string, unknown>): string {
   return tool.replace(/_/g, " ");
 }
 
-export function CodexAgentRuntime() {
+export function CodexAgentRuntime({ onActivityShape }: { onActivityShape: (shapeId: string) => void }) {
   const editor = useEditor();
   const dataSocket = useData();
   const handledToolCalls = useRef(new Set<string>());
   const completedTurns = useRef(new Set<string>());
+  const turnShapeIds = useRef(new Set<string>());
 
   useEffect(() => {
     const shape = getCodexAgent(editor);
@@ -59,6 +61,7 @@ export function CodexAgentRuntime() {
         if (!shape) return;
         switch (event.eventType) {
           case "layout_started":
+            turnShapeIds.current.clear();
             updateCodexAgent(editor, { isRunning: true, activity: "Planning the canvas layout…" });
             return;
           case "started":
@@ -86,7 +89,10 @@ export function CodexAgentRuntime() {
             if (turnId) completedTurns.current.add(turnId);
             const latest = getCodexAgent(editor);
             const text = latest?.props.streamingText.trim() || "Done.";
-            appendCodexAgentEntry(editor, { role: "assistant", text });
+            const citedShapeIds = getShapeCitations(text).map((citation) => citation.shapeId);
+            const shapeIds = Array.from(new Set(citedShapeIds.length ? citedShapeIds : turnShapeIds.current))
+              .filter((id) => Boolean(editor.getShape(id as TLShapeId)));
+            appendCodexAgentEntry(editor, { role: "assistant", text, shapeIds });
             updateCodexAgent(editor, { isRunning: false, streamingText: "", activity: null });
             return;
           }
@@ -126,12 +132,18 @@ export function CodexAgentRuntime() {
           if (agent.props.codexThreadId !== request.threadId) {
             throw new Error("This tool call belongs to a different Kavla conversation.");
           }
-          const result = await executeCodexCanvasTool(editor, request.tool, request.arguments);
-          dataSocket.sendCodexToolResult({ callId: request.callId, success: true, result });
+          const targetId = request.arguments.shapeId ?? request.arguments.sourceShapeId ?? request.arguments.anchorShapeId;
+          if (typeof targetId === "string") onActivityShape(targetId);
+          const result = await executeCodexCanvasTool(editor, request.tool, request.arguments, onActivityShape);
           const shapeIds = [result.shapeId, result.linkedTableId].filter(
             (id): id is string => typeof id === "string" && Boolean(id)
           );
           if (shapeIds.length > 0) {
+            for (const id of shapeIds) {
+              if (result.ok === false) turnShapeIds.current.delete(id);
+              else turnShapeIds.current.add(id);
+            }
+            if (result.ok !== false) onActivityShape(shapeIds[shapeIds.length - 1]);
             appendCodexAgentEntry(editor, {
               role: "event",
               text:
@@ -141,6 +153,7 @@ export function CodexAgentRuntime() {
               shapeIds,
             });
           }
+          dataSocket.sendCodexToolResult({ callId: request.callId, success: true, result });
         };
         void run()
           .catch((error) => {
@@ -149,7 +162,7 @@ export function CodexAgentRuntime() {
           })
           .finally(() => handledToolCalls.current.delete(request.callId));
       }),
-    [dataSocket, editor]
+    [dataSocket, editor, onActivityShape]
   );
 
   return null;

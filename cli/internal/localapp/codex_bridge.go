@@ -554,7 +554,7 @@ func (s *Server) handleCodexToolCall(requestID json.RawMessage, params json.RawM
 
 func isAllowedCodexCanvasTool(tool string) bool {
 	switch tool {
-	case "get_canvas_context", "create_query", "run_query", "update_query", "create_chart", "create_note":
+	case "get_canvas_context", "create_query", "run_query", "update_query", "create_chart", "create_note", "update_chart", "update_note":
 		return true
 	default:
 		return false
