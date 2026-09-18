@@ -7,6 +7,7 @@ import { ensureAgentFinalQueryTable, executeAgentCanvasTool } from "./agentCanva
 import { appendAgentChatEntry, createOrFocusAgentChat, getAgentChat, updateAgentChat } from "./agent-chat-store";
 import { getShapeCitations, isContextShape } from "./agent-shape-references";
 import type { LensShape } from "../Lens/lens-shape-types";
+import type { SummaryShape } from "../Summary/summary-shape-types";
 import { registerAgentQueryReflow } from "./agentLayout";
 import { AGENT_BLOB_SHAPE_ID, getAgentBlob, moveAgentBlobToShape, removeAgentBlob, setAgentBlobStatus, startAgentBlob } from "./agent-blob-store";
 
@@ -109,7 +110,7 @@ export function AgentRuntime() {
         const summaryCall = [...run.tools].reverse().find((call) => call.success && call.tool === "create_summary");
         const summaryId = summaryCall?.result?.shapeId;
         const summary = typeof summaryId === "string" ? editor.getShape(summaryId as TLShapeId) : undefined;
-        const text = run.status === "completed" && summary?.type === "summary-shape" ? `Added the [summary](${summary.id}) to the canvas.` : run.text || "Done.";
+        const text = run.status === "completed" && summary?.type === "summary-shape" ? `${(summary as SummaryShape).props.answer.trim()} [Summary](${summary.id})` : run.text || "Done.";
         if (run.text || run.status === "completed") appendOnce(run.id, undefined, { role: "assistant", text, shapeIds });
         if (run.status !== "completed") appendOnce(run.id, undefined, { role: run.status === "failed" ? "error" : "event", text: run.error || `Agent ${run.status}.`, shapeIds });
       }
