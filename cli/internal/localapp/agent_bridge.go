@@ -69,7 +69,7 @@ func (s *Server) startAgentDetection() {
    err = startErr
    if err == nil { client = apiClient; status = agent.Status{State: "ready", Message: "API provider configured. Credentials are checked on the first request."} }
   } else {
-   agentClient, startStatus, startErr := agent.StartCodex(ctx, onEvent, onTool, onExit)
+   agentClient, startStatus, startErr := agent.StartCodex(ctx, config.MaxToolCalls, onEvent, onTool, onExit)
    status, err = startStatus, startErr
    if agentClient != nil { client = agentClient }
   }

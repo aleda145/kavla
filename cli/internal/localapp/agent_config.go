@@ -11,6 +11,7 @@ import (
 )
 
 type agentConfig struct {
+	MaxToolCalls *int `yaml:"max_tool_calls,omitempty"`
 	Mode string `yaml:"mode"`
 	BaseURL string `yaml:"base_url,omitempty"`
 	Model string `yaml:"model,omitempty"`
@@ -35,6 +36,8 @@ func (s *Server) loadAgentConfig() error {
 	if err := yaml.Unmarshal(data, &saved); err != nil { return fmt.Errorf("invalid Agent config in %s: %w", path, err) }
 	if saved.Mode != "codex" && saved.Mode != "apiKey" { return fmt.Errorf("Agent config %s must select mode codex or apiKey", path) }
 	provider := withAPIProviderDefaults(agent.APIConfig{BaseURL: saved.BaseURL, Model: saved.Model, APIKey: saved.APIKey, Headers: saved.Headers})
+	if saved.MaxToolCalls != nil { provider.MaxToolCalls = *saved.MaxToolCalls }
+	if err := agent.ValidateMaxToolCalls(provider.MaxToolCalls); err != nil { return fmt.Errorf("invalid Agent config %s: %w", path, err) }
 	if saved.Mode == "apiKey" {
 		if err := provider.Validate(); err != nil { return fmt.Errorf("invalid Agent config %s: %w", path, err) }
 	} else {
@@ -51,7 +54,7 @@ func (s *Server) loadAgentConfig() error {
 func (s *Server) saveAgentConfig(mode string, provider agent.APIConfig) error {
 	path, err := s.agentConfigFilePath()
 	if err != nil { return fmt.Errorf("locate Agent config: %w", err) }
-	data, err := yaml.Marshal(agentConfig{Mode: mode, BaseURL: provider.BaseURL, Model: provider.Model, APIKey: provider.APIKey, Headers: provider.Headers})
+	data, err := yaml.Marshal(agentConfig{Mode: mode, BaseURL: provider.BaseURL, Model: provider.Model, APIKey: provider.APIKey, Headers: provider.Headers, MaxToolCalls: &provider.MaxToolCalls})
 	if err != nil { return fmt.Errorf("encode Agent config: %w", err) }
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil { return fmt.Errorf("create Agent config directory: %w", err) }
 	if err := atomicWriteFile(path, data, 0600); err != nil { return fmt.Errorf("save Agent config %s: %w", path, err) }

@@ -24,6 +24,7 @@ const apiResponseTimeout = 5 * time.Minute
 
 // Credentials and headers are local connection settings, never part of a canvas or run journal.
 type APIConfig struct {
+	MaxToolCalls int
 	BaseURL string
 	APIKey string
 	Model string
@@ -31,6 +32,7 @@ type APIConfig struct {
 }
 
 func (config APIConfig) Validate() error {
+	if err := ValidateMaxToolCalls(MaxToolCallsOrDefault(config.MaxToolCalls)); err != nil { return err }
 	u, err := url.Parse(config.BaseURL)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return fmt.Errorf("enter an HTTP or HTTPS base URL without credentials, query parameters, or a fragment")
@@ -90,6 +92,7 @@ type APIClient struct {
 }
 
 func NewAPIClient(ctx context.Context, config APIConfig, onEvent EventHandler, onTool ToolHandler) (*APIClient, error) {
+	config.MaxToolCalls = MaxToolCallsOrDefault(config.MaxToolCalls)
 	if err := config.Validate(); err != nil { return nil, err }
 	headers := make(map[string]string, len(config.Headers))
 	for name, value := range config.Headers { headers[name] = value }
@@ -154,7 +157,7 @@ func (c *APIClient) StartTurn(ctx context.Context, threadID, prompt string) (str
 }
 
 func (c *APIClient) runTurn(ctx context.Context, threadID, turnID, model, prompt string) error {
-	instructions := strings.ReplaceAll(developerInstructions, "kavla namespace tools", "Kavla function tools")
+	instructions := strings.ReplaceAll(instructionsWithToolLimit(c.config.MaxToolCalls), "kavla namespace tools", "Kavla function tools")
 	messages := []interface{}{
 		map[string]string{"role": "system", "content": instructions},
 		map[string]string{"role": "user", "content": prompt},
@@ -162,7 +165,7 @@ func (c *APIClient) runTurn(ctx context.Context, threadID, turnID, model, prompt
 	tools := chatCompletionTools()
 	seenCalls := make(map[string]bool)
 	c.emit("turn/started", threadID, turnID, nil)
-	for step := 0; step <= 16; step++ {
+	for step := 0; step <= c.config.MaxToolCalls; step++ {
 		requestCtx, cancelRequest := context.WithTimeout(ctx, apiResponseTimeout)
 		completion, err := c.complete(requestCtx, model, messages, tools)
 		requestError := requestCtx.Err()
@@ -182,7 +185,7 @@ func (c *APIClient) runTurn(ctx context.Context, threadID, turnID, model, prompt
 			}})
 		}
 		if len(completion.calls) == 0 { return nil }
-		if len(seenCalls) + len(completion.calls) > 16 { return fmt.Errorf("the Agent reached its 16-tool budget; existing canvas work has been kept") }
+		if len(seenCalls) + len(completion.calls) > c.config.MaxToolCalls { return fmt.Errorf("the Agent reached its %d-tool budget; existing canvas work has been kept", c.config.MaxToolCalls) }
 		// Validate the complete batch before executing any canvas mutations.
 		arguments := make([]map[string]interface{}, len(completion.calls))
 		for i, call := range completion.calls {
@@ -199,7 +202,7 @@ func (c *APIClient) runTurn(ctx context.Context, threadID, turnID, model, prompt
 			if err != nil { return err }
 			messages = append(messages, map[string]string{"role": "tool", "tool_call_id": call.ID, "content": result})
 		}
-		if len(seenCalls) == 16 {
+		if len(seenCalls) == c.config.MaxToolCalls {
 			tools = nil
 			messages = append(messages, map[string]string{"role": "user", "content": "The tool budget is exhausted. Give your final answer using the evidence already collected."})
 		}

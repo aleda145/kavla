@@ -31,6 +31,7 @@ type agentToolState struct {
 }
 
 type agentRunState struct {
+ MaxToolCalls int `json:"maxToolCalls"`
  ID string `json:"id"`
  DocumentID string `json:"documentId"`
  ClientID string `json:"clientId"`
@@ -140,6 +141,7 @@ func (s *Server) startAgentPrompt(request agentPromptRequest) error {
  if err != nil { s.agentMu.Unlock(); return err }
  ctx, cancel := context.WithTimeout(s.agentContext, agentRunTimeout)
  run := &agentRunState{ID: request.RunID, DocumentID: request.DocumentID, ClientID: request.ClientID, Model: model, Prompt: request.Prompt, Status: "planning", Activity: "Preparing analysis…", CreatedAt: time.Now().UnixMilli(), Revision: 1, Tools: []*agentToolState{}, ctx: ctx, cancel: cancel}
+ run.MaxToolCalls = s.apiProviderLocked().MaxToolCalls
  s.agentRun = run
  s.agentHistory = append(s.agentHistory, run)
  if len(s.agentHistory) > 30 { s.agentHistory = s.agentHistory[len(s.agentHistory)-30:] }
@@ -219,7 +221,7 @@ func (s *Server) handleAgentToolCall(requestID json.RawMessage, params json.RawM
     return
    }
   }
-  if len(run.Tools) >= 16 { reject = "The run has reached its tool budget. Finish with the best available evidence." }
+  if len(run.Tools) >= agent.MaxToolCallsOrDefault(run.MaxToolCalls) { reject = "The run has reached its tool budget. Finish with the best available evidence." }
  }
  if reject != "" { s.agentMu.Unlock(); if client != nil { _ = client.RespondToTool(requestID, false, map[string]string{"error": reject}) }; return }
  call := &agentToolState{CallID: request.CallID, Tool: request.Tool, Arguments: request.Arguments, Status: "pending", StartedAt: time.Now().UnixMilli(), RequestID: append(json.RawMessage(nil), requestID...)}

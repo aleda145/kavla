@@ -132,7 +132,7 @@ func TestAPIAuthEnvironmentCompatibility(t *testing.T) {
 
 func TestAgentConfigRestoresSettingsAfterRestart(t *testing.T) {
 	s := newAPIAgentTestServer(t)
-	if w := saveAPIAgentSettings(t, s, `{"mode":"apiKey","baseUrl":"https://provider.example/v1","model":"custom-model","apiKey":"saved-secret","headers":{"cf-aig-authorization":"Bearer saved-header"}}`); w.Code != http.StatusOK { t.Fatal(w.Body.String()) }
+	if w := saveAPIAgentSettings(t, s, `{"mode":"apiKey","baseUrl":"https://provider.example/v1","model":"custom-model","apiKey":"saved-secret","headers":{"cf-aig-authorization":"Bearer saved-header"},"maxToolCalls":75}`); w.Code != http.StatusOK { t.Fatal(w.Body.String()) }
 	awaitAPIAgent(t, func() bool { return s.currentAgentStatus().State == "ready" })
 	s.closeAgent()
 	info, err := os.Stat(s.agentConfigPath)
@@ -145,10 +145,10 @@ func TestAgentConfigRestoresSettingsAfterRestart(t *testing.T) {
 	if err := restarted.loadAgentConfig(); err != nil { t.Fatal(err) }
 	if restarted.agentAPIKey != "saved-secret" || restarted.apiProvider.Headers["cf-aig-authorization"] != "Bearer saved-header" { t.Fatal("credentials not restored") }
 	auth := restarted.currentAgentAuth()
-	if auth["mode"] != "apiKey" || auth["baseUrl"] != "https://provider.example/v1" || auth["model"] != "custom-model" || auth["keySource"] != "config" { t.Fatal(auth) }
+	if auth["mode"] != "apiKey" || auth["baseUrl"] != "https://provider.example/v1" || auth["model"] != "custom-model" || auth["keySource"] != "config" || auth["maxToolCalls"] != 75 { t.Fatal(auth) }
 	if w := saveAPIAgentSettings(t, s, `{"mode":"codex"}`); w.Code != http.StatusOK { t.Fatal(w.Body.String()) }
 	if err := restarted.loadAgentConfig(); err != nil { t.Fatal(err) }
-	if auth := restarted.currentAgentAuth(); auth["mode"] != "codex" || auth["hasApiKey"] != false || auth["hasHeaders"] != false { t.Fatal("Codex login selection not persisted", auth) }
+	if auth := restarted.currentAgentAuth(); auth["mode"] != "codex" || auth["hasApiKey"] != false || auth["hasHeaders"] != false || auth["maxToolCalls"] != 75 { t.Fatal("Codex login selection not persisted", auth) }
 	data, err := os.ReadFile(s.agentConfigPath)
 	if err != nil { t.Fatal(err) }
 	if strings.Contains(string(data), "saved-secret") || strings.Contains(string(data), "saved-header") { t.Fatal("discarded credentials remain in config") }

@@ -18,6 +18,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(auth.baseUrl);
   const [apiModel, setApiModel] = useState(auth.model);
+  const [maxToolCalls, setMaxToolCalls] = useState(String(auth.maxToolCalls));
   const [extraHeaders, setExtraHeaders] = useState("");
   const [savingAuth, setSavingAuth] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -27,6 +28,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
   const sameEndpoint = baseUrl.trim().replace(/\/+$/, "") === auth.baseUrl.replace(/\/+$/, "");
 
   useEffect(() => { setAuthMode(auth.mode); }, [auth.mode]);
+  useEffect(() => { setMaxToolCalls(String(auth.maxToolCalls)); }, [auth.maxToolCalls]);
   useEffect(() => { setBaseUrl(auth.baseUrl); setApiModel(auth.model); }, [auth.baseUrl, auth.model]);
   useEffect(() => {
     const controller = new AbortController();
@@ -44,6 +46,8 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
     setAuthError(null);
     const key = apiKey.trim();
     try {
+      const toolLimit = Number(maxToolCalls);
+      if (!Number.isInteger(toolLimit) || toolLimit < 1 || toolLimit > 1000) throw new Error("Tool-call limit must be a whole number between 1 and 1000.");
       let headers: Record<string, string> | undefined;
       if (authMode === "apiKey" && extraHeaders.trim()) {
         const parsed: unknown = JSON.parse(extraHeaders);
@@ -54,6 +58,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
       }
       const settings = await agentRequest<AgentAuth>("auth", {
         mode: authMode,
+        maxToolCalls: toolLimit,
         ...(authMode === "apiKey" ? { baseUrl: baseUrl.trim(), model: apiModel.trim(), ...(key ? { apiKey: key } : {}), ...(headers ? { headers } : {}) } : {}),
       });
       setApiKey("");
@@ -74,7 +79,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
 
   return createPortal(
     <div
-      aria-label="Kavla Agent connection"
+      aria-label="Kavla Agent settings"
       aria-modal="true"
       onPointerDown={(event) => {
         event.stopPropagation();
@@ -117,9 +122,9 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
           }}
         >
           <Sparkles color="#6d28d9" size={18} strokeWidth={2.7} />
-          <strong style={{ fontSize: 14, fontWeight: 900 }}>Agent connection</strong>
+          <strong style={{ fontSize: 14, fontWeight: 900 }}>Agent settings</strong>
           <button
-            aria-label="Close agent connection"
+            aria-label="Close agent settings"
             onClick={onClose}
             style={{
               alignItems: "center",
@@ -175,7 +180,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
               </select>
             </label>
             <button type="submit" disabled={authDisabled || (authMode === "apiKey" && !canUseProvider)} style={{ flexShrink: 0, height: 34, border: "2px solid #000", borderRadius: 6, background: "#ede9fe", fontSize: 11, fontWeight: 900, padding: "0 10px", cursor: authDisabled ? "default" : "pointer", opacity: authDisabled || (authMode === "apiKey" && !canUseProvider) ? 0.5 : 1 }}>
-              {savingAuth ? "Saving…" : authMode === "apiKey" ? "Use API provider" : "Use Codex login"}
+              {savingAuth ? "Saving…" : "Save settings"}
             </button>
             </div>
             {authMode === "apiKey" ? <>
@@ -204,7 +209,12 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
                 {!sameEndpoint && (auth.hasApiKey || auth.hasHeaders) ? " New URL: re-enter your credentials." : ""}
               </div>
             </> : auth.mode === "apiKey" ? <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>Switching clears saved API credentials.</div> : null}
-            {hasActiveRun && <div style={{ fontSize: 10, color: "#57534e" }}>Stop the current run before changing the connection.</div>}
+            <label style={{ fontSize: 11, fontWeight: 800, display: "flex", flexDirection: "column", gap: 5 }}>
+              Tool calls per request
+              <input type="number" aria-label="Tool calls per request" min={1} max={1000} step={1} required value={maxToolCalls} disabled={authDisabled} onChange={(event) => setMaxToolCalls(event.currentTarget.value)} style={{ height: 34, width: 100, border: "2px solid #000", borderRadius: 6, padding: "0 8px", background: "#fff", color: "#000", fontSize: 12 }} />
+              <span style={{ fontSize: 10, fontWeight: 400, color: "#57534e" }}>Default: 50. Includes queries, repairs, notes, and summaries.</span>
+            </label>
+            {hasActiveRun && <div style={{ fontSize: 10, color: "#57534e" }}>Stop the current run before changing settings.</div>}
             {authError && <div role="alert" style={{ fontSize: 11, color: "#991b1b" }}>{authError}</div>}
           </form>
 

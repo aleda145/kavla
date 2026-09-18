@@ -27,7 +27,7 @@ func (s *Server) currentAgentAuth() map[string]interface{} {
  defer s.agentMu.Unlock()
  mode, key, source := s.agentAuthLocked()
  config := s.apiProviderLocked()
- return map[string]interface{}{"mode": mode, "hasApiKey": key != "", "hasEnvironmentKey": environmentAPIKey(config.BaseURL) != "", "keySource": source, "baseUrl": config.BaseURL, "model": config.Model, "hasHeaders": len(config.Headers) > 0}
+ return map[string]interface{}{"mode": mode, "hasApiKey": key != "", "hasEnvironmentKey": environmentAPIKey(config.BaseURL) != "", "keySource": source, "baseUrl": config.BaseURL, "model": config.Model, "hasHeaders": len(config.Headers) > 0, "maxToolCalls": config.MaxToolCalls}
 }
 
 func (s *Server) handleAgentAuth(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +38,7 @@ func (s *Server) handleAgentAuth(w http.ResponseWriter, r *http.Request) {
   return
  }
  r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
- var request struct { Mode string `json:"mode"`; APIKey string `json:"apiKey"`; BaseURL *string `json:"baseUrl"`; Model *string `json:"model"`; Headers *map[string]string `json:"headers"` }
+ var request struct { Mode string `json:"mode"`; APIKey string `json:"apiKey"`; BaseURL *string `json:"baseUrl"`; Model *string `json:"model"`; Headers *map[string]string `json:"headers"`; MaxToolCalls *int `json:"maxToolCalls"` }
  if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
   writeAPIError(w, 400, fmt.Errorf("invalid Agent authentication settings")); return
  }
@@ -53,6 +53,8 @@ func (s *Server) handleAgentAuth(w http.ResponseWriter, r *http.Request) {
   s.agentMu.Unlock(); writeAPIError(w, 409, fmt.Errorf("stop the current Agent run before changing authentication")); return
  }
  config := s.apiProviderLocked()
+ if request.MaxToolCalls != nil { config.MaxToolCalls = *request.MaxToolCalls }
+ if err := agent.ValidateMaxToolCalls(config.MaxToolCalls); err != nil { s.agentMu.Unlock(); writeAPIError(w, 400, err); return }
  previousURL := config.BaseURL
  if request.BaseURL != nil { config.BaseURL = strings.TrimRight(strings.TrimSpace(*request.BaseURL), "/") }
  if request.Model != nil { config.Model = strings.TrimSpace(*request.Model) }
@@ -109,6 +111,7 @@ func (s *Server) apiProviderLocked() agent.APIConfig {
 }
 
 func withAPIProviderDefaults(config agent.APIConfig) agent.APIConfig {
+ config.MaxToolCalls = agent.MaxToolCallsOrDefault(config.MaxToolCalls)
  if config.BaseURL == "" { config.BaseURL = environmentAPIBaseURL() }
  if config.Model == "" { config.Model = strings.TrimSpace(os.Getenv("KAVLA_AI_MODEL")) }
  if config.Model == "" { config.Model = agent.DefaultAPIModel }

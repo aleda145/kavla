@@ -49,6 +49,7 @@ type textTurnCollector struct {
 }
 
 type CodexClient struct {
+	maxToolCalls int
 	command *exec.Cmd
 	stdin   io.WriteCloser
 	tempDir string
@@ -65,8 +66,11 @@ type CodexClient struct {
 	onExit  ExitHandler
 }
 
-func StartCodex(ctx context.Context, onEvent EventHandler, onTool ToolHandler, onExit ExitHandler) (*CodexClient, Status, error) {
- return StartCodexWithAPIKey(ctx, "", onEvent, onTool, onExit)
+func StartCodex(ctx context.Context, maxToolCalls int, onEvent EventHandler, onTool ToolHandler, onExit ExitHandler) (*CodexClient, Status, error) {
+ if err := ValidateMaxToolCalls(maxToolCalls); err != nil { return nil, Status{}, err }
+ client, status, err := StartCodexWithAPIKey(ctx, "", onEvent, onTool, onExit)
+ if client != nil { client.maxToolCalls = maxToolCalls }
+ return client, status, err
 }
 
 func StartCodexWithAPIKey(ctx context.Context, apiKey string, onEvent EventHandler, onTool ToolHandler, onExit ExitHandler) (*CodexClient, Status, error) {
@@ -281,7 +285,7 @@ func (c *CodexClient) StartOrResumeThread(ctx context.Context, threadID, model s
 			"approvalPolicy":       "never",
 			"sandbox":              "read-only",
 			"cwd":                  c.tempDir,
-			"developerInstructions": developerInstructions,
+			"developerInstructions": instructionsWithToolLimit(c.maxToolCalls),
 		}
 		if model != "" {
 			params["model"] = model
@@ -298,7 +302,7 @@ func (c *CodexClient) StartOrResumeThread(ctx context.Context, threadID, model s
 		"approvalPolicy":        "never",
 		"sandbox":               "read-only",
 		"serviceName":           "kavla",
-		"developerInstructions": developerInstructions,
+		"developerInstructions": instructionsWithToolLimit(c.maxToolCalls),
 		"dynamicTools":          dynamicTools(),
 		"config": map[string]interface{}{
 			"web_search": "disabled",

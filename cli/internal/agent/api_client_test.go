@@ -124,13 +124,14 @@ func TestAPIClientInterruptsPendingTool(t *testing.T) {
 }
 
 func TestAPIClientFinalizesAtToolBudget(t *testing.T) {
+	const toolLimit = 75
 	var requests atomic.Int32
 	var calls atomic.Int32
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]json.RawMessage
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil { t.Error(err); return }
 		step := requests.Add(1)
-		if step <= 16 {
+		if step <= toolLimit {
 			fmt.Fprintf(w, `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"id":"call-%d","type":"function","function":{"name":"get_canvas_context","arguments":"{}"}}]}}]}`, step)
 		} else {
 			if body["tools"] != nil { t.Error("tools still enabled after budget exhaustion") }
@@ -141,7 +142,7 @@ func TestAPIClientFinalizesAtToolBudget(t *testing.T) {
 	done := make(chan json.RawMessage, 1)
 	var client *APIClient
 	var err error
-	client, err = NewAPIClient(context.Background(), APIConfig{BaseURL: provider.URL, Model: "test-model"},
+	client, err = NewAPIClient(context.Background(), APIConfig{BaseURL: provider.URL, Model: "test-model", MaxToolCalls: toolLimit},
 		func(method string, raw json.RawMessage) { if method == "turn/completed" { done <- raw } },
 		func(id, raw json.RawMessage) { calls.Add(1); if err := client.RespondToTool(id, true, nil); err != nil { t.Error(err) } })
 	if err != nil { t.Fatal(err) }
@@ -153,7 +154,7 @@ func TestAPIClientFinalizesAtToolBudget(t *testing.T) {
 	case raw := <-done: if !strings.Contains(string(raw), `"status":"completed"`) { t.Fatal(string(raw)) }
 	case <-time.After(3*time.Second): t.Fatal("tool budget did not terminate")
 	}
-	if requests.Load() != 17 || calls.Load() != 16 { t.Fatalf("requests=%d, calls=%d", requests.Load(), calls.Load()) }
+	if requests.Load() != toolLimit + 1 || calls.Load() != toolLimit { t.Fatalf("requests=%d, calls=%d", requests.Load(), calls.Load()) }
 }
 
 func TestAPIClientCancellation(t *testing.T) {

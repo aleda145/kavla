@@ -16,6 +16,22 @@ var developerInstructions string
 //go:embed prompts/lens.txt
 var lensDeveloperInstructions string
 
+const DefaultMaxToolCalls = 50
+
+func MaxToolCallsOrDefault(value int) int {
+	if value == 0 { return DefaultMaxToolCalls }
+	return value
+}
+
+func ValidateMaxToolCalls(value int) error {
+	if value < 1 || value > 1000 { return fmt.Errorf("tool-call limit must be a whole number between 1 and 1000") }
+	return nil
+}
+
+func instructionsWithToolLimit(value int) string {
+	return strings.ReplaceAll(developerInstructions, "{{MAX_TOOL_CALLS}}", fmt.Sprint(MaxToolCallsOrDefault(value)))
+}
+
 func BuildPrompt(userPrompt string, contextValue interface{}, fallbackHistory string) (string, error) {
 	contextJSON, err := json.Marshal(contextValue)
 	if err != nil {
