@@ -387,7 +387,12 @@ func (s *Server) handleAgentEvent(method string, params json.RawMessage) {
   status, _ := turn["status"].(string)
   message := ""
   if status == "interrupted" { status, message = "cancelled", "Agent stopped." } else if status == "failed" {
-   raw, _ := json.Marshal(turn["error"]); message = string(raw)
+   if failure, ok := turn["error"].(map[string]interface{}); ok {
+    message, _ = failure["message"].(string)
+   } else if text, ok := turn["error"].(string); ok {
+    message = text
+   }
+   if message == "" { raw, _ := json.Marshal(turn["error"]); message = string(raw) }
   } else { status = "completed" }
   s.agentMu.Unlock(); s.finishAgentRun(id, status, message); return
  case "error":

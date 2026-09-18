@@ -20,6 +20,7 @@ import (
 
 const DefaultAPIBaseURL = "https://api.openai.com/v1"
 const DefaultAPIModel = "gpt-4.1"
+const apiResponseTimeout = 5 * time.Minute
 
 // Credentials and headers are local connection settings, never part of a canvas or run journal.
 type APIConfig struct {
@@ -135,6 +136,9 @@ func (c *APIClient) StartTurn(ctx context.Context, threadID, prompt string) (str
 		defer c.workers.Done()
 		defer cancel()
 		err := c.runTurn(turnCtx, threadID, turnID, model, prompt)
+		if err != nil && turnCtx.Err() == context.DeadlineExceeded {
+			err = fmt.Errorf("Agent run exceeded its 15-minute limit. Existing canvas work has been kept.")
+		}
 		c.mu.Lock()
 		if c.turnID == turnID { c.turnCancel = nil }
 		c.mu.Unlock()
@@ -159,10 +163,17 @@ func (c *APIClient) runTurn(ctx context.Context, threadID, turnID, model, prompt
 	seenCalls := make(map[string]bool)
 	c.emit("turn/started", threadID, turnID, nil)
 	for step := 0; step <= 16; step++ {
-		requestCtx, cancelRequest := context.WithTimeout(ctx, 2*time.Minute)
+		requestCtx, cancelRequest := context.WithTimeout(ctx, apiResponseTimeout)
 		completion, err := c.complete(requestCtx, model, messages, tools)
+		requestError := requestCtx.Err()
 		cancelRequest()
-		if err != nil { return err }
+		if err != nil {
+			if ctx.Err() != nil { return ctx.Err() }
+			if requestError == context.DeadlineExceeded {
+				return fmt.Errorf("The API model response exceeded Kavla's %d-minute limit while waiting for the provider. Existing canvas work has been kept. Send a follow-up to continue.", int(apiResponseTimeout/time.Minute))
+			}
+			return err
+		}
 		if err := ctx.Err(); err != nil { return err }
 		messages = append(messages, completion.message)
 		if completion.text != "" {
