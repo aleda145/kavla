@@ -316,8 +316,13 @@ function AgentChatOverlay() {
       {isOpen && agent ? (
         <aside
           aria-label="Kavla Agent chat"
+          className="kavla-agent-chat"
+          tabIndex={-1}
           onClick={stopOverlayEvent}
           onContextMenu={stopOverlayEvent}
+          onCopy={stopOverlayEvent}
+          onCut={stopOverlayEvent}
+          onPaste={stopOverlayEvent}
           onDoubleClick={stopOverlayEvent}
           onKeyDown={stopOverlayEvent}
           onMouseDown={stopOverlayEvent}

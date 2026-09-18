@@ -14,3 +14,18 @@
   font-display: swap;
   src: url("./fonts/Inter-Bold.ttf") format("truetype");
 }
+
+/* tldraw disables selection on every descendant, so override the whole chat. */
+[data-kavla-agent-ui] .kavla-agent-chat,
+[data-kavla-agent-ui] .kavla-agent-chat * {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* The composer highlight layer duplicates the textarea's text. */
+[data-kavla-agent-ui] .kavla-agent-chat [aria-hidden="true"],
+[data-kavla-agent-ui] .kavla-agent-chat [aria-hidden="true"] * {
+  -webkit-user-select: none;
+  user-select: none;
+}
