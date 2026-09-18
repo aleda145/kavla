@@ -31,10 +31,28 @@ export interface QueryResultPagePayload {
   shapeId: string;
   offset: number;
   limit: number;
+  signal?: AbortSignal;
 }
 
 export interface QueryResultPage {
   rows: Record<string, unknown>[];
+}
+
+export interface AgentPromptPayload {
+  runId: string;
+  prompt: string;
+  threadId: string | null;
+  context: unknown;
+  fallbackHistory: string;
+  mainModel?: string;
+}
+
+export interface AgentToolResultPayload {
+  runId: string;
+  callId: string;
+  success: boolean;
+  result?: unknown;
+  error?: string;
 }
 
 export interface LocalServerContextType {
@@ -61,4 +79,8 @@ export interface LocalServerContextType {
   }>;
   getQueryResultPage: (payload: QueryResultPagePayload) => Promise<QueryResultPage>;
   cancelRemoteQuery: (shapeId: string, queryName?: string) => void;
+  sendAgentPrompt: (payload: AgentPromptPayload) => void;
+  sendAgentToolResult: (payload: AgentToolResultPayload) => void;
+  cancelAgent: () => void;
+  retryAgent: () => void;
 }

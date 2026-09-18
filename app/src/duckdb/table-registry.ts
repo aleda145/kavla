@@ -23,6 +23,11 @@ export class DuckDBTableRegistry {
     return this.loadedUrls.has(tableName);
   }
 
+  public isMaterializedTable(tableName: string): boolean {
+    const registration = this.loadedUrls.get(tableName);
+    return registration === "IN_MEMORY" || registration === "IN_MEMORY_ARROW";
+  }
+
   public getRegisteredFile(tableName: string): File | null {
     return this.originalFiles.get(tableName) ?? null;
   }

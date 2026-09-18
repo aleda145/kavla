@@ -9,7 +9,11 @@ import {
   TLUiAssetUrlOverrides,
   useToasts,
 } from "tldraw";
+import { LensUtil } from "../../Lens/LensUtil";
+import { SummaryShapeUtil } from "../../Summary/SummaryShapeUtil";
 import { ChartUtil } from "../../Chart/ChartUtil";
+import { AgentBlobUtil } from "../../AgentBlob/AgentBlobUtil";
+import { AgentChatUtil } from "../../AgentBlob/AgentChatUtil";
 import { CLITerminalUtil } from "../../CLITerminal/CLITerminalUtil";
 import { DataSourceUtil } from "../../DataSource/DataSourceUtil";
 import { SQLResultTableUtil } from "../../SQLResultArea/SQLResultAreaUtil";
@@ -46,7 +50,11 @@ const customShapeUtils = [
   SQLResultTableUtil,
   DataSourceUtil,
   ChartUtil,
+  LensUtil,
+  SummaryShapeUtil,
   CLITerminalUtil,
+  AgentChatUtil,
+  AgentBlobUtil,
   KavlaArrowShapeUtil,
 ];
 

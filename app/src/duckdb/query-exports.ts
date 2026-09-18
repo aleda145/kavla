@@ -8,12 +8,21 @@ interface DuckDBQueryExportsOptions {
 export class DuckDBQueryExports {
   constructor(private options: DuckDBQueryExportsOptions) {}
 
-  public async createQueryView(sql: string, outputTableName: string): Promise<void> {
+  public async createQueryView(sql: string, outputTableName: string, replacesTable = false): Promise<void> {
     const db = this.getDbOrThrow();
     const querySql = stripTrailingSemicolons(sql);
     const connection = await db.connect();
     try {
-      await connection.query(`CREATE OR REPLACE VIEW ${quoteIdentifier(outputTableName)} AS ${querySql}`);
+      // Keep the previous relation available until its replacement succeeds.
+      if (replacesTable) await connection.query("BEGIN TRANSACTION");
+      try {
+        if (replacesTable) await connection.query(`DROP TABLE ${quoteIdentifier(outputTableName)}`);
+        await connection.query(`CREATE OR REPLACE VIEW ${quoteIdentifier(outputTableName)} AS ${querySql}`);
+        if (replacesTable) await connection.query("COMMIT");
+      } catch (error) {
+        if (replacesTable) await connection.query("ROLLBACK");
+        throw error;
+      }
     } finally {
       await connection.close();
     }

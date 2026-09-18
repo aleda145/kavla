@@ -528,7 +528,7 @@ export const LiveCodeMirror = ({
       },
       {
         delay: 50,
-        needsRefresh: null,
+        needsRefresh: (update) => update.transactions.some((transaction) => transaction.reconfigured),
         tooltipFilter: () => [],
       }
     );

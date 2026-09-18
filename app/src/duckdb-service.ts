@@ -17,6 +17,7 @@ export class DuckDBService {
   private db: duckdb.AsyncDuckDB | null = null;
   private worker: Worker | null = null;
   private initPromise: Promise<void> | null = null;
+  private pendingQueryViews = new Map<string, Promise<void>>();
 
   private columnStats = new DuckDBColumnStats(() => this.db);
   private tableRegistry = new DuckDBTableRegistry({
@@ -111,9 +112,23 @@ export class DuckDBService {
   }
 
   public async createQueryView(sql: string, outputTableName: string): Promise<void> {
-    await this.tableRegistry.releaseTable(outputTableName);
-    await this.queryExports.createQueryView(sql, outputTableName);
-    this.tableRegistry.markInMemoryView(outputTableName);
+    const previous = this.pendingQueryViews.get(outputTableName);
+    const operation = (async () => {
+      // A failed definition must not prevent a subsequent correction.
+      if (previous) await previous.catch(() => undefined);
+      await this.queryExports.createQueryView(sql, outputTableName, this.tableRegistry.isMaterializedTable(outputTableName));
+      await this.tableRegistry.releaseTableRegistration(outputTableName);
+      this.tableRegistry.markInMemoryView(outputTableName);
+      this.columnStats.clearForTable(outputTableName);
+    })();
+    this.pendingQueryViews.set(outputTableName, operation);
+    try {
+      await operation;
+    } finally {
+      if (this.pendingQueryViews.get(outputTableName) === operation) {
+        this.pendingQueryViews.delete(outputTableName);
+      }
+    }
   }
 
   public async runQueryView(

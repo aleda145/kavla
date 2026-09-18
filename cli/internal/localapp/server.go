@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aleda145/kavla/cli/internal/agent"
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/runner"
 	"github.com/aleda145/kavla/cli/internal/session"
@@ -71,6 +72,30 @@ type Server struct {
 	reconfiguring         bool
 	sourceConfigMu        sync.Mutex
 	shutdownOnce          sync.Once
+
+	agentMu            sync.Mutex
+ agentAuthMu sync.Mutex
+ agentAuthMode string
+ agentAPIKey string
+ apiProvider agent.APIConfig
+ agentConfigPath string
+ agentAuthChanging bool
+ agentJournalMu sync.Mutex
+ agentRun *agentRunState
+ agentHistory []*agentRunState
+	agentClient        agent.Runtime
+	agentStatus        agent.Status
+	agentContext       context.Context
+	agentCancel        context.CancelFunc
+	agentStarting      bool
+	agentActiveThread  string
+	agentActiveTurn    string
+	agentToolRequests  map[string]json.RawMessage
+	agentModels        []agent.Model
+	agentThreads       map[string]struct{}
+	agentToolCallCount int
+	agentEventMu       sync.Mutex
+	agentSubscribers   map[chan cliRuntimeEvent]struct{}
 }
 
 // SetDocumentChangeHandler registers a callback for successful document
@@ -104,13 +129,21 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 	}
 	querySession := session.NewWithAllowedDirectories(sources, []string{transientDir})
 	server := &Server{
-		document:         document,
-		assets:           assets,
-		verbose:          verbose,
-		queries:          querySession,
-		transientDir:     transientDir,
-		transientResults: make(map[string]transientResult),
-		eventSubscribers: make(map[chan cliRuntimeEvent]struct{}),
+		document:          document,
+		assets:            assets,
+		verbose:           verbose,
+		queries:           querySession,
+		transientDir:      transientDir,
+		transientResults:  make(map[string]transientResult),
+		eventSubscribers:  make(map[chan cliRuntimeEvent]struct{}),
+		agentStatus:       agent.Status{State: "checking", Message: "Preparing Agent connection…"},
+		agentToolRequests: make(map[string]json.RawMessage),
+		agentThreads:      make(map[string]struct{}),
+		agentSubscribers:  make(map[chan cliRuntimeEvent]struct{}),
+	}
+	if err := server.loadAgentConfig(); err != nil {
+		_ = os.RemoveAll(transientDir)
+		return nil, err
 	}
 	querySession.SetLogger(server.logCLIOutput)
 	if verbose {
@@ -120,6 +153,12 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		_ = os.RemoveAll(transientDir)
 		return nil, fmt.Errorf("start local query session: %w", err)
 	}
+ if err := server.loadAgentRuns(); err != nil {
+  _ = querySession.Close()
+  _ = os.RemoveAll(transientDir)
+  return nil, fmt.Errorf("load agent run history: %w", err)
+ }
+	server.startAgentDetection()
 	return server, nil
 }
 
@@ -230,6 +269,8 @@ func (s *Server) Close(ctx context.Context) error {
 		s.workerMu.Unlock()
 
 		s.closeRuntimeSubscribers()
+		s.closeAgentSubscribers()
+		s.closeAgent()
 		s.queriesMu.RLock()
 		s.queries.Cancel()
 		s.queriesMu.RUnlock()
@@ -259,6 +300,7 @@ func (s *Server) Close(ctx context.Context) error {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/session", s.handleSession)
+	mux.HandleFunc("GET /api/runtime/events", s.sameOriginMutation(s.handleRuntimeEvents))
 	mux.HandleFunc("PUT /api/session/document", s.sameOriginMutation(s.handleDocument))
 	mux.HandleFunc("POST /api/session/save", s.sameOriginMutation(s.handleSave))
 	mux.HandleFunc("POST /api/session/save-as", s.sameOriginMutation(s.handleSaveAs))
@@ -275,6 +317,15 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/cli/sources/{name}", s.sameOriginMutation(s.handleUpdateCLISource))
 	mux.HandleFunc("DELETE /api/cli/sources/{name}", s.sameOriginMutation(s.handleDeleteCLISource))
 	mux.HandleFunc("GET /api/cli/source-paths", s.handleCLISourcePaths)
+	mux.HandleFunc("GET /api/agent/events", s.handleAgentEvents)
+ mux.HandleFunc("GET /api/agent/auth", s.handleAgentAuth)
+ mux.HandleFunc("POST /api/agent/auth", s.sameOriginMutation(s.handleAgentAuth))
+ mux.HandleFunc("POST /api/agent/tool-claims", s.sameOriginMutation(s.handleAgentToolClaim))
+ mux.HandleFunc("POST /api/agent/generate-lens", s.sameOriginMutation(s.handleAgentGenerateLens))
+	mux.HandleFunc("POST /api/agent/prompts", s.sameOriginMutation(s.handleAgentPrompt))
+	mux.HandleFunc("POST /api/agent/cancel", s.sameOriginMutation(s.handleAgentCancel))
+	mux.HandleFunc("POST /api/agent/tool-results", s.sameOriginMutation(s.handleAgentToolResult))
+	mux.HandleFunc("POST /api/agent/retry", s.sameOriginMutation(s.handleAgentRetry))
 	mux.HandleFunc("POST /api/session/close", s.sameOriginMutation(s.handleSave))
 	mux.HandleFunc("GET /api/session/blobs/{id}", s.handleGetBlob)
 	mux.HandleFunc("GET /api/session/query-results/{id}", s.handleGetTransientResult)
@@ -295,9 +346,12 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'none'; object-src 'none'; frame-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:")
+        // Allow external requests to any origin, including generated Lens assets and modules.
+        // Lens compiles user-visible React code with Function; WASM permission alone does not allow it.
+        w.Header().Set("Content-Security-Policy", "default-src 'self' * data: blob:; base-uri 'none'; object-src * data: blob:; frame-src * data: blob:; script-src 'self' * data: blob: 'wasm-unsafe-eval' 'unsafe-eval'; style-src 'self' * data: blob: 'unsafe-inline'; img-src 'self' * data: blob:; media-src 'self' * data: blob:; font-src 'self' * data: blob:; connect-src 'self' * data: blob: ws: wss:; worker-src 'self' * data: blob:")
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
-		w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
+		// Permit external no-cors resources while retaining cross-origin isolation for DuckDB.
+		w.Header().Set("Cross-Origin-Embedder-Policy", "credentialless")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
@@ -536,10 +590,14 @@ func (s *Server) handleLoadPath(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "selected Kavla document does not exist", http.StatusBadRequest)
 		return
 	}
+	s.closeAgent()
+	defer s.startAgentDetection()
 	if err := s.document.OpenFromPath(filepath.Clean(request.Path)); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+ if err := s.loadAgentRuns(); err != nil { writeAPIError(w, 500, err); return }
+ s.publishAgentRuns(false)
 	s.notifyDocumentChanged()
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -570,6 +628,8 @@ func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	s.closeAgent()
+	defer s.startAgentDetection()
 	if err := s.document.NewAtPath(targetPath, []byte(request.CanvasJSON), request.Overwrite); err != nil {
 		if !request.Overwrite && errors.Is(err, os.ErrExist) {
 			http.Error(w, "A Kavla document with this name already exists.", http.StatusConflict)
@@ -578,6 +638,8 @@ func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+ if err := s.loadAgentRuns(); err != nil { writeAPIError(w, 500, err); return }
+ s.publishAgentRuns(false)
 	s.notifyDocumentChanged()
 	s.writeSavedDocumentResponse(w)
 }
