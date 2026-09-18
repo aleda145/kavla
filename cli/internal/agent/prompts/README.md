@@ -7,6 +7,8 @@ The prompts originated in kavla-main's worker/dataSocket/dagPrompt.ts and are no
 
 Keep each rule with the agent responsible for it. Tool schemas own argument documentation. Replace obsolete guidance instead of appending exceptions and repeated examples.
 
+Keep analytical guidance generic. Do not embed dataset-specific values, column names, domain assumptions, or examples from individual user analyses. Their meanings belong in the current request and canvas context, not reusable prompts.
+
 Preserve these contracts when editing:
 - Inspect relevant data, justify exclusions, and reuse a visible cleaned node for subsequent analysis. Each analytical query performs one operation; no CTEs or subqueries, including repairs and diagnostics. HAVING/QUALIFY may add a simple result filter when the node stays focused; otherwise use a downstream filter. Separate distinct analytical operations into a visible chain.
 - Use native tools/chat and actual canvas IDs. Only Lens generation uses a specialist, returning flat JSON with readable TSX/JSX. SQL execution errors return to the analyst for in-place repair.

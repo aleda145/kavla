@@ -461,6 +461,7 @@ function AgentChatOverlay() {
               </div>
             ) : null}
             {agent.props.entries.map((entry) => {
+              if (entry.role === "event" && entry.toolCallId && entry.text.includes(" needs correction:")) return null;
               const isUser = entry.role === "user";
               const isError = entry.role === "error";
               const contextBadges = (entry.contextShapeIds ?? [])

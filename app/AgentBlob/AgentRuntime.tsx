@@ -3,7 +3,7 @@ import { useEditor, type TLShapeId } from "tldraw";
 import { useData } from "../client/useLocalServer";
 import { agentClientId, agentRequest, cancelAgentRun, createAgentToolEnvironment, getAgentRuns, isAgentRunActive, useAgentRuns } from "../client/localServer/agentRuns";
 import { stageCanvas } from "../client/local/localSession";
-import { executeAgentCanvasTool } from "./agentCanvasTools";
+import { ensureAgentFinalQueryTable, executeAgentCanvasTool } from "./agentCanvasTools";
 import { appendAgentChatEntry, createOrFocusAgentChat, getAgentChat, updateAgentChat } from "./agent-chat-store";
 import { getShapeCitations, isContextShape } from "./agent-shape-references";
 import type { LensShape } from "../Lens/lens-shape-types";
@@ -16,6 +16,7 @@ export function AgentRuntime() {
   const runs = useAgentRuns();
   const controllers = useRef(new Map<string, AbortController>());
   const handled = useRef(new Set<string>());
+  const observedActiveRuns = useRef(new Set<string>());
   const blobRunId = useRef<string | null>(null);
   useEffect(() => registerAgentQueryReflow(editor), [editor]);
   const onActivityShape = useCallback((shapeId: string) => {
@@ -53,6 +54,7 @@ export function AgentRuntime() {
 
   useEffect(() => {
     const active = runs.find(isAgentRunActive);
+    if (active?.clientId === agentClientId) observedActiveRuns.current.add(active.id);
     for (const [id, controller] of controllers.current) {
       if (active?.id !== id) { controller.abort(); controllers.current.delete(id); }
     }
@@ -66,11 +68,21 @@ export function AgentRuntime() {
     for (const run of visibleRuns) {
       appendOnce(run.id, undefined, { role: "user", text: run.prompt });
       for (const call of run.tools) {
-        if (call.status !== "completed") continue;
+        if (call.status !== "completed" || !call.success) continue;
         const shapeIds = [call.result?.shapeId, call.result?.linkedTableId].filter((id): id is string => typeof id === "string");
-        appendOnce(run.id, call.callId, { role: "event", text: `${call.tool.replace(/_/g, " ")}${call.success ? " completed." : ` needs correction: ${call.error || call.result?.error || "Tool failed."}`}`, shapeIds });
+        appendOnce(run.id, call.callId, { role: "event", text: `${call.tool.replace(/_/g, " ")} completed.`, shapeIds });
       }
       if (!isAgentRunActive(run)) {
+        // Only finish runs seen live in their owning tab; never modify replayed history.
+        if (observedActiveRuns.current.delete(run.id) && run.status === "completed") {
+          try {
+            if (ensureAgentFinalQueryTable(editor, run)) {
+              void stageCanvas(editor).catch((error) => appendOnce(run.id, "final-result-table", { role: "error", text: `Could not save the final result table: ${error instanceof Error ? error.message : String(error)}` }));
+            }
+          } catch (error) {
+            appendOnce(run.id, "final-result-table", { role: "error", text: `Could not show the final result table: ${error instanceof Error ? error.message : String(error)}` });
+          }
+        }
         for (const shape of editor.getCurrentPageShapes()) {
           if (shape.type !== "lens-shape") continue;
           const lens = shape as LensShape;
@@ -82,7 +94,11 @@ export function AgentRuntime() {
           ...getShapeCitations(run.text).map((citation) => citation.shapeId),
           ...run.tools.filter((call) => call.success).flatMap((call) => [call.result?.shapeId, call.result?.linkedTableId]).filter((id): id is string => typeof id === "string"),
         ])];
-        if (run.text || run.status === "completed") appendOnce(run.id, undefined, { role: "assistant", text: run.text || "Done.", shapeIds });
+        const summaryCall = [...run.tools].reverse().find((call) => call.success && call.tool === "create_summary");
+        const summaryId = summaryCall?.result?.shapeId;
+        const summary = typeof summaryId === "string" ? editor.getShape(summaryId as TLShapeId) : undefined;
+        const text = run.status === "completed" && summary?.type === "summary-shape" ? `Added the [summary](${summary.id}) to the canvas.` : run.text || "Done.";
+        if (run.text || run.status === "completed") appendOnce(run.id, undefined, { role: "assistant", text, shapeIds });
         if (run.status !== "completed") appendOnce(run.id, undefined, { role: run.status === "failed" ? "error" : "event", text: run.error || `Agent ${run.status}.`, shapeIds });
       }
     }

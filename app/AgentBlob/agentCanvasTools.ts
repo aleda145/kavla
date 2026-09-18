@@ -1,4 +1,4 @@
-import type { AgentToolEnvironment } from "../client/localServer/agentRuns";
+import type { AgentRun, AgentToolEnvironment } from "../client/localServer/agentRuns";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
 import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
 import type { LensShape } from "../Lens/lens-shape-types";
@@ -640,6 +640,23 @@ function setQueryTable(editor: Editor, args: ToolArguments): ToolResult {
     editor.updateShape<SQLTextAreaShape>({ id: query.id, type: query.type, props: { showTable: args.show as boolean, linkedTableId: tableId } });
   });
   return { ok: true, shapeId: query.id, linkedTableId: tableId, showTable: args.show };
+}
+
+export function ensureAgentFinalQueryTable(editor: Editor, run: AgentRun): boolean {
+  const call = [...run.tools].reverse().find((call) => call.success && ["create_query", "update_query", "run_query"].includes(call.tool));
+  const shapeId = call?.result?.shapeId;
+  if (typeof shapeId !== "string") return false;
+  const shape = editor.getShape(shapeId as TLShapeId);
+  if (shape?.type !== "sql-text-area") return false;
+  const query = shape as SQLTextAreaShape;
+  if (query.isLocked || editor.getShapeAncestors(query).some((ancestor) => ancestor.isLocked)) return false;
+  if (query.props.isRunning || query.props.isDirty || query.props.stale || query.props.error || !query.props.lastRunStats) return false;
+  if (query.props.linkedTableId && editor.getShape(query.props.linkedTableId as TLShapeId)) return false;
+  // Respect an explicit decision to hide this display later in the turn.
+  const displayCall = [...run.tools].reverse().find((call) => call.success && call.tool === "set_query_table" && call.arguments.shapeId === shapeId);
+  if (displayCall?.arguments.show === false) return false;
+  setQueryTable(editor, { shapeId, show: true });
+  return true;
 }
 
 function createSummary(editor: Editor, args: ToolArguments, env: AgentToolEnvironment): ToolResult {

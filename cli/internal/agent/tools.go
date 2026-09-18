@@ -13,7 +13,7 @@ func dynamicTools() []map[string]interface{} {
 			"sourceShapeId": map[string]string{"type": "string"},
 			"name":          map[string]string{"type": "string"},
 			"sql":           map[string]string{"type": "string"},
-			"showTable":     map[string]interface{}{"type": "boolean", "description": "Show a result table for this step. Defaults to false; enable for useful checks or exact results, not every intermediate query."},
+			"showTable":     map[string]interface{}{"type": "boolean", "description": "Show a result table for this step. Defaults to false; enable for final answer-producing queries and useful checks, including repeated questions."},
 			"layout":        layoutSchema(),
 		}, "sourceShapeId", "sql")),
 		tool("run_query", "Execute an SQL query shape that already exists visibly on the Kavla canvas. This cannot accept new SQL; use create_query for new work and update_query to correct existing SQL.", objectSchema(map[string]interface{}{
@@ -72,7 +72,7 @@ func dynamicTools() []map[string]interface{} {
         tool("update_lens", "Edit or repair an existing Lens in place using its current code, data, and error. Use for visual or presentational changes. Do not create unrelated query shapes for a Lens edit.", objectSchema(map[string]interface{}{
          "shapeId": map[string]string{"type":"string"}, "visualPrompt": map[string]string{"type":"string"}, "dataIntent": map[string]string{"type":"string"},
         }, "shapeId")),
-        tool("create_summary", "Save a completed analytical write-up on the canvas. Use for requested reports or substantive multi-step conclusions; keep lightweight answers in chat. Cite existing evidence shapes.", objectSchema(map[string]interface{}{
+        tool("create_summary", "Present the analytical answer on the canvas, including findings, interpretation, and relevant assumptions or data issues. Prefer this to a write-up in chat; chat should only briefly link here. Cite existing successful evidence shapes. Short answers can use empty sections.", objectSchema(map[string]interface{}{
          "question": map[string]string{"type":"string"}, "answer": map[string]string{"type":"string"}, "name": map[string]string{"type":"string"},
          "sections": map[string]interface{}{"type":"array","items":objectSchema(map[string]interface{}{"title":map[string]string{"type":"string"},"body":map[string]string{"type":"string"}},"title","body")},
          "artifacts": map[string]interface{}{"type":"array","maxItems":6,"items":objectSchema(map[string]interface{}{"shapeId":map[string]string{"type":"string"},"title":map[string]string{"type":"string"},"note":map[string]string{"type":"string"}},"shapeId","title","note")}, "layout": layoutSchema(),
