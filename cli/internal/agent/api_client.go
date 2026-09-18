@@ -180,8 +180,10 @@ func (c *APIClient) runTurn(ctx context.Context, threadID, turnID, model, prompt
 		if err := ctx.Err(); err != nil { return err }
 		messages = append(messages, completion.message)
 		if completion.text != "" {
+			phase := "final_answer"
+			if len(completion.calls) > 0 { phase = "commentary" }
 			c.emit("item/completed", threadID, turnID, map[string]interface{}{"item": map[string]string{
-				"type": "agentMessage", "id": fmt.Sprintf("%s-%d", turnID, step), "text": completion.text,
+				"type": "agentMessage", "id": fmt.Sprintf("%s-%d", turnID, step), "text": completion.text, "phase": phase,
 			}})
 		}
 		if len(completion.calls) == 0 { return nil }

@@ -1,6 +1,6 @@
 import type { TLBaseShape } from "tldraw";
 
-export type AgentChatEntryRole = "user" | "assistant" | "event" | "error";
+export type AgentChatEntryRole = "user" | "assistant" | "event" | "error" | "thought" | "query";
 
 export type AgentChatEntry = {
   id: string;
@@ -9,6 +9,7 @@ export type AgentChatEntry = {
   createdAt: number;
   runId?: string;
   toolCallId?: string;
+  messageId?: string;
   shapeIds?: string[];
   contextShapeIds?: string[];
 };

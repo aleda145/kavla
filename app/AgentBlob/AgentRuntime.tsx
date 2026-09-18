@@ -61,16 +61,28 @@ export function AgentRuntime() {
     if (!runs.length) return;
     if (!getAgentChat(editor)) createOrFocusAgentChat(editor);
     const appendOnce = (runId: string, toolCallId: string | undefined, entry: Parameters<typeof appendAgentChatEntry>[1]) => {
-      if (getAgentChat(editor)?.props.entries.some((item) => item.runId === runId && item.toolCallId === toolCallId && item.role === entry.role)) return;
+      const entries = getAgentChat(editor)?.props.entries ?? [];
+      const existing = entries.find((item) => item.runId === runId && item.toolCallId === toolCallId && item.role === entry.role && item.messageId === entry.messageId);
+      if (existing) {
+        if (entry.role === "thought" && existing.text !== entry.text) {
+          updateAgentChat(editor, { entries: entries.map((item) => item.id === existing.id ? { ...item, text: entry.text } : item) });
+        }
+        return;
+      }
       appendAgentChatEntry(editor, { ...entry, runId, toolCallId });
     };
     const visibleRuns = runs.filter((run) => run.createdAt > (getAgentChat(editor)?.props.historyClearedAt || 0));
     for (const run of visibleRuns) {
       appendOnce(run.id, undefined, { role: "user", text: run.prompt });
+      for (const thought of run.thoughts ?? []) {
+        appendOnce(run.id, undefined, { role: "thought", messageId: thought.id, text: thought.text });
+      }
       for (const call of run.tools) {
-        if (call.status !== "completed" || !call.success) continue;
-        const shapeIds = [call.result?.shapeId, call.result?.linkedTableId].filter((id): id is string => typeof id === "string");
-        appendOnce(run.id, call.callId, { role: "event", text: `${call.tool.replace(/_/g, " ")} completed.`, shapeIds });
+        const shapeId = call.result?.shapeId;
+        if (call.tool !== "create_query" || call.status !== "completed" || typeof shapeId !== "string") continue;
+        const name = typeof call.result?.name === "string" ? call.result.name : "Query";
+        const label = name.replace(/[\[\]\r\n]/g, " ");
+        appendOnce(run.id, call.callId, { role: "query", text: `Created: [${label}](${shapeId})`, shapeIds: [shapeId] });
       }
       if (!isAgentRunActive(run)) {
         // Only finish runs seen live in their owning tab; never modify replayed history.

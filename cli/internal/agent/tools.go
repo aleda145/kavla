@@ -87,6 +87,13 @@ func dynamicTools() []map[string]interface{} {
 }
 
 func tool(name, description string, schema map[string]interface{}) map[string]interface{} {
+	switch name {
+	case "get_canvas_context", "compute_column_profiles", "create_query", "update_query", "run_query", "create_chart", "update_chart", "create_lens", "update_lens":
+		properties := schema["properties"].(map[string]interface{})
+		properties["progress"] = map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 600, "description": "Brief user-facing explanation of this step: what you are checking and why, or what the previous result changes about the next step. One or two sentences, grounded in available evidence."}
+		required, _ := schema["required"].([]string)
+		schema["required"] = append(required, "progress")
+	}
 	return map[string]interface{}{
 		"type":        "function",
 		"name":        name,

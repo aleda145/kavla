@@ -13,6 +13,7 @@ export type AgentToolCall = {
   startedAt: number;
 };
 export type AgentRun = {
+  thoughts?: { id: string; text: string }[];
   id: string;
   documentId: string;
   clientId: string;

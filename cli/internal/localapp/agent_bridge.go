@@ -357,11 +357,19 @@ func (s *Server) handleAgentEvent(method string, params json.RawMessage) {
  switch method {
  case "turn/started":
   run.TurnID = turnID
+ case "item/reasoning/summaryTextDelta":
+  itemID, _ := payload["itemId"].(string)
+  index, _ := payload["summaryIndex"].(float64)
+  delta, _ := payload["delta"].(string)
+  thoughtID := fmt.Sprintf("%s:summary:%d", itemID, int(index))
+  text := ""
+  for _, thought := range run.Thoughts { if thought.ID == thoughtID { text = thought.Text; break } }
+  recordAgentThought(run, thoughtID, text + delta)
  case "item/agentMessage/delta":
   if delta, ok := payload["delta"].(string); ok {
    itemID, _ := payload["itemId"].(string)
    if itemID != "" && itemID != run.lastMessageID {
-    if run.Text != "" { run.Text += "\n\n" }
+    recordAgentProgress(run)
     run.lastMessageID = itemID
     if run.messageIDs == nil { run.messageIDs = make(map[string]bool) }
     run.messageIDs[itemID] = true
@@ -371,10 +379,24 @@ func (s *Server) handleAgentEvent(method string, params json.RawMessage) {
  case "item/completed":
   item, _ := payload["item"].(map[string]interface{})
   itemID, _ := item["id"].(string)
-  if item["type"] == "agentMessage" && ((itemID != "" && !run.messageIDs[itemID]) || run.Text == "") {
+  if item["type"] == "reasoning" {
+   // Only the provider's public summary belongs in chat, never raw reasoning content.
+   if summary, ok := item["summary"].([]interface{}); ok {
+    for index, part := range summary {
+     if text, ok := part.(string); ok { recordAgentThought(run, fmt.Sprintf("%s:summary:%d", itemID, index), text) }
+    }
+   }
+  }
+  if item["type"] == "agentMessage" {
    text, _ := item["text"].(string)
-   if run.Text != "" && text != "" { run.Text += "\n\n" }
-   run.Text += text
+   if item["phase"] == "commentary" {
+    recordAgentThought(run, itemID, text)
+    if run.lastMessageID == itemID { run.Text = "" }
+   } else if itemID == run.lastMessageID || !run.messageIDs[itemID] {
+    if itemID != run.lastMessageID { recordAgentProgress(run) }
+    run.Text = text
+    run.lastMessageID = itemID
+   }
    if run.messageIDs == nil { run.messageIDs = make(map[string]bool) }
    run.messageIDs[itemID] = true
   }
@@ -403,7 +425,7 @@ func (s *Server) handleAgentEvent(method string, params json.RawMessage) {
  }
  run.Revision++
  s.agentMu.Unlock()
- s.publishAgentRuns(method != "item/agentMessage/delta")
+ s.publishAgentRuns(method != "item/agentMessage/delta" && method != "item/reasoning/summaryTextDelta")
 }
 
 func (s *Server) handleAgentExit(processErr error) {

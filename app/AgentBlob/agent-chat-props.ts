@@ -12,6 +12,7 @@ export const AgentChatProps: RecordProps<AgentChatShape> = {
     createdAt: T.number,
     runId: T.string.optional(),
     toolCallId: T.string.optional(),
+    messageId: T.string.optional(),
     shapeIds: T.arrayOf(T.string).optional(),
     contextShapeIds: T.arrayOf(T.string).optional(),
   })),

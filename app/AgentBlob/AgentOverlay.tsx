@@ -65,6 +65,7 @@ function getDockLayout() {
 
 function fallbackHistory(entries: AgentChatEntry[]): string {
   return entries
+    .filter((entry) => entry.role !== "thought" && !(entry.role === "event" && entry.toolCallId))
     .slice(-40)
     .map((entry) => `${entry.role}: ${entry.text}\nCanvas references: ${[...(entry.contextShapeIds ?? []), ...(entry.shapeIds ?? [])].join(", ")}`)
     .join("\n\n")
@@ -466,9 +467,10 @@ function AgentChatOverlay() {
               </div>
             ) : null}
             {agent.props.entries.map((entry) => {
-              if (entry.role === "event" && entry.toolCallId && entry.text.includes(" needs correction:")) return null;
+              if (entry.role === "event" && entry.toolCallId) return null;
               const isUser = entry.role === "user";
               const isError = entry.role === "error";
+              const isThought = entry.role === "thought";
               const contextBadges = (entry.contextShapeIds ?? [])
                 .map((id) => badgesById.get(id))
                 .filter((badge): badge is ContextBadge => Boolean(badge));
@@ -477,7 +479,7 @@ function AgentChatOverlay() {
                   key={entry.id}
                   style={{
                     alignSelf: isUser ? "flex-end" : "flex-start",
-                    background: isError ? "#fee2e2" : entry.role === "event" ? "#e0f2fe" : "#fff",
+                    background: isError ? "#fee2e2" : isThought ? "#f3f4f6" : entry.role === "event" ? "#e0f2fe" : "#fff",
                     border: "2px solid #000",
                     borderRadius: 7,
                     boxShadow: "2px 2px 0 0 rgba(0,0,0,.16)",
@@ -496,7 +498,12 @@ function AgentChatOverlay() {
                       ))}
                     </div>
                   ) : null}
-                  <AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} />
+                  {isThought ? (
+                    <details>
+                      <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>Thinking</summary>
+                      <div style={{ marginTop: 6 }}><AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} /></div>
+                    </details>
+                  ) : <AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} />}
                 </div>
               );
             })}
@@ -504,7 +511,7 @@ function AgentChatOverlay() {
               <div
                 style={{
                   alignSelf: "flex-start",
-                  background: "#fff",
+                  background: "#f3f4f6",
                   border: "2px solid #000",
                   borderRadius: 7,
                   boxShadow: "2px 2px 0 0 rgba(0,0,0,.16)",
@@ -516,10 +523,13 @@ function AgentChatOverlay() {
                   whiteSpace: "pre-wrap",
                 }}
               >
-                {agent.props.streamingText}
+                <details>
+                  <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>Thinking</summary>
+                  <div style={{ marginTop: 6 }}>{agent.props.streamingText}</div>
+                </details>
               </div>
             ) : null}
-            {agent.props.activity ? (
+            {isRunning ? (
               <div
                 style={{
                   alignItems: "center",
@@ -537,7 +547,7 @@ function AgentChatOverlay() {
                   padding: "6px 8px",
                 }}
               >
-                <Loader2 className="animate-spin" size={14} strokeWidth={3} /> {agent.props.activity}
+                <Loader2 className="animate-spin" size={14} strokeWidth={3} /> Thinking…
               </div>
             ) : null}
             <div ref={endRef} />

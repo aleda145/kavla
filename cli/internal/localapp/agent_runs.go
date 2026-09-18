@@ -31,6 +31,7 @@ type agentToolState struct {
 }
 
 type agentRunState struct {
+ Thoughts []agentThought `json:"thoughts,omitempty"`
  MaxToolCalls int `json:"maxToolCalls"`
  ID string `json:"id"`
  DocumentID string `json:"documentId"`
@@ -52,6 +53,25 @@ type agentRunState struct {
  ctx context.Context
  messageIDs map[string]bool
  lastMessageID string
+}
+
+type agentThought struct {
+ ID string `json:"id"`
+ Text string `json:"text"`
+}
+
+func recordAgentThought(run *agentRunState, id, text string) {
+ if strings.TrimSpace(text) == "" { return }
+ if id == "" { id = fmt.Sprintf("thought-%d", len(run.Thoughts)) }
+ for i := range run.Thoughts {
+  if run.Thoughts[i].ID == id { run.Thoughts[i].Text = text; return }
+ }
+ run.Thoughts = append(run.Thoughts, agentThought{ID: id, Text: text})
+}
+
+func recordAgentProgress(run *agentRunState) {
+ recordAgentThought(run, run.lastMessageID, run.Text)
+ run.Text = ""
 }
 
 func activeAgentRun(run *agentRunState) bool {
@@ -225,6 +245,8 @@ func (s *Server) handleAgentToolCall(requestID json.RawMessage, params json.RawM
  }
  if reject != "" { s.agentMu.Unlock(); if client != nil { _ = client.RespondToTool(requestID, false, map[string]string{"error": reject}) }; return }
  call := &agentToolState{CallID: request.CallID, Tool: request.Tool, Arguments: request.Arguments, Status: "pending", StartedAt: time.Now().UnixMilli(), RequestID: append(json.RawMessage(nil), requestID...)}
+ recordAgentProgress(run)
+ if progress, ok := request.Arguments["progress"].(string); ok { recordAgentThought(run, "tool:" + request.CallID, progress) }
  run.Tools = append(run.Tools, call)
  run.Status, run.Activity = "waiting_for_tool", "Using " + strings.ReplaceAll(request.Tool, "_", " ") + "…"
  run.Revision++
