@@ -19,7 +19,7 @@ func dynamicTools() []map[string]interface{} {
 		tool("run_query", "Execute an SQL query shape that already exists visibly on the Kavla canvas. This cannot accept new SQL; use create_query for new work and update_query to correct existing SQL.", objectSchema(map[string]interface{}{
 			"shapeId": map[string]string{"type": "string"},
 		}, "shapeId")),
-        tool("move_shapes", "Move up to 12 existing shapes to page-space top-left bounds. Use for small local adjustments as the story develops, never a final whole-canvas rearrangement. Include related tables/charts explicitly when moving them together. Locked shapes and overlapping destinations are rejected before any moves. Read current canvasLayout first.", objectSchema(map[string]interface{}{
+        tool("move_shapes", "Move up to 12 existing shapes to page-space top-left bounds. Use for small local adjustments as the story develops, never a final whole-canvas rearrangement. Include related tables/charts explicitly when moving them together. Locked shapes and overlapping destinations are rejected before any moves. Read current canvasLayout first. Returned arrowOverlaps are advisory; moves succeed even when a crossing is unavoidable.", objectSchema(map[string]interface{}{
          "moves": map[string]interface{}{"type":"array", "minItems":1, "maxItems":12, "items":objectSchema(map[string]interface{}{"shapeId":map[string]string{"type":"string"}, "x":map[string]string{"type":"number"}, "y":map[string]string{"type":"number"}}, "shapeId", "x", "y")},
         }, "moves")),
         tool("set_query_table", "Show or hide an existing query's result table without changing SQL. Showing requires a successful current result. An optional layout positions a newly shown table. Existing tables retain their position; use move_shapes to move them. Hiding removes only the linked result-table display.", objectSchema(map[string]interface{}{
@@ -43,7 +43,7 @@ func dynamicTools() []map[string]interface{} {
             "w": map[string]string{"type":"number"}, "h": map[string]string{"type":"number"},
 			"layout":        layoutSchema(),
 		}, "sourceShapeId", "chartType", "x", "y")),
-		tool("create_note", "Create a short Kavla canvas note near an optional anchor shape.", objectSchema(map[string]interface{}{
+		tool("create_note", "Add a short explanatory post-it near its supporting shape when useful: a cleaning rationale, assumption, join purpose, finding, or transition. Explain why it matters; avoid repeating titles or adding a note for every step.", objectSchema(map[string]interface{}{
 			"anchorShapeId": map[string]string{"type": "string"},
 			"text":          map[string]string{"type": "string"},
 			"layout":        layoutSchema(),
@@ -108,8 +108,8 @@ func layoutSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
-			"x": map[string]interface{}{"type":"number", "description":"Exact page-space left coordinate. Supply with y instead of relative placement; leave clearance for actual shape dimensions and connectors."},
-			"y": map[string]interface{}{"type":"number", "description":"Exact page-space top coordinate; requires x."},
+			"x": map[string]interface{}{"type":"number", "description":"Preferred page-space left coordinate. Supply with y instead of relative placement. New shapes may shift up to 160 units per axis for arrow clearance; use returned placedShapes bounds."},
+			"y": map[string]interface{}{"type":"number", "description":"Preferred page-space top coordinate; requires x."},
 			"parentShapeId": map[string]string{"type": "string"},
 			"placement": map[string]interface{}{
 				"type": "string",

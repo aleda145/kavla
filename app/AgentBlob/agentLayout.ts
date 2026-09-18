@@ -58,7 +58,7 @@ export function getAgentCanvasLayout(editor: Editor) {
       bounds: getAgentShapeBounds(editor, shape.id),
       isLocked: shape.isLocked,
       ...(shape.type === "arrow" ? {
-        points: editor.getShapeGeometry(shape).vertices.map((point) => {
+        points: editor.getShapeGeometry(shape).getVertices({ includeLabels: false, includeInternal: false }).map((point) => {
           const page = editor.getShapePageTransform(shape).applyToPoint(point);
           return { x: page.x, y: page.y };
         }),
@@ -66,18 +66,63 @@ export function getAgentCanvasLayout(editor: Editor) {
     }));
 }
 
-function arrowCorridors(editor: Editor, excluded: Set<TLShapeId>): LayoutRect[] {
+type ArrowSegment = {
+  arrowId: TLShapeId;
+  targets: TLShapeId[];
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+};
+
+function arrowSegments(editor: Editor): ArrowSegment[] {
   return editor.getCurrentPageShapes().filter((shape) => shape.type === "arrow").flatMap((arrow) => {
-    if (editor.getBindingsFromShape<TLArrowBinding>(arrow, "arrow").some((binding) => excluded.has(binding.toId))) return [];
+    const targets = editor.getBindingsFromShape<TLArrowBinding>(arrow, "arrow").map((binding) => binding.toId);
     const transform = editor.getShapePageTransform(arrow);
-    const points = editor.getShapeGeometry(arrow).vertices.map((point) => transform.applyToPoint(point));
-    return points.slice(1).map((point, index) => ({
-      minX: Math.min(point.x, points[index].x) - 18,
-      minY: Math.min(point.y, points[index].y) - 18,
-      maxX: Math.max(point.x, points[index].x) + 18,
-      maxY: Math.max(point.y, points[index].y) + 18,
-    }));
+    const points = editor.getShapeGeometry(arrow).getVertices({ includeLabels: false, includeInternal: false }).map((point) => transform.applyToPoint(point));
+    return points.slice(1).map((point, index) => ({ arrowId: arrow.id, targets, start: points[index], end: point }));
   });
+}
+
+// Clip the actual segment against a padded rectangle, including diagonal arrows.
+function crosses(rect: LayoutRect, segment: ArrowSegment, padding = 18) {
+  let enter = 0, leave = 1;
+  for (const axis of ["x", "y"] as const) {
+    const low = (axis === "x" ? rect.minX : rect.minY) - padding;
+    const high = (axis === "x" ? rect.maxX : rect.maxY) + padding;
+    const start = segment.start[axis], delta = segment.end[axis] - start;
+    if (Math.abs(delta) < 1e-8) {
+      if (start < low || start > high) return false;
+      continue;
+    }
+    const a = (low - start) / delta, b = (high - start) / delta;
+    enter = Math.max(enter, Math.min(a, b));
+    leave = Math.min(leave, Math.max(a, b));
+    if (enter > leave) return false;
+  }
+  return true;
+}
+
+function crossingCount(rect: LayoutRect, segments: ArrowSegment[]) {
+  return new Set(segments.filter((segment) => crosses(rect, segment)).map((segment) => segment.arrowId)).size;
+}
+
+export function getAgentArrowOverlaps(editor: Editor, affectedIds: TLShapeId[]) {
+  const affected = new Set(affectedIds);
+  if (!affected.size) return [];
+  const segments = arrowSegments(editor);
+  const conflicts: Array<{ shapeId: TLShapeId; arrowIds: TLShapeId[] }> = [];
+  for (const shape of editor.getCurrentPageShapes()) {
+    if (["arrow", "agent-chat", "agent-blob"].includes(shape.type)) continue;
+    const bounds = editor.getShapePageBounds(shape.id);
+    if (!bounds) continue;
+    const arrowIds = new Set(segments.filter((segment) =>
+      (affected.has(shape.id) || segment.targets.some((id) => affected.has(id))) &&
+      !segment.targets.includes(shape.id) &&
+      !segment.targets.some((id) => editor.hasAncestor(id, shape.id)) &&
+      crosses(bounds, segment)
+    ).map((segment) => segment.arrowId));
+    if (arrowIds.size) conflicts.push({ shapeId: shape.id, arrowIds: [...arrowIds] });
+  }
+  return conflicts;
 }
 
 export function getAgentPlacement(
@@ -111,12 +156,23 @@ export function getAgentPlacement(
         maxY: bounds.maxY + 28,
       }] : [];
     });
+  const segments = arrowSegments(editor).filter((segment) => !movingShapeId || !segment.targets.includes(movingShapeId));
   if (layout.x !== undefined && layout.y !== undefined) {
     const rect = { minX: layout.x, minY: layout.y, maxX: layout.x + size.w, maxY: layout.y + size.h };
     if (occupied.some((other) => overlaps(rect, other))) throw new Error("Requested placement overlaps another shape. Read canvasLayout and leave at least 30 units of clearance.");
-    return { x: layout.x, y: layout.y };
+    let best = { x: layout.x, y: layout.y, score: crossingCount(rect, segments) * 6000 };
+    if (best.score === 0) return best;
+    // Try only the immediate neighborhood; never move a new node far from its intended story.
+    for (let dx = -160; dx <= 160; dx += 40) {
+      for (let dy = -160; dy <= 160; dy += 40) {
+        const candidate = { minX: rect.minX + dx, maxX: rect.maxX + dx, minY: rect.minY + dy, maxY: rect.maxY + dy };
+        if (occupied.some((other) => overlaps(candidate, other))) continue;
+        const score = crossingCount(candidate, segments) * 6000 + Math.abs(dx) + Math.abs(dy);
+        if (score < best.score) best = { x: layout.x + dx, y: layout.y + dy, score };
+      }
+    }
+    return best;
   }
-  const corridors = arrowCorridors(editor, new Set(movingShapeId ? [movingShapeId] : []));
 
   const xGap = 70;
   const yGap = 60;
@@ -157,7 +213,7 @@ export function getAgentPlacement(
             Math.abs(center.y - anchorCenter.y) +
             directionIndex * 2000 +
             depth * 90 +
-            corridors.filter((corridor) => overlaps(rect, corridor)).length * 2000 +
+            crossingCount(rect, segments) * 6000 +
             Math.abs(sideOffset) * 24 +
             Math.abs(sideOffset - layout.order) * 18,
         });

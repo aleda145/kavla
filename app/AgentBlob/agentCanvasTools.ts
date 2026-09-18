@@ -24,7 +24,7 @@ import type { SQLResultTableShape } from "../SQLResultArea/sql-result-table-type
 import { connectShapes, disconnectShapes } from "../util/shapeConnections";
 import { getUniqueName } from "../util/getUniqueName";
 import { getAgentContextShapeIds } from "./agent-chat-store";
-import { getAgentLayout, getAgentPlacement, getAgentCanvasLayout, getAgentShapeBounds, reflowAgentQuery, trackAgentQueryLayout } from "./agentLayout";
+import { getAgentLayout, getAgentPlacement, getAgentCanvasLayout, getAgentShapeBounds, getAgentArrowOverlaps, reflowAgentQuery, trackAgentQueryLayout } from "./agentLayout";
 
 const SAMPLE_ROW_LIMIT = 20;
 const MAX_TEXT_LENGTH = 500;
@@ -563,10 +563,12 @@ export async function executeAgentCanvasTool(
 ): Promise<ToolResult> {
   const result = await dispatchAgentCanvasTool(editor, tool, args, onActivityShape, env);
   const ids = [result.shapeId, result.linkedTableId].filter((id): id is string => typeof id === "string");
-  return ids.length ? { ...result, placedShapes: ids.flatMap((id) => {
+  const movedIds = Array.isArray(result.movedShapes) ? result.movedShapes.flatMap((item: unknown) => item && typeof item === "object" && "id" in item && typeof item.id === "string" ? [item.id] : []) : [];
+  const arrowOverlaps = getAgentArrowOverlaps(editor, [...ids, ...movedIds] as TLShapeId[]);
+  return { ...result, ...(arrowOverlaps.length ? { arrowOverlaps } : {}), ...(ids.length ? { placedShapes: ids.flatMap((id) => {
     const shape = editor.getShape(id as TLShapeId);
     return shape ? [{ id, type: shape.type, bounds: getAgentShapeBounds(editor, shape.id) }] : [];
-  }) } : result;
+  }) } : {}) };
 }
 
 function assertUnlocked(editor: Editor, shape: TLShape) {
