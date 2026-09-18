@@ -10,6 +10,8 @@ export const CodexAgentProps: RecordProps<CodexAgentShape> = {
     role: T.string as T.Validator<CodexAgentEntryRole>,
     text: T.string,
     createdAt: T.number,
+    runId: T.string.optional(),
+    toolCallId: T.string.optional(),
     shapeIds: T.arrayOf(T.string).optional(),
     contextShapeIds: T.arrayOf(T.string).optional(),
   })),
@@ -18,4 +20,5 @@ export const CodexAgentProps: RecordProps<CodexAgentShape> = {
   streamingText: T.string,
   activity: T.string.nullable(),
   isOpen: T.boolean,
+  historyClearedAt: T.number.optional(),
 };

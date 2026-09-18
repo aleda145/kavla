@@ -1,3 +1,4 @@
+import { notifyCodexRuns, codexClientId, getCodexRuns, isCodexRunActive, cancelCodexRun } from "./codexRuns";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { tableFromIPC } from "apache-arrow";
 import { getActiveLocalSession } from "../local/localSession";
@@ -94,10 +95,13 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       const snapshot = JSON.parse((event as MessageEvent<string>).data) as {
         status?: unknown;
         models?: unknown;
+        runs?: unknown;
       };
       notifyCodexStatus(snapshot.status);
       notifyCodexModels(snapshot.models);
+      notifyCodexRuns(snapshot.runs);
     });
+    codexEvents.addEventListener("runs", (event) => notifyCodexRuns(JSON.parse((event as MessageEvent<string>).data)));
     codexEvents.addEventListener("status", (event) => {
       notifyCodexStatus(JSON.parse((event as MessageEvent<string>).data));
     });
@@ -240,20 +244,21 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
 
   const sendCodexPrompt = useCallback<LocalServerContextType["sendCodexPrompt"]>(
     (payload) => {
-      void postJSON("/api/codex/prompts", payload).catch(reportCodexRequestError);
+      void postJSON("/api/codex/prompts", { ...payload, clientId: codexClientId, documentId: getActiveLocalSession()?.documentId }).catch(reportCodexRequestError);
     },
     [reportCodexRequestError]
   );
 
   const sendCodexToolResult = useCallback<LocalServerContextType["sendCodexToolResult"]>(
     (payload) => {
-      void postJSON("/api/codex/tool-results", payload).catch(reportCodexRequestError);
+      void postJSON("/api/codex/tool-results", { ...payload, clientId: codexClientId }).catch(reportCodexRequestError);
     },
     [reportCodexRequestError]
   );
 
   const cancelCodex = useCallback<LocalServerContextType["cancelCodex"]>(() => {
-    void postJSON("/api/codex/cancel", {}).catch(reportCodexRequestError);
+    const run = getCodexRuns().find(isCodexRunActive);
+    if (run) void cancelCodexRun(run.id).catch(reportCodexRequestError);
   }, [reportCodexRequestError]);
 
   const retryCodex = useCallback<LocalServerContextType["retryCodex"]>(() => {

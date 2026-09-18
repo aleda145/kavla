@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { cancelCodexRun, isCodexRunActive, useCodexRuns } from "../localServer/codexRuns";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Bot, CheckCircle2, LayoutDashboard, Loader2, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
 import { setCodexModelSelection, useCodexModels, useCodexStatus } from "../localServer/codexStore";
@@ -9,6 +10,8 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
   const modelSelection = useCodexModels();
   const { retryCodex } = useData();
   const ready = status.state === "ready";
+  const runs = useCodexRuns();
+  const [runError, setRunError] = useState<string | null>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -47,7 +50,8 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
           boxShadow: "6px 6px 0 0 #000",
           color: "#000",
           fontFamily: "Inter, sans-serif",
-          overflow: "hidden",
+          overflowY: "auto",
+          maxHeight: "calc(100vh - 40px)",
           width: "min(460px, calc(100vw - 40px))",
         }}
       >
@@ -181,7 +185,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
                 ))}
               </select>
               <span style={{ color: "#57534e", fontSize: 9, lineHeight: 1.35 }}>
-                Handles the conversation, analysis, queries, charts, and notes.
+                Handles analysis, SQL generation, charts, Lens, summaries, and notes.
               </span>
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -210,10 +214,27 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
                 ))}
               </select>
               <span style={{ color: "#57534e", fontSize: 9, lineHeight: 1.35 }}>
-                Plans the reading order before the main agent creates canvas artifacts.
+                Used when “Plan layout before analysis” is enabled in chat.
               </span>
             </label>
           </div>
+
+          {runs.length > 0 && <section aria-label="Recent agent runs" style={{ border: "2px solid #000", borderRadius: 8, padding: 10 }}>
+            <strong style={{ fontSize: 12 }}>Recent runs</strong>
+            <div style={{ maxHeight: 190, overflowY: "auto", marginTop: 6 }}>
+              {[...runs].reverse().slice(0, 10).map((run) => <div key={run.id} style={{ borderTop: "1px solid #d6d3d1", padding: "7px 0", fontSize: 11 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  {isCodexRunActive(run) && <Loader2 size={12} className="animate-spin" />}
+                  <strong style={{ flex: 1 }}>{run.status.replace(/_/g, " ")}</strong>
+                  {isCodexRunActive(run) && <button type="button" onClick={() => { void cancelCodexRun(run.id).catch((error) => setRunError(String(error))); }} style={{ border: "2px solid #000", borderRadius: 4, background: "#fee2e2", cursor: "pointer", fontWeight: 800 }}>Stop</button>}
+                </div>
+                <div style={{ marginTop: 3 }}>{run.prompt.slice(0, 160)}</div>
+                <div style={{ color: "#57534e", fontSize: 10, marginTop: 3 }}>{run.model} · {run.tools.filter((call) => call.status === "completed").length}/{run.tools.length} steps · {new Date(run.createdAt).toLocaleTimeString()}</div>
+                {(run.activity || run.error) && <div style={{ marginTop: 3, color: run.error ? "#991b1b" : "#57534e" }}>{run.error || run.activity}</div>}
+              </div>)}
+            </div>
+            {runError && <div role="alert" style={{ color: "#991b1b", fontSize: 11 }}>{runError}</div>}
+          </section>}
 
           <div style={{ alignItems: "center", display: "flex", gap: 8, justifyContent: "flex-end" }}>
             {!ready && status.state !== "checking" ? (

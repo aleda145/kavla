@@ -47,7 +47,7 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
 
   canReceiveNewChildrenOfType(shape: ChartShape, type: TLShape["type"]) {
     if (shape.isLocked) return false;
-    return !["data-source", "sql-text-area", "sql-result-table", "chart-shape"].includes(type);
+    return !["data-source", "sql-text-area", "sql-result-table", "chart-shape", "lens-shape", "summary-shape"].includes(type);
   }
 
   providesBackgroundForChildren(): boolean {

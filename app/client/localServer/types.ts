@@ -38,6 +38,8 @@ export interface QueryResultPage {
 }
 
 export interface CodexPromptPayload {
+  runId: string;
+  planLayout?: boolean;
   prompt: string;
   threadId: string | null;
   context: unknown;
@@ -47,6 +49,7 @@ export interface CodexPromptPayload {
 }
 
 export interface CodexToolResultPayload {
+  runId: string;
   callId: string;
   success: boolean;
   result?: unknown;

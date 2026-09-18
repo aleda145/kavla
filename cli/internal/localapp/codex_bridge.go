@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -104,6 +103,7 @@ func (s *Server) retryCodexDetection() {
 }
 
 func (s *Server) closeCodex() {
+ s.cancelCodexRun("", "The Codex connection closed.")
 	s.codexMu.Lock()
 	client := s.codexClient
 	cancel := s.codexCancel
@@ -187,16 +187,14 @@ func (s *Server) handleCodexEvents(w http.ResponseWriter, r *http.Request) {
 			delete(s.codexSubscribers, subscriber)
 			close(subscriber)
 		}
-		lastSubscriber := len(s.codexSubscribers) == 0
 		s.codexEventMu.Unlock()
-		if lastSubscriber {
-			s.cancelCodexTurn("The Kavla editor disconnected.")
-		}
+        // Reconnects recover the run snapshot. Claimed work is never replayed; its deadline is authoritative.
 	}()
 
 	if err := writeSSEEvent(w, cliRuntimeEvent{name: "snapshot", data: map[string]interface{}{
 		"status": s.currentCodexStatus(),
 		"models": s.currentCodexModels(),
+  "runs": s.currentCodexRuns(),
 	}}); err != nil {
 		return
 	}
@@ -223,6 +221,10 @@ func (s *Server) handleCodexEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 type codexPromptRequest struct {
+ RunID string `json:"runId"`
+ DocumentID string `json:"documentId"`
+ ClientID string `json:"clientId"`
+ PlanLayout bool `json:"planLayout"`
 	Prompt          string      `json:"prompt"`
 	ThreadID        string      `json:"threadId"`
 	MainModel       string      `json:"mainModel"`
@@ -243,122 +245,6 @@ func (s *Server) handleCodexPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
-}
-
-func (s *Server) startCodexPrompt(request codexPromptRequest) error {
-	prompt := strings.TrimSpace(request.Prompt)
-	if prompt == "" {
-		return fmt.Errorf("Codex prompt is required")
-	}
-	canvasContext := request.Context
-	if canvasContext == nil {
-		canvasContext = map[string]interface{}{}
-	}
-
-	s.codexMu.Lock()
-	client := s.codexClient
-	status := s.codexStatus
-	mainModel, layoutModel, modelErr := resolveCodexModels(s.codexModels, request.MainModel, request.LayoutModel)
-	resumeThreadID := ""
-	if _, known := s.codexThreads[strings.TrimSpace(request.ThreadID)]; known {
-		resumeThreadID = strings.TrimSpace(request.ThreadID)
-	}
-	operationParent := s.codexContext
-	if client == nil || status.State != "ready" {
-		s.codexMu.Unlock()
-		return fmt.Errorf("%s", status.Message)
-	}
-	if modelErr != nil {
-		s.codexMu.Unlock()
-		return modelErr
-	}
-	if s.codexActiveTurn != "" {
-		s.codexMu.Unlock()
-		return fmt.Errorf("the Kavla Agent is already working")
-	}
-	if operationParent == nil {
-		s.codexMu.Unlock()
-		return fmt.Errorf("the Kavla Agent is not running")
-	}
-	s.codexActiveTurn = "starting"
-	s.codexToolCallCount = 0
-	s.codexMu.Unlock()
-
-	s.workerMu.Lock()
-	if s.closing {
-		s.workerMu.Unlock()
-		s.clearCodexActiveTurn()
-		return fmt.Errorf("Kavla is closing")
-	}
-	s.workers.Add(1)
-	s.workerMu.Unlock()
-	go func() {
-		defer s.workers.Done()
-		operationContext, cancel := context.WithTimeout(operationParent, codexOperationTimeout)
-		defer cancel()
-
-		s.sendCodexEvent("layout_started", map[string]interface{}{"model": layoutModel})
-		layoutPlan, err := client.PlanLayout(operationContext, layoutModel, prompt, canvasContext)
-		if err != nil {
-			if operationParent.Err() == nil {
-				s.failCodexTurn(fmt.Sprintf("Layout planning failed: %v", err))
-			}
-			return
-		}
-
-		resolvedThreadID, resumed, err := client.StartOrResumeThread(operationContext, resumeThreadID, mainModel)
-		if err != nil {
-			if operationParent.Err() == nil {
-				s.failCodexTurn(fmt.Sprintf("Codex conversation could not start: %v", err))
-			}
-			return
-		}
-		history := ""
-		if !resumed {
-			history = request.FallbackHistory
-		}
-		fullPrompt, err := codex.BuildPrompt(prompt, canvasContext, history, layoutPlan)
-		if err != nil {
-			s.failCodexTurn(err.Error())
-			return
-		}
-		s.codexMu.Lock()
-		if s.codexClient != client || operationParent.Err() != nil {
-			s.codexMu.Unlock()
-			return
-		}
-		s.codexActiveThread = resolvedThreadID
-		s.codexThreads[resolvedThreadID] = struct{}{}
-		s.codexMu.Unlock()
-		s.broadcastCodexRuntimeEvent(cliRuntimeEvent{
-			name: "thread",
-			data: map[string]interface{}{
-				"threadId": resolvedThreadID,
-				"resumed":  resumed,
-				"model":    mainModel,
-			},
-		})
-		turnID, err := client.StartTurn(operationContext, resolvedThreadID, fullPrompt)
-		if err != nil {
-			if operationParent.Err() == nil {
-				s.failCodexTurn(err.Error())
-			}
-			return
-		}
-		s.codexMu.Lock()
-		if s.codexClient != client || operationParent.Err() != nil || s.codexActiveTurn != "starting" {
-			s.codexMu.Unlock()
-			return
-		}
-		s.codexActiveThread = resolvedThreadID
-		s.codexActiveTurn = turnID
-		s.codexMu.Unlock()
-		s.sendCodexEvent("started", map[string]interface{}{
-			"threadId": resolvedThreadID,
-			"turnId":   turnID,
-		})
-	}()
-	return nil
 }
 
 func resolveCodexModels(models []codex.Model, requestedMain, requestedLayout string) (string, string, error) {
@@ -406,8 +292,11 @@ func resolveCodexModels(models []codex.Model, requestedMain, requestedLayout str
 	return mainModel, layoutModel, nil
 }
 
-func (s *Server) handleCodexCancel(w http.ResponseWriter, _ *http.Request) {
-	s.cancelCodexTurn("The user stopped the Kavla Agent.")
+func (s *Server) handleCodexCancel(w http.ResponseWriter, r *http.Request) {
+ r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+ var request struct { RunID string `json:"runId"` }
+ if json.NewDecoder(r.Body).Decode(&request) != nil || request.RunID == "" { writeAPIError(w, 400, fmt.Errorf("runId is required")); return }
+ s.cancelCodexRun(request.RunID, "The user stopped the Kavla Agent.")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -417,30 +306,12 @@ func (s *Server) handleCodexRetry(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) cancelCodexTurn(reason string) {
-	s.codexMu.Lock()
-	client := s.codexClient
-	threadID := s.codexActiveThread
-	turnID := s.codexActiveTurn
-	s.codexMu.Unlock()
-	if turnID == "starting" {
-		s.retryCodexDetection()
-		s.sendCodexEvent("cancelled", map[string]interface{}{"message": reason})
-		return
-	}
-	if client == nil || threadID == "" || turnID == "" {
-		return
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := client.InterruptTurn(ctx, threadID, turnID); err != nil {
-			log.Printf("interrupt Codex turn: %v", err)
-		}
-		// Completion is reported by Codex's turn/completed event.
-	}()
+ s.cancelCodexRun("", reason)
 }
 
 type codexToolResultRequest struct {
+ RunID string `json:"runId"`
+ ClientID string `json:"clientId"`
 	CallID  string      `json:"callId"`
 	Success bool        `json:"success"`
 	Result  interface{} `json:"result"`
@@ -461,100 +332,9 @@ func (s *Server) handleCodexToolResult(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) acceptCodexToolResult(request codexToolResultRequest) error {
-	callID := strings.TrimSpace(request.CallID)
-	if callID == "" {
-		return fmt.Errorf("Codex tool call id is required")
-	}
-	value := request.Result
-	if !request.Success {
-		value = map[string]interface{}{"error": request.Error}
-	}
-
-	s.codexMu.Lock()
-	requestID := s.codexToolRequests[callID]
-	delete(s.codexToolRequests, callID)
-	client := s.codexClient
-	s.codexMu.Unlock()
-	if len(requestID) == 0 || client == nil {
-		return fmt.Errorf("Codex tool call %q is no longer active", callID)
-	}
-	if err := client.RespondToTool(requestID, request.Success, value); err != nil {
-		return fmt.Errorf("return Kavla tool result to Codex: %w", err)
-	}
-	return nil
-}
-
-func (s *Server) handleCodexToolCall(requestID json.RawMessage, params json.RawMessage) {
-	var request struct {
-		Arguments interface{} `json:"arguments"`
-		CallID    string      `json:"callId"`
-		Namespace string      `json:"namespace"`
-		ThreadID  string      `json:"threadId"`
-		Tool      string      `json:"tool"`
-		TurnID    string      `json:"turnId"`
-	}
-	if err := json.Unmarshal(params, &request); err != nil || strings.TrimSpace(request.CallID) == "" {
-		s.codexMu.Lock()
-		client := s.codexClient
-		s.codexMu.Unlock()
-		if client != nil {
-			_ = client.RespondToTool(requestID, false, map[string]string{"error": "Codex sent an invalid Kavla tool call."})
-		}
-		return
-	}
-	if request.Namespace != "" && request.Namespace != "kavla" {
-		s.codexMu.Lock()
-		client := s.codexClient
-		s.codexMu.Unlock()
-		if client != nil {
-			_ = client.RespondToTool(requestID, false, map[string]string{"error": "Only Kavla canvas tools are available."})
-		}
-		return
-	}
-	if !isAllowedCodexCanvasTool(request.Tool) {
-		s.codexMu.Lock()
-		client := s.codexClient
-		s.codexMu.Unlock()
-		if client != nil {
-			_ = client.RespondToTool(requestID, false, map[string]string{
-				"error": "This Kavla tool is unavailable. Every SQL execution must use a visible create_query or update_query shape.",
-			})
-		}
-		return
-	}
-	s.codexMu.Lock()
-	if s.codexToolCallCount >= 4 {
-		client := s.codexClient
-		s.codexMu.Unlock()
-		if client != nil {
-			_ = client.RespondToTool(requestID, false, map[string]string{
-				"error": "This turn has reached its four-tool canvas budget. Answer from the best successful visible evidence or explain what remains.",
-			})
-		}
-		return
-	}
-	s.codexToolCallCount++
-	s.codexMu.Unlock()
-
-	s.codexMu.Lock()
-	s.codexToolRequests[request.CallID] = append(json.RawMessage(nil), requestID...)
-	s.codexMu.Unlock()
-	s.broadcastCodexRuntimeEvent(cliRuntimeEvent{
-		name: "tool_request",
-		data: map[string]interface{}{
-			"arguments": request.Arguments,
-			"callId":    request.CallID,
-			"threadId":  request.ThreadID,
-			"tool":      request.Tool,
-			"turnId":    request.TurnID,
-		},
-	})
-}
-
 func isAllowedCodexCanvasTool(tool string) bool {
 	switch tool {
-	case "get_canvas_context", "create_query", "run_query", "update_query", "create_chart", "create_note", "update_chart", "update_note":
+	case "get_canvas_context", "create_query", "run_query", "update_query", "create_chart", "create_note", "update_chart", "update_note", "compute_column_profiles", "create_analysis_query", "edit_query", "create_summary", "create_lens", "update_lens":
 		return true
 	default:
 		return false
@@ -562,62 +342,70 @@ func isAllowedCodexCanvasTool(tool string) bool {
 }
 
 func (s *Server) handleCodexEvent(method string, params json.RawMessage) {
-	var payload map[string]interface{}
-	if len(params) > 0 {
-		_ = json.Unmarshal(params, &payload)
-	}
-	switch method {
-	case "item/agentMessage/delta":
-		s.sendCodexEvent("message_delta", payload)
-	case "turn/started":
-		threadID, turnID := turnIdentity(payload)
-		if threadID != "" || turnID != "" {
-			s.codexMu.Lock()
-			if threadID != "" {
-				s.codexActiveThread = threadID
-			}
-			if turnID != "" {
-				s.codexActiveTurn = turnID
-			}
-			s.codexMu.Unlock()
-		}
-		s.sendCodexEvent("started", payload)
-	case "turn/completed":
-		s.clearCodexActiveTurn()
-		turn, _ := payload["turn"].(map[string]interface{})
-		status, _ := turn["status"].(string)
-		switch status {
-		case "interrupted":
-			s.sendCodexEvent("cancelled", map[string]interface{}{"message": "Agent stopped."})
-		case "failed":
-			s.sendCodexEvent("error", map[string]interface{}{"error": turn["error"]})
-		default:
-			s.sendCodexEvent("completed", payload)
-		}
-	case "item/started":
-		item, _ := payload["item"].(map[string]interface{})
-		itemType, _ := item["type"].(string)
-		if isForbiddenCodexItem(itemType) {
-			s.cancelCodexTurn("A non-canvas tool was blocked.")
-			s.failCodexTurn("Codex attempted to use a non-canvas tool. The turn was stopped.")
-			return
-		}
-		if itemType == "dynamicToolCall" {
-			s.sendCodexEvent("tool_started", payload)
-		}
-	case "item/completed":
-		item, _ := payload["item"].(map[string]interface{})
-		if itemType, _ := item["type"].(string); itemType == "dynamicToolCall" {
-			s.sendCodexEvent("tool_finished", payload)
-		}
-	case "error":
-		s.sendCodexEvent("error", payload)
-	case "warning", "configWarning":
-		s.sendCodexEvent("warning", payload)
-	}
+ var payload map[string]interface{}
+ if json.Unmarshal(params, &payload) != nil { return }
+ threadID, turnID := turnIdentity(payload)
+ s.codexMu.Lock()
+ run := s.codexRun
+ if !activeCodexRun(run) || threadID != run.ThreadID || (run.TurnID != "" && turnID != "" && run.TurnID != turnID) { s.codexMu.Unlock(); return }
+ for _, previous := range s.codexHistory {
+  if previous != run && turnID != "" && previous.ThreadID == threadID && previous.TurnID == turnID { s.codexMu.Unlock(); return }
+ }
+ id := run.ID
+ switch method {
+ case "turn/started":
+  run.TurnID = turnID
+ case "item/agentMessage/delta":
+  if delta, ok := payload["delta"].(string); ok {
+   itemID, _ := payload["itemId"].(string)
+   if itemID != "" && itemID != run.lastMessageID {
+    if run.Text != "" { run.Text += "\n\n" }
+    run.lastMessageID = itemID
+    if run.messageIDs == nil { run.messageIDs = make(map[string]bool) }
+    run.messageIDs[itemID] = true
+   }
+   run.Text += delta
+  }
+ case "item/completed":
+  item, _ := payload["item"].(map[string]interface{})
+  itemID, _ := item["id"].(string)
+  if item["type"] == "agentMessage" && ((itemID != "" && !run.messageIDs[itemID]) || run.Text == "") {
+   text, _ := item["text"].(string)
+   if run.Text != "" && text != "" { run.Text += "\n\n" }
+   run.Text += text
+   if run.messageIDs == nil { run.messageIDs = make(map[string]bool) }
+   run.messageIDs[itemID] = true
+  }
+ case "item/started":
+  item, _ := payload["item"].(map[string]interface{})
+  itemType, _ := item["type"].(string)
+  if isForbiddenCodexItem(itemType) { s.codexMu.Unlock(); go s.cancelCodexRun(id, "A non-canvas tool was blocked."); return }
+ case "turn/completed":
+  turn, _ := payload["turn"].(map[string]interface{})
+  status, _ := turn["status"].(string)
+  message := ""
+  if status == "interrupted" { status, message = "cancelled", "Agent stopped." } else if status == "failed" {
+   raw, _ := json.Marshal(turn["error"]); message = string(raw)
+  } else { status = "completed" }
+  s.codexMu.Unlock(); s.finishCodexRun(id, status, message); return
+ case "error":
+  // Codex may retry a model request; the terminal turn event owns completion.
+  run.Activity = "Codex reported an error; waiting for the turn outcome…"
+ default:
+  s.codexMu.Unlock(); return
+ }
+ run.Revision++
+ s.codexMu.Unlock()
+ s.publishCodexRuns(method != "item/agentMessage/delta")
 }
 
 func (s *Server) handleCodexExit(processErr error) {
+ s.codexMu.Lock()
+ run := s.codexRun
+ id := ""
+ if run != nil { id = run.ID }
+ s.codexMu.Unlock()
+ s.finishCodexRun(id, "failed", "Codex stopped before the run finished.")
 	s.codexMu.Lock()
 	if s.codexClient == nil {
 		s.codexMu.Unlock()

@@ -1,169 +1,152 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useEditor, type TLShapeId } from "tldraw";
-import {
-  subscribeCodexEvents,
-  subscribeCodexThreads,
-  subscribeCodexToolRequests,
-  type CodexEvent,
-} from "../client/localServer/codexStore";
 import { useData } from "../client/useLocalServer";
-import { executeCodexCanvasTool } from "./codexCanvasTools";
-import { appendCodexAgentEntry, getCodexAgent, updateCodexAgent } from "./codex-agent-store";
+import { codexClientId, codexRequest, cancelCodexRun, createCodexToolEnvironment, getCodexRuns, isCodexRunActive, useCodexRuns } from "../client/localServer/codexRuns";
+import { useCodexModels, useCodexStatus } from "../client/localServer/codexStore";
+import { stageCanvas, getActiveLocalSession } from "../client/local/localSession";
+import { executeCodexCanvasTool, hydratePromptCanvasContext } from "./codexCanvasTools";
+import { appendCodexAgentEntry, createOrFocusCodexAgent, getCodexAgent, updateCodexAgent } from "./codex-agent-store";
 import { getShapeCitations } from "./codex-shape-references";
-
-function messageFromData(data: Record<string, unknown>, fallback: string): string {
-  if (typeof data.message === "string" && data.message.trim()) return data.message;
-  const error = data.error;
-  if (typeof error === "string" && error.trim()) return error;
-  if (error && typeof error === "object") {
-    const nested = (error as Record<string, unknown>).message;
-    if (typeof nested === "string" && nested.trim()) return nested;
-  }
-  return fallback;
-}
-
-function toolLabel(data: Record<string, unknown>): string {
-  const item = data.item && typeof data.item === "object" ? (data.item as Record<string, unknown>) : {};
-  const tool = typeof item.tool === "string" ? item.tool : "canvas tool";
-  return tool.replace(/_/g, " ");
-}
+import type { LensShape } from "../Lens/lens-shape-types";
 
 export function CodexAgentRuntime({ onActivityShape }: { onActivityShape: (shapeId: string) => void }) {
   const editor = useEditor();
-  const dataSocket = useData();
-  const handledToolCalls = useRef(new Set<string>());
-  const completedTurns = useRef(new Set<string>());
-  const turnShapeIds = useRef(new Set<string>());
+  const data = useData();
+  const runs = useCodexRuns();
+  const status = useCodexStatus();
+  const models = useCodexModels();
+  const controllers = useRef(new Map<string, AbortController>());
+  const handled = useRef(new Set<string>());
+  const [repairs, setRepairs] = useState<Array<{ shapeId: string; error: string }>>([]);
+  const startingRepair = useRef(false);
 
   useEffect(() => {
-    const shape = getCodexAgent(editor);
-    if (shape?.props.isRunning) {
-      updateCodexAgent(editor, { isRunning: false, streamingText: "", activity: null });
-      appendCodexAgentEntry(editor, {
-        role: "event",
-        text: "The previous agent turn was interrupted when this canvas closed.",
+    const stop = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      controllers.current.get(id)?.abort();
+    };
+    const repair = (event: Event) => {
+      const detail = (event as CustomEvent<{ shapeId: string; error: string }>).detail;
+      if (detail?.shapeId) setRepairs((previous) => previous.some((item) => item.shapeId === detail.shapeId) ? previous : [...previous, detail]);
+    };
+    window.addEventListener("kavla:cancel-codex-run", stop);
+    window.addEventListener("kavla:repair-lens", repair);
+    return () => {
+      window.removeEventListener("kavla:cancel-codex-run", stop);
+      window.removeEventListener("kavla:repair-lens", repair);
+      controllers.current.forEach((controller) => controller.abort());
+      controllers.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    const active = runs.find(isCodexRunActive);
+    for (const [id, controller] of controllers.current) {
+      if (active?.id !== id) { controller.abort(); controllers.current.delete(id); }
+    }
+    if (!runs.length) return;
+    if (!getCodexAgent(editor)) createOrFocusCodexAgent(editor);
+    const appendOnce = (runId: string, toolCallId: string | undefined, entry: Parameters<typeof appendCodexAgentEntry>[1]) => {
+      if (getCodexAgent(editor)?.props.entries.some((item) => item.runId === runId && item.toolCallId === toolCallId && item.role === entry.role)) return;
+      appendCodexAgentEntry(editor, { ...entry, runId, toolCallId });
+    };
+    const visibleRuns = runs.filter((run) => run.createdAt > (getCodexAgent(editor)?.props.historyClearedAt || 0));
+    for (const run of visibleRuns) {
+      appendOnce(run.id, undefined, { role: "user", text: run.prompt });
+      for (const call of run.tools) {
+        if (call.status !== "completed") continue;
+        const shapeIds = [call.result?.shapeId, call.result?.linkedTableId].filter((id): id is string => typeof id === "string");
+        appendOnce(run.id, call.callId, { role: "event", text: `${call.tool.replace(/_/g, " ")}${call.success ? " completed." : ` needs correction: ${call.error || call.result?.error || "Tool failed."}`}`, shapeIds });
+      }
+      if (!isCodexRunActive(run)) {
+        for (const shape of editor.getCurrentPageShapes()) {
+          if (shape.type !== "lens-shape") continue;
+          const lens = shape as LensShape;
+          if (lens.props.jobId === run.id && ["generating", "repairing"].includes(lens.props.generationStatus)) {
+            editor.updateShape<LensShape>({ id: lens.id, type: "lens-shape", props: { generationStatus: "error", error: run.error || "Lens generation ended before returning code." } });
+          }
+        }
+        const shapeIds = [...new Set([
+          ...getShapeCitations(run.text).map((citation) => citation.shapeId),
+          ...run.tools.filter((call) => call.success).flatMap((call) => [call.result?.shapeId, call.result?.linkedTableId]).filter((id): id is string => typeof id === "string"),
+        ])];
+        if (run.text || run.status === "completed") appendOnce(run.id, undefined, { role: "assistant", text: run.text || "Done.", shapeIds });
+        if (run.status !== "completed") appendOnce(run.id, undefined, { role: run.status === "failed" ? "error" : "event", text: run.error || `Agent ${run.status}.`, shapeIds });
+      }
+    }
+    const latest = active || visibleRuns[visibleRuns.length - 1];
+    const agent = getCodexAgent(editor)!;
+    const next = { isRunning: Boolean(active), streamingText: active?.text || "", activity: active?.activity || null, codexThreadId: latest?.threadId || agent.props.codexThreadId };
+    if (Object.entries(next).some(([key, value]) => agent.props[key as keyof typeof next] !== value)) updateCodexAgent(editor, next);
+    if (active) {
+      const call = [...active.tools].reverse().find((call) => call.status === "pending" || call.status === "running") || active.tools[active.tools.length - 1];
+      const target = call?.result?.shapeId || call?.arguments.shapeId || call?.arguments.sourceShapeId;
+      if (typeof target === "string") onActivityShape(target);
+    }
+  }, [editor, runs, onActivityShape]);
+
+  useEffect(() => {
+    const run = runs.find((run) => isCodexRunActive(run) && run.clientId === codexClientId);
+    if (!run || run.tools.some((call) => call.status === "running")) return;
+    let controller = controllers.current.get(run.id);
+    if (!controller) { controller = new AbortController(); controllers.current.set(run.id, controller); }
+    const signal = controller.signal;
+    for (const call of run.tools.filter((call) => call.status === "pending").slice(0, 1)) {
+      const key = `${run.id}:${call.callId}`;
+      if (call.status !== "pending" || handled.current.has(key)) continue;
+      handled.current.add(key);
+      void (async () => {
+        const claim = await codexRequest<{ claimed: boolean }>("tool-claims", { runId: run.id, clientId: codexClientId, callId: call.callId }, signal);
+        if (!claim.claimed) return;
+        let result: Record<string, unknown>;
+        try {
+          signal.throwIfAborted();
+          const target = call.arguments.shapeId || call.arguments.sourceShapeId || call.arguments.anchorShapeId;
+          if (typeof target === "string") onActivityShape(target);
+          result = await executeCodexCanvasTool(editor, call.tool, call.arguments, onActivityShape, createCodexToolEnvironment(run, signal, data));
+        } catch (error) {
+          signal.throwIfAborted();
+          result = { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+        signal.throwIfAborted();
+        if (typeof result.shapeId === "string") onActivityShape(result.shapeId);
+        // Stage created artifacts before committing the tool result to the journal.
+        await stageCanvas(editor);
+        signal.throwIfAborted();
+        const payload = { runId: run.id, clientId: codexClientId, callId: call.callId, success: result.ok !== false, result, error: result.ok === false ? String(result.error || "The canvas tool failed.") : undefined };
+        try { await codexRequest("tool-results", payload, signal); }
+        catch (error) {
+          signal.throwIfAborted();
+          if (!getCodexRuns().some((item) => item.id === run.id && isCodexRunActive(item))) return;
+          // Only delivery is retried. Canvas mutations are never repeated.
+          await codexRequest("tool-results", payload, signal);
+        }
+      })().catch((error) => {
+        if (signal.aborted) return;
+        appendCodexAgentEntry(editor, { role: "error", runId: run.id, toolCallId: call.callId, text: `Agent tool delivery failed: ${error instanceof Error ? error.message : String(error)}` });
+        void cancelCodexRun(run.id).catch((cancelError) => console.error("Could not stop the agent run", cancelError));
       });
     }
-  }, [editor]);
+  }, [data, editor, runs, onActivityShape]);
 
-  useEffect(
-    () =>
-      subscribeCodexThreads(({ threadId }) => {
-        updateCodexAgent(editor, { codexThreadId: threadId });
-      }),
-    [editor]
-  );
-
-  useEffect(
-    () =>
-      subscribeCodexEvents((event: CodexEvent) => {
-        const shape = getCodexAgent(editor);
-        if (!shape) return;
-        switch (event.eventType) {
-          case "layout_started":
-            turnShapeIds.current.clear();
-            updateCodexAgent(editor, { isRunning: true, activity: "Planning the canvas layout…" });
-            return;
-          case "started":
-            updateCodexAgent(editor, { isRunning: true, activity: "Thinking…" });
-            return;
-          case "message_delta": {
-            const delta = typeof event.data.delta === "string" ? event.data.delta : "";
-            if (delta) updateCodexAgent(editor, { streamingText: `${shape.props.streamingText}${delta}` });
-            return;
-          }
-          case "tool_started":
-            updateCodexAgent(editor, { activity: `Using ${toolLabel(event.data)}…` });
-            return;
-          case "tool_finished":
-            updateCodexAgent(editor, { activity: "Thinking…" });
-            return;
-          case "completed": {
-            if (!shape.props.isRunning) return;
-            const turn =
-              event.data.turn && typeof event.data.turn === "object"
-                ? (event.data.turn as Record<string, unknown>)
-                : {};
-            const turnId = typeof turn.id === "string" ? turn.id : "";
-            if (turnId && completedTurns.current.has(turnId)) return;
-            if (turnId) completedTurns.current.add(turnId);
-            const latest = getCodexAgent(editor);
-            const text = latest?.props.streamingText.trim() || "Done.";
-            const citedShapeIds = getShapeCitations(text).map((citation) => citation.shapeId);
-            const shapeIds = Array.from(new Set(citedShapeIds.length ? citedShapeIds : turnShapeIds.current))
-              .filter((id) => Boolean(editor.getShape(id as TLShapeId)));
-            appendCodexAgentEntry(editor, { role: "assistant", text, shapeIds });
-            updateCodexAgent(editor, { isRunning: false, streamingText: "", activity: null });
-            return;
-          }
-          case "cancelled":
-            appendCodexAgentEntry(editor, {
-              role: "event",
-              text: messageFromData(event.data, "Agent stopped."),
-            });
-            updateCodexAgent(editor, { isRunning: false, streamingText: "", activity: null });
-            return;
-          case "error":
-            appendCodexAgentEntry(editor, {
-              role: "error",
-              text: messageFromData(event.data, "The Kavla Agent failed."),
-            });
-            updateCodexAgent(editor, { isRunning: false, streamingText: "", activity: null });
-            return;
-          case "warning":
-            appendCodexAgentEntry(editor, {
-              role: "event",
-              text: messageFromData(event.data, "Codex reported a warning."),
-            });
-            return;
-        }
-      }),
-    [editor]
-  );
-
-  useEffect(
-    () =>
-      subscribeCodexToolRequests((request) => {
-        if (handledToolCalls.current.has(request.callId)) return;
-        handledToolCalls.current.add(request.callId);
-        const run = async () => {
-          const agent = getCodexAgent(editor);
-          if (!agent?.props.isRunning) throw new Error("The Kavla Agent turn is no longer active.");
-          if (agent.props.codexThreadId !== request.threadId) {
-            throw new Error("This tool call belongs to a different Kavla conversation.");
-          }
-          const targetId = request.arguments.shapeId ?? request.arguments.sourceShapeId ?? request.arguments.anchorShapeId;
-          if (typeof targetId === "string") onActivityShape(targetId);
-          const result = await executeCodexCanvasTool(editor, request.tool, request.arguments, onActivityShape);
-          const shapeIds = [result.shapeId, result.linkedTableId].filter(
-            (id): id is string => typeof id === "string" && Boolean(id)
-          );
-          if (shapeIds.length > 0) {
-            for (const id of shapeIds) {
-              if (result.ok === false) turnShapeIds.current.delete(id);
-              else turnShapeIds.current.add(id);
-            }
-            if (result.ok !== false) onActivityShape(shapeIds[shapeIds.length - 1]);
-            appendCodexAgentEntry(editor, {
-              role: "event",
-              text:
-                result.ok === false
-                  ? `${request.tool.replace(/_/g, " ")} needs correction.`
-                  : `${request.tool.replace(/_/g, " ")} completed.`,
-              shapeIds,
-            });
-          }
-          dataSocket.sendCodexToolResult({ callId: request.callId, success: true, result });
-        };
-        void run()
-          .catch((error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            dataSocket.sendCodexToolResult({ callId: request.callId, success: false, error: message });
-          })
-          .finally(() => handledToolCalls.current.delete(request.callId));
-      }),
-    [dataSocket, editor, onActivityShape]
-  );
+  useEffect(() => {
+    if (!repairs.length || startingRepair.current || runs.some(isCodexRunActive) || status.state !== "ready") return;
+    const repair = repairs[0];
+    setRepairs((previous) => previous.slice(1));
+    const lens = editor.getShape<LensShape>(repair.shapeId as TLShapeId);
+    if (!lens || lens.type !== "lens-shape" || !lens.props.error || lens.props.retryCount >= 2) return;
+    startingRepair.current = true;
+    const id = crypto.randomUUID();
+    const prompt = `Repair the existing Lens ${lens.props.name} (${lens.id}) with update_lens. Preserve its intent and source. Rendering failed: ${repair.error}. Do not create another Lens.`;
+    editor.updateShape<LensShape>({ id: lens.id, type: "lens-shape", props: { retryCount: lens.props.retryCount + 1 } });
+    void (async () => {
+      const context = await hydratePromptCanvasContext(editor, data, [lens.id]);
+      if (getCodexRuns().some(isCodexRunActive)) { setRepairs((previous) => [...previous, repair]); return; }
+      await codexRequest("prompts", { runId: id, clientId: codexClientId, documentId: getActiveLocalSession()?.documentId, prompt, threadId: getCodexAgent(editor)?.props.codexThreadId, context, mainModel: models.mainModel, layoutModel: models.layoutModel, planLayout: false });
+    })().catch((error) => {
+      appendCodexAgentEntry(editor, { role: "error", text: `Lens repair could not start: ${error instanceof Error ? error.message : String(error)}`, shapeIds: [lens.id] });
+    }).finally(() => { startingRepair.current = false; });
+  }, [data, editor, models, repairs, runs, status.state]);
 
   return null;
 }

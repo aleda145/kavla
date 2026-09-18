@@ -74,6 +74,9 @@ type Server struct {
 	shutdownOnce          sync.Once
 
 	codexMu            sync.Mutex
+ codexJournalMu sync.Mutex
+ codexRun *codexRunState
+ codexHistory []*codexRunState
 	codexClient        *codex.Client
 	codexStatus        codex.Status
 	codexContext       context.Context
@@ -140,6 +143,11 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		_ = os.RemoveAll(transientDir)
 		return nil, fmt.Errorf("start local query session: %w", err)
 	}
+ if err := server.loadCodexRuns(); err != nil {
+  _ = querySession.Close()
+  _ = os.RemoveAll(transientDir)
+  return nil, fmt.Errorf("load agent run history: %w", err)
+ }
 	server.startCodexDetection()
 	return server, nil
 }
@@ -299,6 +307,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/cli/sources/{name}", s.sameOriginMutation(s.handleDeleteCLISource))
 	mux.HandleFunc("GET /api/cli/source-paths", s.handleCLISourcePaths)
 	mux.HandleFunc("GET /api/codex/events", s.handleCodexEvents)
+ mux.HandleFunc("POST /api/codex/tool-claims", s.sameOriginMutation(s.handleCodexToolClaim))
+ mux.HandleFunc("POST /api/codex/generate", s.sameOriginMutation(s.handleCodexGenerate))
 	mux.HandleFunc("POST /api/codex/prompts", s.sameOriginMutation(s.handleCodexPrompt))
 	mux.HandleFunc("POST /api/codex/cancel", s.sameOriginMutation(s.handleCodexCancel))
 	mux.HandleFunc("POST /api/codex/tool-results", s.sameOriginMutation(s.handleCodexToolResult))
@@ -570,6 +580,8 @@ func (s *Server) handleLoadPath(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+ if err := s.loadCodexRuns(); err != nil { writeAPIError(w, 500, err); return }
+ s.publishCodexRuns(false)
 	s.notifyDocumentChanged()
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -610,6 +622,8 @@ func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+ if err := s.loadCodexRuns(); err != nil { writeAPIError(w, 500, err); return }
+ s.publishCodexRuns(false)
 	s.notifyDocumentChanged()
 	s.writeSavedDocumentResponse(w)
 }

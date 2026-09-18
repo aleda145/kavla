@@ -23,6 +23,7 @@ export function handleLocalShapeDeleted(
     deletedShape.type === "sql-text-area" ||
     deletedShape.type === "data-source" ||
     deletedShape.type === "chart-shape" ||
+    deletedShape.type === "lens-shape" ||
     deletedShape.type === "sql-result-table"
   ) {
     removeShapeFromConnections(editor, deletedShape.id);

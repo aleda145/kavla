@@ -1,6 +1,17 @@
+import { validateReadOnlySQL } from "./readOnlySQL";
+export { validateReadOnlySQL } from "./readOnlySQL";
+import type { CodexToolEnvironment } from "../client/localServer/codexRuns";
+import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
+import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
+import type { LensShape } from "../Lens/lens-shape-types";
+import type { SummaryShape, SummaryArtifact, SummarySection } from "../Summary/summary-shape-types";
+import { runLensTool } from "./agentLensTools";
+import { computeAgentProfiles, getAgentDataPreview, resolveAgentDataShape } from "./agentDataTools";
+import { quoteIdentifier } from "../src/duckdb/sql";
 import {
   createShapeId,
   toRichText,
+  renderPlaintextFromRichText,
   type TLNoteShape,
   type Editor,
   type TLShape,
@@ -9,7 +20,7 @@ import {
 import { format } from "sql-formatter";
 import type { ChartShape } from "../Chart/chart-shape-types";
 import type { DataSourceShape } from "../DataSource/data-source-types";
-import { requestSQLShapeRun, type SQLShapeRunResult } from "../SQLTextArea/sqlShapeRun";
+import { type SQLShapeRunResult } from "../SQLTextArea/sqlShapeRun";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import type { SQLResultTableShape } from "../SQLResultArea/sql-result-table-types";
 import { connectShapes } from "../util/shapeConnections";
@@ -43,45 +54,8 @@ function getShapeOrThrow(editor: Editor, shapeId: string): TLShape {
   return shape;
 }
 
-function getDataShapeOrThrow(editor: Editor, shapeId: string): DataSourceShape | SQLTextAreaShape {
-  const shape = getShapeOrThrow(editor, shapeId);
-  if (shape.type === "sql-result-table") {
-    const result = shape as SQLResultTableShape;
-    const source = result.props.sourceShapeId
-      ? editor.getShape(result.props.sourceShapeId as TLShapeId)
-      : null;
-    if (source?.type === "sql-text-area") return source as SQLTextAreaShape;
-    throw new Error(`Result shape ${shapeId} is not connected to a SQL query.`);
-  }
-  if (shape.type !== "data-source" && shape.type !== "sql-text-area") {
-    throw new Error(`Shape ${shapeId} is not a data source or SQL query.`);
-  }
-  return shape as DataSourceShape | SQLTextAreaShape;
-}
+const getDataShapeOrThrow = resolveAgentDataShape;
 
-function stripSQLForValidation(sql: string): string {
-  return sql
-    .replace(/--[^\n\r]*/g, " ")
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/'(?:''|[^'])*'/g, "''")
-    .trim();
-}
-
-function validateReadOnlySQL(value: string): string {
-  const sql = value.trim();
-  if (!sql) throw new Error("SQL is required.");
-  const normalized = stripSQLForValidation(sql).replace(/;+\s*$/, "");
-  if (!/^(select|with)\b/i.test(normalized)) {
-    throw new Error("The Kavla Agent can only run SELECT or WITH queries.");
-  }
-  if (normalized.includes(";")) {
-    throw new Error("The Kavla Agent can only run one SQL statement at a time.");
-  }
-  if (/\b(insert|update|delete|drop|create|alter|copy|attach|detach|install|load|call|pragma|export|import)\b/i.test(normalized)) {
-    throw new Error("The Kavla Agent cannot run SQL that changes data, files, or DuckDB configuration.");
-  }
-  return sql.replace(/;+\s*$/, "");
-}
 
 function formatAgentSQL(sql: string): string {
   try {
@@ -95,26 +69,24 @@ function formatAgentSQL(sql: string): string {
   }
 }
 
-function waitForShapeMount(): Promise<void> {
-  return new Promise((resolve) => {
-    window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
-  });
-}
-
-function sanitizeValue(value: unknown, depth = 0): unknown {
-  if (depth > 4) return "[nested value omitted]";
+function sanitizeValue(value: unknown, depth = 0, key = ""): unknown {
+  if (depth > 10) return "[nested value omitted]";
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "string") {
-    return value.length > MAX_TEXT_LENGTH ? `${value.slice(0, MAX_TEXT_LENGTH)}…` : value;
+    const limit = key === "sql" || key === "code" ? 24000 : 1000;
+    return value.length > limit ? `${value.slice(0, limit)}…` : value;
   }
   if (value instanceof Date) return value.toISOString();
   if (value instanceof Uint8Array || value instanceof ArrayBuffer) return "[binary value omitted]";
-  if (Array.isArray(value)) return value.slice(0, SAMPLE_ROW_LIMIT).map((item) => sanitizeValue(item, depth + 1));
+  if (Array.isArray(value)) {
+    const limit = key === "sampleRows" || key === "topValues" ? 5 : key === "shapes" ? 50 : 100;
+    return value.slice(0, limit).map((item) => sanitizeValue(item, depth + 1, key));
+  }
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
         .slice(0, 80)
-        .map(([key, item]) => [key, sanitizeValue(item, depth + 1)])
+        .map(([key, item]) => [key, sanitizeValue(item, depth + 1, key)])
     );
   }
   return value;
@@ -151,7 +123,7 @@ function compactColumnStats(stats: Record<string, unknown> | null | undefined) {
   );
 }
 
-function describeShape(shape: TLShape): Record<string, unknown> | null {
+function describeShape(editor: Editor, shape: TLShape): Record<string, unknown> | null {
   if (shape.type === "data-source") {
     const source = shape as DataSourceShape;
     return {
@@ -177,6 +149,7 @@ function describeShape(shape: TLShape): Record<string, unknown> | null {
       schema: query.props.outputSchema,
       columnStats: compactColumnStats(query.props.columnStats),
       upstreamShapeIds: query.props.upstreamShapeIds,
+      linkedTableId: query.props.linkedTableId,
       error: query.props.error,
       stale: query.props.stale,
       isDirty: query.props.isDirty,
@@ -203,7 +176,15 @@ function describeShape(shape: TLShape): Record<string, unknown> | null {
     return { id: result.id, type: "result", sourceShapeId: result.props.sourceShapeId };
   }
   if (shape.type === "note") {
-    return { id: shape.id, type: "note", richText: (shape as TLNoteShape).props.richText };
+    return { id: shape.id, type: "note", text: renderPlaintextFromRichText(editor, (shape as TLNoteShape).props.richText) };
+  }
+  if (shape.type === "lens-shape") {
+    const lens = shape as LensShape;
+    return { id: lens.id, type: "lens", name: lens.props.name, sourceShapeId: lens.props.sourceShapeId, prompt: lens.props.prompt, dataSql: lens.props.dataSql, description: lens.props.description, error: lens.props.error, generationStatus: lens.props.generationStatus };
+  }
+  if (shape.type === "summary-shape") {
+    const summary = shape as SummaryShape;
+    return { id: summary.id, type: "summary", name: summary.props.name, question: summary.props.question, answer: summary.props.answer, sections: summary.props.sections, artifacts: summary.props.artifacts };
   }
   return null;
 }
@@ -213,26 +194,29 @@ export function buildPromptCanvasContext(editor: Editor, explicitShapeIds?: stri
   const contextShapeIds = explicitShapeIds?.length
     ? explicitShapeIds.map((id) => id as TLShapeId)
     : getAgentContextShapeIds(editor);
-  // A chart edit needs the source schema as well as the chart's current settings.
   const includedIds = new Set(contextShapeIds);
-  for (const id of contextShapeIds) {
+  for (const id of includedIds) {
+    if (includedIds.size >= 50) break;
     const shape = editor.getShape(id);
-    if (shape?.type !== "chart-shape") continue;
-    const sourceId = (shape as ChartShape).props.sourceShapeId;
-    if (sourceId) includedIds.add(sourceId as TLShapeId);
+    if (!shape) continue;
+    if ("sourceShapeId" in shape.props && typeof shape.props.sourceShapeId === "string") includedIds.add(shape.props.sourceShapeId as TLShapeId);
+    if (shape.type === "sql-text-area") {
+      for (const dep of getOrderedDependenciesForSQL(editor, (shape as SQLTextAreaShape).props.text).orderedDependencies) includedIds.add(dep.id);
+    }
   }
   return {
     selectedShapeIds,
     shapes: Array.from(includedIds)
       .map((id) => editor.getShape(id))
       .filter((shape): shape is TLShape => Boolean(shape))
-      .map(describeShape)
+      .map((shape) => describeShape(editor, shape))
       .filter(Boolean),
     canvasShapeCount: editor.getCurrentPageShapes().length,
+    profilePolicy: "Profiles are deterministic metadata recorded on existing shapes. Analytical SQL uses visible query nodes.",
   };
 }
 
-async function createQuery(editor: Editor, args: ToolArguments, onActivityShape?: (shapeId: string) => void): Promise<ToolResult> {
+async function createQuery(editor: Editor, args: ToolArguments, env: CodexToolEnvironment, onActivityShape?: (shapeId: string) => void): Promise<ToolResult> {
   const source = getDataShapeOrThrow(editor, requiredString(args, "sourceShapeId"));
   const sql = formatAgentSQL(validateReadOnlySQL(requiredString(args, "sql")));
   const desiredName = optionalString(args, "name") ?? "agent_query";
@@ -266,10 +250,10 @@ async function createQuery(editor: Editor, args: ToolArguments, onActivityShape?
   });
   connectShapes(editor, source.id, shapeId);
   onActivityShape?.(shapeId);
-  await waitForShapeMount();
+  env.signal.throwIfAborted();
   let result: SQLShapeRunResult;
   try {
-    result = await requestSQLShapeRun(shapeId, sql);
+    result = await executeSQLShape(editor, env.data, shapeId, sql, env.signal);
   } catch (error) {
     return boundedResult({
       ok: false,
@@ -317,7 +301,7 @@ async function createQuery(editor: Editor, args: ToolArguments, onActivityShape?
   });
 }
 
-async function runExistingQuery(editor: Editor, args: ToolArguments): Promise<ToolResult> {
+async function runExistingQuery(editor: Editor, args: ToolArguments, env: CodexToolEnvironment): Promise<ToolResult> {
   const shapeId = requiredString(args, "shapeId") as TLShapeId;
   const shape = getShapeOrThrow(editor, shapeId);
   if (shape.type !== "sql-text-area") throw new Error(`Shape ${shapeId} is not a visible SQL query.`);
@@ -325,7 +309,7 @@ async function runExistingQuery(editor: Editor, args: ToolArguments): Promise<To
   const sql = validateReadOnlySQL(query.props.text);
   let result: SQLShapeRunResult;
   try {
-    result = await requestSQLShapeRun(query.id, sql);
+    result = await executeSQLShape(editor, env.data, query.id, sql, env.signal);
   } catch (error) {
     return boundedResult({
       ok: false,
@@ -346,36 +330,34 @@ async function runExistingQuery(editor: Editor, args: ToolArguments): Promise<To
   });
 }
 
-async function updateQuery(editor: Editor, args: ToolArguments): Promise<ToolResult> {
+async function updateQuery(editor: Editor, args: ToolArguments, env: CodexToolEnvironment): Promise<ToolResult> {
   const shapeId = requiredString(args, "shapeId") as TLShapeId;
   const shape = getShapeOrThrow(editor, shapeId);
   if (shape.type !== "sql-text-area") throw new Error(`Shape ${shapeId} is not a SQL query.`);
   const query = shape as SQLTextAreaShape;
   const sql = formatAgentSQL(validateReadOnlySQL(requiredString(args, "sql")));
-  const oldX = query.x;
-  const oldY = query.y;
   const oldResult = query.props.linkedTableId
     ? editor.getShape(query.props.linkedTableId as TLShapeId)
     : null;
   const oldResultPosition = oldResult ? { x: oldResult.x, y: oldResult.y } : null;
   const desiredName = optionalString(args, "name");
-  const viewport = editor.getViewportPageBounds();
   editor.updateShape<SQLTextAreaShape>({
     id: query.id,
     type: "sql-text-area",
     props: {
       text: sql,
+      isDirty: true,
+      error: null,
       ...(desiredName ? { name: getUniqueName(editor, desiredName, query.id) } : {}),
     },
-    x: viewport.center.x - 200,
-    y: viewport.center.y - 150,
   });
-  await waitForShapeMount();
+  env.signal.throwIfAborted();
   let result: SQLShapeRunResult;
   try {
-    result = await requestSQLShapeRun(query.id, sql);
+    result = await executeSQLShape(editor, env.data, query.id, sql, env.signal);
   } catch (error) {
-    editor.updateShape<SQLTextAreaShape>({ id: query.id, type: "sql-text-area", x: oldX, y: oldY });
+    env.signal.throwIfAborted();
+    if (editor.getShape(query.id)) editor.updateShape<SQLTextAreaShape>({ id: query.id, type: "sql-text-area", props: { error: error instanceof Error ? error.message : String(error), isDirty: true } });
     return boundedResult({
       ok: false,
       shapeId: query.id,
@@ -385,7 +367,7 @@ async function updateQuery(editor: Editor, args: ToolArguments): Promise<ToolRes
     });
   }
   const updatedBeforeMove = editor.getShape<SQLTextAreaShape>(query.id);
-  editor.updateShape<SQLTextAreaShape>({ id: query.id, type: "sql-text-area", x: oldX, y: oldY });
+  env.signal.throwIfAborted();
   if (updatedBeforeMove?.props.linkedTableId) {
     const resultId = updatedBeforeMove.props.linkedTableId as TLShapeId;
     const queryBounds = editor.getShapePageBounds(query.id);
@@ -434,21 +416,31 @@ async function updateQuery(editor: Editor, args: ToolArguments): Promise<ToolRes
   });
 }
 
-function createChart(editor: Editor, args: ToolArguments): ToolResult {
+async function createChart(editor: Editor, args: ToolArguments, env: CodexToolEnvironment): Promise<ToolResult> {
   const sourceShapeId = requiredString(args, "sourceShapeId") as TLShapeId;
-  const source = getShapeOrThrow(editor, sourceShapeId);
+  const selected = getShapeOrThrow(editor, sourceShapeId);
+  const resolvedId = "sourceShapeId" in selected.props && typeof selected.props.sourceShapeId === "string" ? selected.props.sourceShapeId : sourceShapeId;
+  const source = selected.type === "sql-text-area" ? selected : getShapeOrThrow(editor, resolvedId);
   if (source.type !== "sql-text-area") throw new Error("Charts must use a SQL query shape as their source.");
   const query = source as SQLTextAreaShape;
+  if (query.props.isDirty || query.props.stale || query.props.error || !query.props.lastRunStats) {
+    const result = await executeSQLShape(editor, env.data, query.id, validateReadOnlySQL(query.props.text), env.signal);
+    if (!result.success) throw new Error(result.error || "The source query failed.");
+  }
+  env.signal.throwIfAborted();
   const chartType = requiredString(args, "chartType");
   if (!["scatter", "line", "bar", "area"].includes(chartType)) throw new Error(`Unsupported chart type ${chartType}.`);
   const x = requiredString(args, "x");
   const y = requiredString(args, "y");
   const color = optionalString(args, "color");
-  const columns = new Set((query.props.outputSchema ?? []).map((column) => column.name));
+  const columns = new Set((editor.getShape<SQLTextAreaShape>(query.id)?.props.outputSchema ?? []).map((column) => column.name));
   for (const column of [x, y, color].filter((value): value is string => Boolean(value))) {
     if (!columns.has(column)) throw new Error(`Column ${column} is not in query ${query.props.name}.`);
   }
   const shapeId = createShapeId();
+  const w = typeof args.w === "number" ? Math.max(400, Math.min(1200, args.w)) : 600;
+  const h = typeof args.h === "number" ? Math.max(300, Math.min(1000, args.h)) : 400;
+  if (args.isStacked === true && (!color || !["bar", "area"].includes(chartType))) throw new Error("Stacking requires a bar or area chart with a grouping column.");
   const chartAnchorId = query.props.linkedTableId && editor.getShape(query.props.linkedTableId as TLShapeId)
     ? query.props.linkedTableId as TLShapeId
     : query.id;
@@ -456,7 +448,7 @@ function createChart(editor: Editor, args: ToolArguments): ToolResult {
     editor,
     getAgentLayout(args, chartAnchorId, "right"),
     chartAnchorId,
-    { w: 600, h: 400 },
+    { w, h },
   );
   editor.createShape<ChartShape>({
     id: shapeId,
@@ -469,11 +461,11 @@ function createChart(editor: Editor, args: ToolArguments): ToolResult {
       x,
       y,
       color,
-      yAxisScale: "default",
-      isStacked: false,
-      limit: null,
-      w: 600,
-      h: 400,
+      yAxisScale: ["default", "auto", "zero"].includes(String(args.yAxisScale)) ? String(args.yAxisScale) : "default",
+      isStacked: typeof args.isStacked === "boolean" ? args.isStacked : Boolean(color && ["bar", "area"].includes(chartType)),
+      limit: typeof args.limit === "number" ? Math.max(1, Math.min(10000, Math.round(args.limit))) : null,
+      w,
+      h,
       name: getUniqueName(editor, optionalString(args, "name") ?? "chart"),
     },
   });
@@ -502,7 +494,7 @@ function createNote(editor: Editor, args: ToolArguments): ToolResult {
   return { shapeId, text: text.slice(0, MAX_TEXT_LENGTH) };
 }
 
-function updateChart(editor: Editor, args: ToolArguments): ToolResult {
+async function updateChart(editor: Editor, args: ToolArguments, env: CodexToolEnvironment): Promise<ToolResult> {
   const shape = getShapeOrThrow(editor, requiredString(args, "shapeId"));
   if (shape.type !== "chart-shape") throw new Error("The selected shape is not a chart.");
   const chart = shape as ChartShape;
@@ -531,7 +523,13 @@ function updateChart(editor: Editor, args: ToolArguments): ToolResult {
   const source = next.sourceShapeId ? editor.getShape(next.sourceShapeId as TLShapeId) : null;
   if (!source || source.type !== "sql-text-area") throw new Error("The chart is not connected to an existing SQL query.");
   if (!next.x || !next.y) throw new Error("Choose both x and y columns for the chart.");
-  const schema = (source as SQLTextAreaShape).props.outputSchema;
+  const query = source as SQLTextAreaShape;
+  if (query.props.isDirty || query.props.stale || query.props.error || !query.props.lastRunStats) {
+    const result = await executeSQLShape(editor, env.data, query.id, validateReadOnlySQL(query.props.text), env.signal);
+    if (!result.success) throw new Error(result.error || "The source query failed.");
+  }
+  env.signal.throwIfAborted();
+  const schema = editor.getShape<SQLTextAreaShape>(query.id)?.props.outputSchema;
   if (!schema?.length) throw new Error("Run the chart's source query before editing its settings.");
   const columns = new Set(schema.map((column) => column.name));
   for (const column of [next.x, next.y, next.color]) {
@@ -558,39 +556,117 @@ export async function executeCodexCanvasTool(
   editor: Editor,
   tool: string,
   args: ToolArguments,
-  onActivityShape?: (shapeId: string) => void,
+  onActivityShape: ((shapeId: string) => void) | undefined,
+  env: CodexToolEnvironment,
 ): Promise<ToolResult> {
+  env.signal.throwIfAborted();
   switch (tool) {
     case "get_canvas_context": {
       const requestedIds = Array.isArray(args.shapeIds)
         ? args.shapeIds.filter((id): id is string => typeof id === "string")
         : editor.getCurrentPageShapes()
-            .filter((shape) => ["data-source", "sql-text-area", "sql-result-table", "chart-shape", "note"].includes(shape.type))
+            .filter((shape) => ["data-source", "sql-text-area", "sql-result-table", "chart-shape", "note", "lens-shape", "summary-shape"].includes(shape.type))
             .slice(0, 50)
             .map((shape) => String(shape.id));
-      return boundedResult({
-        shapes: requestedIds
-          .map((id) => editor.getShape(id as TLShapeId))
-          .filter((shape): shape is TLShape => Boolean(shape))
-          .map(describeShape)
-          .filter(Boolean),
-      });
+      return hydratePromptCanvasContext(editor, env.data, requestedIds);
     }
     case "create_query":
-      return createQuery(editor, args, onActivityShape);
+      return createQuery(editor, args, env, onActivityShape);
     case "run_query":
-      return runExistingQuery(editor, args);
+      return runExistingQuery(editor, args, env);
     case "update_query":
-      return updateQuery(editor, args);
+      return updateQuery(editor, args, env);
     case "create_chart":
-      return createChart(editor, args);
+      return createChart(editor, args, env);
     case "create_note":
       return createNote(editor, args);
     case "update_chart":
-      return updateChart(editor, args);
+      return updateChart(editor, args, env);
     case "update_note":
       return updateNote(editor, args);
+    case "compute_column_profiles":
+      return boundedResult(await computeAgentProfiles(editor, args, env));
+    case "create_analysis_query":
+    case "edit_query":
+      return generateAnalysisQuery(editor, args, env, tool === "edit_query", onActivityShape);
+    case "create_lens":
+    case "update_lens":
+      return runLensTool(editor, args, env, tool === "update_lens", onActivityShape);
+    case "create_summary":
+      return createSummary(editor, args, env);
     default:
       throw new Error(`Unknown Kavla Agent tool ${tool}.`);
   }
+}
+
+async function generateAnalysisQuery(editor: Editor, args: ToolArguments, env: CodexToolEnvironment, editing: boolean, onActivityShape?: (id: string) => void): Promise<ToolResult> {
+  const instruction = requiredString(args, "instruction");
+  const source = getDataShapeOrThrow(editor, requiredString(args, editing ? "shapeId" : "sourceShapeId"));
+  if (editing && source.type !== "sql-text-area") throw new Error("Select a query to edit.");
+  if (editing && !["patch_current", "branch"].includes(String(args.strategy))) throw new Error("Choose patch_current or branch.");
+  const patch = editing && args.strategy === "patch_current";
+  const id = patch ? source.id : createShapeId();
+  if (!patch) {
+    const placement = getAgentPlacement(editor, getAgentLayout(args, source.id, "right"), source.id, { w: 400, h: 300 });
+    editor.createShape<SQLTextAreaShape>({ id, type: "sql-text-area", x: placement.x, y: placement.y, props: { name: getUniqueName(editor, optionalString(args, "name") || `${source.props.name}_analysis`), text: `SELECT * FROM ${quoteIdentifier(source.props.name)}`, isDirty: true, showTable: true } });
+    connectShapes(editor, source.id, id);
+  }
+  onActivityShape?.(id);
+  let lastError = "";
+  let attemptedSql = "";
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    env.signal.throwIfAborted();
+    const current = editor.getShape<SQLTextAreaShape>(id);
+    if (!current) throw new Error("The query was removed.");
+    const originalText = current.props.text;
+    try {
+      const generated = await env.generate("sql", instruction, { ...buildPromptCanvasContext(editor, [source.id, id]), targetShapeId: id, currentSql: current.props.text, strategy: patch ? "patch_current" : "branch", attempt, latestError: lastError });
+      env.signal.throwIfAborted();
+      if (editor.getShape<SQLTextAreaShape>(id)?.props.text !== originalText) throw new Error("The query was edited during generation; the Agent kept your edit.");
+      const sql = generated.sql || "";
+      editor.updateShape<SQLTextAreaShape>({ id, type: "sql-text-area", props: { text: sql, isDirty: true } });
+      if (attempt > 1 && sql === attemptedSql) throw new Error("The SQL generator repeated the same failed query.");
+      attemptedSql = sql;
+      const result = await updateQuery(editor, { shapeId: id, sql }, env);
+      if (result.ok) return { ...result, attempts: attempt };
+      lastError = String(result.error || "The query failed.");
+    } catch (error) {
+      env.signal.throwIfAborted();
+      lastError = error instanceof Error ? error.message : String(error);
+      if (lastError.includes("kept your edit")) throw error;
+      if (editor.getShape(id)) editor.updateShape<SQLTextAreaShape>({ id, type: "sql-text-area", props: { error: lastError, isDirty: true } });
+    }
+  }
+  return { ok: false, shapeId: id, error: lastError, attempts: 3, guidance: "Three focused attempts failed. Keep the visible query and pivot to a simpler analytical step or explain the blocker." };
+}
+
+function createSummary(editor: Editor, args: ToolArguments, env: CodexToolEnvironment): ToolResult {
+  const question = requiredString(args, "question");
+  const answer = requiredString(args, "answer");
+  if (!Array.isArray(args.sections) || !Array.isArray(args.artifacts)) throw new Error("Summary sections and evidence artifacts are required.");
+  const sections: SummarySection[] = args.sections.slice(0, 8).map((raw) => {
+    const section = raw as ToolArguments;
+    return { title: requiredString(section, "title"), body: requiredString(section, "body") };
+  });
+  const artifacts: SummaryArtifact[] = args.artifacts.slice(0, 6).map((raw) => {
+    const artifact = raw as ToolArguments;
+    const shape = getShapeOrThrow(editor, requiredString(artifact, "shapeId"));
+    return { shapeId: shape.id, title: requiredString(artifact, "title"), note: requiredString(artifact, "note"), kind: shape.type };
+  });
+  const id = createShapeId();
+  const anchor = artifacts[0]?.shapeId as TLShapeId | undefined;
+  const placement = getAgentPlacement(editor, getAgentLayout(args, anchor || null, "summary"), anchor || null, { w: 560, h: 680 });
+  editor.createShape<SummaryShape>({ id, type: "summary-shape", x: placement.x, y: placement.y, props: { name: optionalString(args, "name") || "Summary", question, answer, sections, artifacts, sourceJobId: env.runId } });
+  return { ok: true, shapeId: id, question, answer, evidenceShapeIds: artifacts.map((artifact) => artifact.shapeId) };
+}
+
+export async function hydratePromptCanvasContext(editor: Editor, data: CodexToolEnvironment["data"], shapeIds?: string[]) {
+  const context = buildPromptCanvasContext(editor, shapeIds);
+  const shapes = context.shapes as Record<string, unknown>[];
+  await Promise.all(shapes.filter((shape) => shape.type === "query").slice(0, 6).map(async (shape) => {
+    if (shape.isDirty || shape.stale || shape.error) return;
+    try { shape.sampleRows = await getAgentDataPreview(editor, String(shape.id), data, 5); }
+    catch (error) { shape.previewUnavailable = error instanceof Error ? error.message : String(error); }
+  }));
+  return boundedResult(context);
 }

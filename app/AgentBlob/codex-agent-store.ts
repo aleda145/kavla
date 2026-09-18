@@ -57,8 +57,11 @@ export function appendCodexAgentEntry(
 export function getAgentContextShapeIds(editor: Editor): TLShapeId[] {
   const selected = editor.getSelectedShapeIds().filter((id) => id !== CODEX_AGENT_SHAPE_ID);
   if (selected.length > 0) return selected.slice(0, 8);
+  const recent = [...new Set((getCodexAgent(editor)?.props.entries ?? []).slice(-30).reverse().flatMap((entry) => [...(entry.shapeIds ?? []), ...(entry.contextShapeIds ?? [])]))]
+    .filter((id) => Boolean(editor.getShape(id as TLShapeId)));
+  if (recent.length) return recent.slice(0, 12) as TLShapeId[];
   return editor.getCurrentPageShapes()
-    .filter((shape) => ["data-source", "sql-text-area", "chart-shape", "note"].includes(shape.type))
+    .filter((shape) => ["data-source", "sql-text-area", "chart-shape", "note", "lens-shape", "summary-shape", "sql-result-table"].includes(shape.type))
     .slice(0, 8)
     .map((shape) => shape.id);
 }

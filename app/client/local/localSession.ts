@@ -1,8 +1,9 @@
+import type { LensShape } from "../../Lens/lens-shape-types";
 import type { Editor, TLAssetPartial, TLCamera } from "tldraw";
 import { CameraRecordType, parseTldrawJsonFile } from "tldraw";
 import type { DataSourceShape } from "../../DataSource/data-source-types";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
-import { appendCodexAgentEntry, getCodexAgent, updateCodexAgent } from "../../AgentBlob/codex-agent-store";
+import { getCodexAgent, updateCodexAgent } from "../../AgentBlob/codex-agent-store";
 
 export type KavlaBlobKind = "source" | "asset";
 
@@ -155,7 +156,7 @@ export function loadCanvasJson(editor: Editor, canvasJson: string): void {
         {
           id: shape.id,
           type: shape.type,
-          props: { isRunning: false, queryStartTime: null, runnerName: null },
+          props: { isRunning: false, isDirty: true, queryStartTime: null, runnerName: null },
         },
       ];
     }
@@ -164,12 +165,14 @@ export function loadCanvasJson(editor: Editor, canvasJson: string): void {
   if (interruptedShapes.length > 0) {
     editor.updateShapes(interruptedShapes);
   }
+  for (const shape of editor.getCurrentPageShapes()) {
+    if (shape.type === "lens-shape" && ["generating", "repairing"].includes((shape as LensShape).props.generationStatus)) {
+      editor.updateShape<LensShape>({ id: shape.id, type: "lens-shape", props: { generationStatus: "error", error: "Lens generation was interrupted. Ask the Agent to continue or edit the code." } });
+    }
+  }
   if (getCodexAgent(editor)?.props.isRunning) {
     updateCodexAgent(editor, { isRunning: false, streamingText: "", activity: null });
-    appendCodexAgentEntry(editor, {
-      role: "event",
-      text: "The previous agent turn was interrupted when this canvas closed.",
-    });
+
   }
   editor.clearHistory();
 }

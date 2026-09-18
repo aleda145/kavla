@@ -3,12 +3,13 @@ import { Bot, LocateFixed, Loader2, Send, Sparkles, Square, Trash2 } from "lucid
 import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useCodexModels, useCodexStatus } from "../client/localServer/codexStore";
 import { useData } from "../client/useLocalServer";
-import { buildPromptCanvasContext } from "./codexCanvasTools";
+import { hydratePromptCanvasContext } from "./codexCanvasTools";
 import { appendCodexAgentEntry, createOrFocusCodexAgent, getCodexAgent, updateCodexAgent } from "./codex-agent-store";
 import type { CodexAgentEntry } from "./codex-agent-types";
 import { CodexAgentRuntime } from "./CodexAgentRuntime";
 import { getCanvasBadges, getMentionRanges, getShapeCitations, type ContextBadge } from "./codex-shape-references";
-import { getActiveLocalSession } from "../client/local/localSession";
+import { codexClientId, codexRequest, getCodexRuns, isCodexRunActive, useCodexRuns } from "../client/localServer/codexRuns";
+import { getActiveLocalSession, stageCanvas } from "../client/local/localSession";
 
 const LAUNCHER_SIZE = 48;
 const CHAT_WIDTH = 340;
@@ -47,9 +48,8 @@ function getDockLayout() {
 
 function fallbackHistory(entries: CodexAgentEntry[]): string {
   return entries
-    .filter((entry) => entry.role === "user" || entry.role === "assistant")
-    .slice(-20)
-    .map((entry) => `${entry.role === "user" ? "User" : "Assistant"}: ${entry.text}\nCanvas references: ${[...(entry.contextShapeIds ?? []), ...(entry.shapeIds ?? [])].join(", ")}`)
+    .slice(-40)
+    .map((entry) => `${entry.role}: ${entry.text}\nCanvas references: ${[...(entry.contextShapeIds ?? []), ...(entry.shapeIds ?? [])].join(", ")}`)
     .join("\n\n")
     .slice(-24_000);
 }
@@ -107,6 +107,10 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
   const codexStatus = useCodexStatus();
   const codexModels = useCodexModels();
   const [prompt, setPrompt] = useState("");
+  const runs = useCodexRuns();
+  const [isSending, setIsSending] = useState(false);
+  const [planLayout, setPlanLayout] = useState(false);
+  const highlightsRef = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState(0);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [dismissedMention, setDismissedMention] = useState<string | null>(null);
@@ -184,7 +188,7 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
   };
   const ready = codexStatus.state === "ready";
   const isOpen = agent?.props.isOpen ?? false;
-  const isRunning = agent?.props.isRunning ?? false;
+  const isRunning = isSending || runs.some(isCodexRunActive) || (agent?.props.isRunning ?? false);
 
   useLayoutEffect(() => {
     const update = () => setLayout(getDockLayout());
@@ -213,29 +217,33 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
     editor.zoomToSelection({ animation: { duration: 220 } });
   };
 
-  const send = () => {
+  const send = async () => {
     const text = prompt.trim();
     if (!text || isRunning || !ready) return;
+    setIsSending(true);
     createOrFocusCodexAgent(editor);
     const currentAgent = getCodexAgent(editor);
     const contextShapeIds = contextBadges.map((badge) => badge.id);
-    appendCodexAgentEntry(editor, { role: "user", text, contextShapeIds });
-    updateCodexAgent(editor, { isRunning: true, streamingText: "", activity: "Starting Codex…", isOpen: true });
-    dataSocket.sendCodexPrompt({
-      prompt: text,
-      threadId: currentAgent?.props.codexThreadId ?? null,
-      context: {
-        ...buildPromptCanvasContext(editor, contextShapeIds),
-        mentions: mentionRanges.map(({ badge }) => ({ name: badge.name, shapeId: badge.id })),
-      },
-      fallbackHistory: fallbackHistory(currentAgent?.props.entries ?? []),
-      mainModel: codexModels.mainModel,
-      layoutModel: codexModels.layoutModel,
-    });
-    setPrompt("");
-    setCursor(0);
-    setChosenMentions([]);
-    setDismissedMention(null);
+    const runId = crypto.randomUUID();
+    try {
+      const context = await hydratePromptCanvasContext(editor, dataSocket, contextShapeIds);
+      if (getCodexRuns().some(isCodexRunActive)) throw new Error("The Agent started another run. Wait or stop it before sending.");
+      await stageCanvas(editor);
+      await codexRequest("prompts", {
+        runId, clientId: codexClientId, documentId: getActiveLocalSession()?.documentId,
+        prompt: text, threadId: currentAgent?.props.codexThreadId ?? null,
+        context: { ...context, mentions: mentionRanges.map(({ badge }) => ({ name: badge.name, shapeId: badge.id })) },
+        fallbackHistory: fallbackHistory(currentAgent?.props.entries ?? []),
+        mainModel: codexModels.mainModel, layoutModel: codexModels.layoutModel, planLayout,
+      });
+      const latest = getCodexAgent(editor);
+      const userEntry = latest?.props.entries.find((entry) => entry.role === "user" && entry.runId === runId);
+      if (userEntry) updateCodexAgent(editor, { entries: latest!.props.entries.map((entry) => entry.id === userEntry.id ? { ...entry, contextShapeIds } : entry) });
+      else appendCodexAgentEntry(editor, { role: "user", runId, text, contextShapeIds });
+      setPrompt(""); setCursor(0); setChosenMentions([]); setDismissedMention(null);
+    } catch (error) {
+      appendCodexAgentEntry(editor, { role: "error", text: error instanceof Error ? error.message : String(error) });
+    } finally { setIsSending(false); }
   };
 
   const onPromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -258,9 +266,20 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
         return;
       }
     }
+    if ((event.key === "Backspace" || event.key === "Delete") && event.currentTarget.selectionStart === event.currentTarget.selectionEnd) {
+      const position = event.currentTarget.selectionStart;
+      const mention = mentionRanges.find((range) => event.key === "Backspace" ? range.to === position : range.from === position);
+      if (mention) {
+        event.preventDefault();
+        setPrompt(prompt.slice(0, mention.from) + prompt.slice(mention.to));
+        setCursor(mention.from);
+        requestAnimationFrame(() => promptRef.current?.setSelectionRange(mention.from, mention.from));
+        return;
+      }
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      send();
+      void send();
     }
   };
 
@@ -375,7 +394,7 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
                 aria-label="Clear chat"
                 disabled={isRunning}
                 onClick={() =>
-                  updateCodexAgent(editor, { entries: [], codexThreadId: null, streamingText: "", activity: null })
+                  updateCodexAgent(editor, { entries: [], codexThreadId: null, streamingText: "", activity: null, historyClearedAt: Date.now() })
                 }
                 style={{
                   alignItems: "center",
@@ -591,6 +610,9 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
                 )) : <div style={{ padding: 9, fontSize: 11 }}>No matching shapes</div>}
               </div>
             ) : null}
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, marginBottom: 5 }}>
+              <input type="checkbox" checked={planLayout} disabled={isRunning} onChange={(event) => setPlanLayout(event.currentTarget.checked)} /> Plan layout before analysis
+            </label>
             <div
               style={{
                 background: "#fff",
@@ -601,8 +623,19 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
                 position: "relative",
               }}
             >
+              <div ref={highlightsRef} aria-hidden="true" style={{ position: "absolute", inset: 0, padding: "7px 42px 7px 8px", boxSizing: "border-box", whiteSpace: "pre-wrap", overflowWrap: "break-word", overflow: "hidden", font: "12px/1.4 Inter, sans-serif", color: "#000", pointerEvents: "none" }}>
+                {(() => {
+                  let offset = 0;
+                  return <>{mentionRanges.map((range) => {
+                    const prefix = prompt.slice(offset, range.from);
+                    offset = range.to;
+                    return <span key={`${range.from}:${range.badge.id}`}>{prefix}<span style={{ background: range.badge.backgroundColor, borderBottom: `1px solid ${range.badge.borderBottomColor}`, borderRadius: 3 }}>{prompt.slice(range.from, range.to)}</span></span>;
+                  })}{prompt.slice(offset)}{"\n"}</>;
+                })()}
+              </div>
               <textarea
                 ref={promptRef}
+                onScroll={(event) => { if (highlightsRef.current) highlightsRef.current.scrollTop = event.currentTarget.scrollTop; }}
                 aria-label="Ask the Kavla Agent"
                 aria-autocomplete="list"
                 aria-controls={showMentions ? "codex-mention-list" : undefined}
@@ -621,7 +654,9 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
                   background: "transparent",
                   border: 0,
                   boxSizing: "border-box",
-                  color: "#000",
+                  color: "transparent",
+                  caretColor: "#000",
+                  position: "relative",
                   font: "12px/1.4 Inter, sans-serif",
                   height: 64,
                   outline: 0,
@@ -688,6 +723,20 @@ function CodexChatOverlay({ activeShapeId }: { activeShapeId: string | null }) {
   );
 }
 
+function AnalystMarker({ shapeId }: { shapeId: string | null }) {
+  const editor = useEditor();
+  const runs = useCodexRuns();
+  const run = runs.find(isCodexRunActive);
+  const point = useValue("analyst marker position", () => {
+    const bounds = shapeId ? editor.getShapePageBounds(shapeId as TLShapeId) : null;
+    return bounds ? editor.pageToScreen({ x: bounds.maxX, y: bounds.minY }) : null;
+  }, [editor, shapeId]);
+  if (!run || !point) return null;
+  return <div data-kavla-agent-ui aria-hidden="true" style={{ position: "fixed", left: point.x + 10, top: point.y - 20, zIndex: 99999, pointerEvents: "none", display: "flex", alignItems: "center", gap: 6, padding: "6px 9px", background: "#ffedd5", border: "2px solid #000", borderRadius: 20, boxShadow: "3px 3px 0 #000", font: "800 11px Inter, sans-serif", maxWidth: 230, transition: "left 180ms ease, top 180ms ease" }}>
+    <Bot size={19} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{run.activity || "Thinking…"}</span>
+  </div>;
+}
+
 export function CodexAgentLayer() {
   const [activeShapeId, setActiveShapeId] = useState<string | null>(null);
   const onActivityShape = useCallback((shapeId: string) => setActiveShapeId(shapeId), []);
@@ -696,6 +745,7 @@ export function CodexAgentLayer() {
     <>
       <CodexAgentRuntime onActivityShape={onActivityShape} />
       <CodexChatOverlay activeShapeId={activeShapeId} />
+      <AnalystMarker shapeId={activeShapeId} />
     </>
   );
 }

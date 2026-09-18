@@ -7,6 +7,8 @@ export type CodexAgentEntry = {
   role: CodexAgentEntryRole;
   text: string;
   createdAt: number;
+  runId?: string;
+  toolCallId?: string;
   shapeIds?: string[];
   contextShapeIds?: string[];
 };
@@ -23,5 +25,6 @@ export type CodexAgentShape = TLBaseShape<
     streamingText: string;
     activity: string | null;
     isOpen: boolean;
+    historyClearedAt?: number;
   }
 >;

@@ -8,7 +8,7 @@ export type ContextBadge = {
 };
 
 export function isContextShape(shape: TLShape) {
-  return ["data-source", "sql-text-area", "sql-result-table", "chart-shape", "note"].includes(shape.type);
+  return ["data-source", "sql-text-area", "sql-result-table", "chart-shape", "note", "lens-shape", "summary-shape"].includes(shape.type);
 }
 
 export function getCanvasBadges(editor: Editor): ContextBadge[] {
@@ -33,6 +33,8 @@ export function getCanvasBadges(editor: Editor): ContextBadge[] {
       "sql-text-area": ["#fef9c3", "#ca8a04"],
       "sql-result-table": ["#dcfce7", "#16a34a"],
       "chart-shape": ["#fce7f3", "#db2777"],
+      "lens-shape": ["#fce7f3", "#db2777"],
+      "summary-shape": ["#dcfce7", "#16a34a"],
       note: ["#ffedd5", "#f97316"],
     };
     const [backgroundColor, borderBottomColor] = colors[shape.type] ?? ["#fff", "#000"];
