@@ -21,10 +21,10 @@ import { type SQLShapeRunResult } from "../SQLTextArea/sqlShapeRun";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { getAutoExpandedSQLShapeSize } from "../SQLTextArea/sqlShapeSize";
 import type { SQLResultTableShape } from "../SQLResultArea/sql-result-table-types";
-import { connectShapes } from "../util/shapeConnections";
+import { connectShapes, disconnectShapes } from "../util/shapeConnections";
 import { getUniqueName } from "../util/getUniqueName";
 import { getAgentContextShapeIds } from "./agent-chat-store";
-import { getAgentLayout, getAgentPlacement, getAgentQueryLayout, getAgentQueryPlacement, reflowAgentQuery, trackAgentQueryLayout } from "./agentLayout";
+import { getAgentLayout, getAgentPlacement, getAgentCanvasLayout, getAgentShapeBounds, reflowAgentQuery, trackAgentQueryLayout } from "./agentLayout";
 
 const SAMPLE_ROW_LIMIT = 20;
 const MAX_TEXT_LENGTH = 500;
@@ -77,7 +77,7 @@ function sanitizeValue(value: unknown, depth = 0, key = ""): unknown {
   if (value instanceof Date) return value.toISOString();
   if (value instanceof Uint8Array || value instanceof ArrayBuffer) return "[binary value omitted]";
   if (Array.isArray(value)) {
-    const limit = key === "sampleRows" || key === "topValues" ? 5 : key === "shapes" ? 50 : 100;
+    const limit = key === "sampleRows" || key === "topValues" ? 5 : key === "shapes" ? 50 : key === "canvasLayout" ? 200 : 100;
     return value.slice(0, limit).map((item) => sanitizeValue(item, depth + 1, key));
   }
   if (value && typeof value === "object") {
@@ -148,6 +148,7 @@ function describeShape(editor: Editor, shape: TLShape): Record<string, unknown> 
       columnStats: compactColumnStats(query.props.columnStats),
       upstreamShapeIds: query.props.upstreamShapeIds,
       linkedTableId: query.props.linkedTableId,
+      showTable: query.props.showTable,
       layout: query.meta.agentQueryLayout,
       error: query.props.error,
       stale: query.props.stale,
@@ -208,22 +209,27 @@ export function buildPromptCanvasContext(editor: Editor, explicitShapeIds?: stri
     shapes: Array.from(includedIds)
       .map((id) => editor.getShape(id))
       .filter((shape): shape is TLShape => Boolean(shape))
-      .map((shape) => describeShape(editor, shape))
+      .map((shape) => {
+        const description = describeShape(editor, shape);
+        return description ? { ...description, bounds: getAgentShapeBounds(editor, shape.id), isLocked: shape.isLocked } : null;
+      })
       .filter(Boolean),
     canvasShapeCount: editor.getCurrentPageShapes().length,
+    canvasLayout: getAgentCanvasLayout(editor),
+    canvasLayoutTruncated: editor.getCurrentPageShapes().filter((shape) => !["agent-chat", "agent-blob"].includes(shape.type)).length > 200,
     profilePolicy: "Profiles are deterministic metadata recorded on existing shapes. Analytical SQL uses visible query nodes.",
   };
 }
 
 async function createQuery(editor: Editor, args: ToolArguments, env: AgentToolEnvironment, onActivityShape?: (shapeId: string) => void): Promise<ToolResult> {
+  if (args.showTable !== undefined && typeof args.showTable !== "boolean") throw new Error("showTable must be a boolean.");
   const source = getDataShapeOrThrow(editor, requiredString(args, "sourceShapeId"));
   const sql = formatAgentSQL(requiredString(args, "sql"));
   const desiredName = optionalString(args, "name") ?? "agent_query";
   const shapeId = createShapeId();
-  const layout = getAgentQueryLayout(editor, args, source.id);
+  const layout = getAgentLayout(args, source.id, "right");
   const size = getAutoExpandedSQLShapeSize(sql);
-  const inputs = getOrderedDependenciesForSQL(editor, sql).immediateUpstreamIds;
-  const placement = getAgentQueryPlacement(editor, layout, size, null, inputs);
+  const placement = getAgentPlacement(editor, layout, source.id, size);
   editor.createShape<SQLTextAreaShape>({
     id: shapeId,
     type: "sql-text-area",
@@ -233,7 +239,7 @@ async function createQuery(editor: Editor, args: ToolArguments, env: AgentToolEn
       ...size,
       text: sql,
       name: getUniqueName(editor, desiredName),
-      showTable: true,
+      showTable: args.showTable === true,
     },
   });
   trackAgentQueryLayout(editor, shapeId, layout);
@@ -500,7 +506,7 @@ function updateNote(editor: Editor, args: ToolArguments): ToolResult {
   return { ok: true, shapeId: shape.id, text };
 }
 
-export async function executeAgentCanvasTool(
+async function dispatchAgentCanvasTool(
   editor: Editor,
   tool: string,
   args: ToolArguments,
@@ -520,6 +526,10 @@ export async function executeAgentCanvasTool(
     }
     case "create_query":
       return createQuery(editor, args, env, onActivityShape);
+    case "move_shapes":
+      return moveShapes(editor, args);
+    case "set_query_table":
+      return setQueryTable(editor, args);
     case "run_query":
       return runExistingQuery(editor, args, env);
     case "update_query":
@@ -542,6 +552,92 @@ export async function executeAgentCanvasTool(
     default:
       throw new Error(`Unknown Kavla Agent tool ${tool}.`);
   }
+}
+
+export async function executeAgentCanvasTool(
+  editor: Editor,
+  tool: string,
+  args: ToolArguments,
+  onActivityShape: ((shapeId: string) => void) | undefined,
+  env: AgentToolEnvironment,
+): Promise<ToolResult> {
+  const result = await dispatchAgentCanvasTool(editor, tool, args, onActivityShape, env);
+  const ids = [result.shapeId, result.linkedTableId].filter((id): id is string => typeof id === "string");
+  return ids.length ? { ...result, placedShapes: ids.flatMap((id) => {
+    const shape = editor.getShape(id as TLShapeId);
+    return shape ? [{ id, type: shape.type, bounds: getAgentShapeBounds(editor, shape.id) }] : [];
+  }) } : result;
+}
+
+function assertUnlocked(editor: Editor, shape: TLShape) {
+  if (shape.isLocked || editor.getShapeAncestors(shape).some((ancestor) => ancestor.isLocked)) throw new Error(`Shape ${shape.id} is locked.`);
+}
+
+function moveShapes(editor: Editor, args: ToolArguments): ToolResult {
+  if (!Array.isArray(args.moves) || !args.moves.length || args.moves.length > 12) throw new Error("Supply between 1 and 12 moves.");
+  const ids = new Set<TLShapeId>();
+  const moves = args.moves.map((raw: unknown) => {
+    if (!raw || typeof raw !== "object") throw new Error("Invalid move.");
+    const item = raw as ToolArguments;
+    const shape = getShapeOrThrow(editor, requiredString(item, "shapeId"));
+    if (!["data-source", "sql-text-area", "sql-result-table", "chart-shape", "lens-shape", "summary-shape", "note", "text", "image"].includes(shape.type)) throw new Error(`Cannot move ${shape.type} with this tool.`);
+    assertUnlocked(editor, shape);
+    if (ids.has(shape.id)) throw new Error(`Duplicate move for ${shape.id}.`);
+    ids.add(shape.id);
+    if (typeof item.x !== "number" || !Number.isFinite(item.x) || typeof item.y !== "number" || !Number.isFinite(item.y)) throw new Error("Moves require finite x and y coordinates.");
+    const bounds = getAgentShapeBounds(editor, shape.id);
+    if (!bounds) throw new Error(`Shape ${shape.id} has no canvas bounds.`);
+    const pageOrigin = editor.getShapePageTransform(shape).applyToPoint({ x: 0, y: 0 });
+    const origin = editor.getPointInParentSpace(shape, { x: pageOrigin.x + item.x - bounds.x, y: pageOrigin.y + item.y - bounds.y });
+    return { shape, origin, bounds: { ...bounds, x: item.x, y: item.y } };
+  });
+  const currentShapes = editor.getCurrentPageShapes().filter((shape) => !["arrow", "agent-chat", "agent-blob"].includes(shape.type));
+  for (const move of moves) {
+    for (const other of currentShapes) {
+      if (other.id === move.shape.id || editor.hasAncestor(move.shape.id, other.id) || editor.hasAncestor(other.id, move.shape.id)) continue;
+      const bounds = moves.find((candidate) => candidate.shape.id === other.id)?.bounds ?? getAgentShapeBounds(editor, other.id);
+      if (!bounds) continue;
+      const a = move.bounds;
+      if (a.x < bounds.x + bounds.w + 28 && a.x + a.w + 28 > bounds.x && a.y < bounds.y + bounds.h + 28 && a.y + a.h + 28 > bounds.y) throw new Error(`Moving ${move.shape.id} would overlap ${other.id}. No shapes moved. Read canvasLayout and leave at least 30 units of clearance.`);
+    }
+  }
+  editor.run(() => {
+    for (const move of moves) {
+      const meta = { ...move.shape.meta };
+      // Growth correction should use the new neighborhood, not an old exact coordinate.
+      if (meta.agentQueryLayout) meta.agentQueryLayout = { parentShapeId: null, placement: "right", order: 0 };
+      editor.updateShape({ id: move.shape.id, type: move.shape.type, x: move.origin.x, y: move.origin.y, meta });
+    }
+  });
+  return { ok: true, movedShapes: moves.map((move) => ({ id: move.shape.id, bounds: getAgentShapeBounds(editor, move.shape.id) })) };
+}
+
+function setQueryTable(editor: Editor, args: ToolArguments): ToolResult {
+  const shape = getShapeOrThrow(editor, requiredString(args, "shapeId"));
+  if (shape.type !== "sql-text-area") throw new Error("Table display requires a query shape.");
+  const query = shape as SQLTextAreaShape;
+  assertUnlocked(editor, query);
+  if (typeof args.show !== "boolean") throw new Error("show must be a boolean.");
+  if (query.props.isRunning) throw new Error("Wait for the query to finish before changing its table.");
+  if (args.show && (query.props.isDirty || query.props.stale || query.props.error || !query.props.lastRunStats)) throw new Error("Run the query successfully before showing its table.");
+  const table = query.props.linkedTableId ? editor.getShape(query.props.linkedTableId as TLShapeId) : null;
+  if (table && (table.type !== "sql-result-table" || (table as SQLResultTableShape).props.sourceShapeId !== query.id)) throw new Error("The linked result table does not belong to this query.");
+  if (table && !args.show) assertUnlocked(editor, table);
+  let tableId = table?.id ?? null;
+  const placement = args.show && !table ? getAgentPlacement(editor, getAgentLayout(args, query.id, "right"), query.id, { w: 400, h: 300 }) : null;
+  editor.run(() => {
+    if (placement) {
+      tableId = createShapeId();
+      editor.createShape<SQLResultTableShape>({ id: tableId, type: "sql-result-table", x: placement.x, y: placement.y, props: { sourceShapeId: query.id, w: 400, h: 300 } });
+      connectShapes(editor, query.id, tableId);
+    } else if (!args.show && table) {
+      disconnectShapes(editor, query.id, table.id);
+      editor.deleteShape(table.id);
+      tableId = null;
+    }
+    editor.updateShape<SQLTextAreaShape>({ id: query.id, type: query.type, props: { showTable: args.show as boolean, linkedTableId: tableId } });
+  });
+  return { ok: true, shapeId: query.id, linkedTableId: tableId, showTable: args.show };
 }
 
 function createSummary(editor: Editor, args: ToolArguments, env: AgentToolEnvironment): ToolResult {

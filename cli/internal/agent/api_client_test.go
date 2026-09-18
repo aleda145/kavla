@@ -28,7 +28,7 @@ func TestAPIClientToolLoop(t *testing.T) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil { t.Error(err); return }
 		if body.Model != "test-model" || body.Stream == nil || *body.Stream { t.Errorf("request must use the configured model without streaming") }
-		if len(body.Tools) != 12 || body.Tools[0].Function.Name != "get_canvas_context" || body.Tools[0].Function.Parameters["type"] != "object" { t.Errorf("missing Kavla function schemas: %+v", body.Tools) }
+		if len(body.Tools) != 14 || body.Tools[0].Function.Name != "get_canvas_context" || body.Tools[0].Function.Parameters["type"] != "object" { t.Errorf("missing Kavla function schemas: %+v", body.Tools) }
 		w.Header().Set("Content-Type", "application/json")
 		if requests.Add(1) == 1 {
 			if !strings.Contains(string(body.Messages[1]["content"]), "Earlier conversation") { t.Error("missing fallback history") }

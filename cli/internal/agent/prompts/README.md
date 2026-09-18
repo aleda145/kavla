@@ -12,7 +12,7 @@ Preserve these contracts when editing:
 - Use native tools/chat and actual canvas IDs. Only Lens generation uses a specialist, returning flat JSON with readable TSX/JSX. SQL execution errors return to the analyst for in-place repair.
 - Lens input is uncapped; samples are only context previews. Presentation SQL reads the supplied source, not arbitrary canvas tables.
 - Existing Lens edits stay in place. Runtime tool/repair limits are authoritative.
-- Layout follows analytical purpose: a downward main chain, separate diagnostic and parallel branch lanes, and result tables beside their queries. The analyst supplies branch/role hints; the browser handles geometry and size changes.
+- The main analyst owns presentation incrementally: placement on creation, selective tables/charts, and small move_shapes adjustments informed by actual canvas bounds and arrows. No separate layout agent or final arrangement. Avoid rigid lanes and automatic tables on every query; keep established positions stable.
 - Keep Kavla styling, injected library/helper APIs, and the requested key-free OpenFreeMap default.
 
 Prompt edits can change model behavior even when compilation succeeds. Assess actual agent runs before claiming equivalent or improved results.

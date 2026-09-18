@@ -13,11 +13,18 @@ func dynamicTools() []map[string]interface{} {
 			"sourceShapeId": map[string]string{"type": "string"},
 			"name":          map[string]string{"type": "string"},
 			"sql":           map[string]string{"type": "string"},
+			"showTable":     map[string]interface{}{"type": "boolean", "description": "Show a result table for this step. Defaults to false; enable for useful checks or exact results, not every intermediate query."},
 			"layout":        layoutSchema(),
 		}, "sourceShapeId", "sql")),
 		tool("run_query", "Execute an SQL query shape that already exists visibly on the Kavla canvas. This cannot accept new SQL; use create_query for new work and update_query to correct existing SQL.", objectSchema(map[string]interface{}{
 			"shapeId": map[string]string{"type": "string"},
 		}, "shapeId")),
+        tool("move_shapes", "Move up to 12 existing shapes to page-space top-left bounds. Use for small local adjustments as the story develops, never a final whole-canvas rearrangement. Include related tables/charts explicitly when moving them together. Locked shapes and overlapping destinations are rejected before any moves. Read current canvasLayout first.", objectSchema(map[string]interface{}{
+         "moves": map[string]interface{}{"type":"array", "minItems":1, "maxItems":12, "items":objectSchema(map[string]interface{}{"shapeId":map[string]string{"type":"string"}, "x":map[string]string{"type":"number"}, "y":map[string]string{"type":"number"}}, "shapeId", "x", "y")},
+        }, "moves")),
+        tool("set_query_table", "Show or hide an existing query's result table without changing SQL. Showing requires a successful current result. An optional layout positions a newly shown table. Existing tables retain their position; use move_shapes to move them. Hiding removes only the linked result-table display.", objectSchema(map[string]interface{}{
+         "shapeId":map[string]string{"type":"string"}, "show":map[string]string{"type":"boolean"}, "layout":layoutSchema(),
+        }, "shapeId", "show")),
 		tool("update_query", "Edit or repair ONE operation in an existing query and execute it. No CTEs or subqueries. Use HAVING/QUALIFY sparingly for simple result filters. Keep repairs in place; new analytical operations belong in new downstream nodes.", objectSchema(map[string]interface{}{
 			"shapeId": map[string]string{"type": "string"},
 			"name":    map[string]string{"type": "string"},
@@ -101,12 +108,12 @@ func layoutSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
-			"branch": map[string]string{"type": "string", "description": "Query lane label. Use main for the primary chain, a short distinct label for each parallel comparison or diagnostic branch. Inherited from the input when omitted; reuse the label along a branch and use main when rejoining it."},
-			"role": map[string]interface{}{"type": "string", "enum": []string{"analysis", "diagnostic"}, "description": "Query purpose: analysis for the answer-producing path, diagnostic for preliminary checks/samples/outliers. Inherited from the input when omitted. Diagnostics are placed separately from the main analysis."},
+			"x": map[string]interface{}{"type":"number", "description":"Exact page-space left coordinate. Supply with y instead of relative placement; leave clearance for actual shape dimensions and connectors."},
+			"y": map[string]interface{}{"type":"number", "description":"Exact page-space top coordinate; requires x."},
 			"parentShapeId": map[string]string{"type": "string"},
 			"placement": map[string]interface{}{
 				"type": "string",
-				"enum": []string{"right", "below", "above", "summary"},
+				"enum": []string{"right", "left", "below", "above", "summary"},
 			},
 			"order": map[string]interface{}{"type": "number", "minimum": 0, "maximum": 20},
 		},
