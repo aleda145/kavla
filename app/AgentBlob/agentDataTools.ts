@@ -7,6 +7,7 @@ import { buildColumnStatsQuery, parseColumnStatsRows } from "../src/duckdb/colum
 import type { ColumnStats } from "../src/duckdb/column-stats-types";
 import { walkSQLDag, buildRemoteSQLFromDag } from "../SQLTextArea/walkSQLDag";
 import { loadQueryResultRows } from "../client/loadQueryResultRows";
+import { randomUUID } from "../util/randomUUID";
 
 export function resolveAgentDataShape(editor: Editor, shapeId: string): DataSourceShape | SQLTextAreaShape {
   const seen = new Set<string>();
@@ -69,7 +70,7 @@ export async function computeAgentProfiles(
     });
     let rows: Record<string, unknown>[];
     {
-      const requestId = `agent-profile:${crypto.randomUUID()}`;
+      const requestId = `agent-profile:${randomUUID()}`;
       const cancel = () => env.data.cancelRemoteQuery(requestId);
       env.signal.addEventListener("abort", cancel, { once: true });
       try {

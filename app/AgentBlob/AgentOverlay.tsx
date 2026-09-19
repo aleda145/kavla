@@ -17,6 +17,7 @@ import {
   useAgentRuns,
 } from "../client/localServer/agentRuns";
 import { getActiveLocalSession, stageCanvas } from "../client/local/localSession";
+import { randomUUID } from "../util/randomUUID";
 import "./agent-chat.css";
 
 const DOCK_ANCHOR_SIZE = 48;
@@ -306,7 +307,7 @@ function AgentChatOverlay() {
     createOrFocusAgentChat(editor);
     const currentAgent = getAgentChat(editor);
     const contextShapeIds = contextBadges.map((badge) => badge.id);
-    const runId = crypto.randomUUID();
+    const runId = randomUUID();
     try {
       editor.run(() => startAgentBlob(editor, runId, contextShapeIds[0]), { history: "ignore" });
       const context = await hydratePromptCanvasContext(editor, dataSocket, contextShapeIds);

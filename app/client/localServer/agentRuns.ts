@@ -1,6 +1,7 @@
 import type { LocalServerContextType } from "./types";
 import { useSyncExternalStore } from "react";
 import { getActiveLocalSession } from "../local/localSession";
+import { randomUUID } from "../../util/randomUUID";
 
 export type AgentToolCall = {
   callId: string;
@@ -36,10 +37,10 @@ let cachedDocument: string | undefined;
 const listeners = new Set<() => void>();
 let clientId: string;
 try {
-  clientId = sessionStorage.getItem("kavla.agent.client") || crypto.randomUUID();
+  clientId = sessionStorage.getItem("kavla.agent.client") || randomUUID();
   sessionStorage.setItem("kavla.agent.client", clientId);
 } catch {
-  clientId = crypto.randomUUID();
+  clientId = randomUUID();
 }
 export const agentClientId = clientId;
 export const isAgentRunActive = (run: AgentRun) => ["planning", "running", "waiting_for_tool"].includes(run.status);

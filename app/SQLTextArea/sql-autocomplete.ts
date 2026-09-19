@@ -2,6 +2,7 @@ import { autocompletion, CompletionContext, CompletionSource } from "@codemirror
 import { syntaxTree } from "@codemirror/language";
 import { getCachedRemoteColumnStats, type RemoteSourceInfo } from "./remote-column-stats";
 import { quoteIdentifier, quoteSqlString, quoteDottedIdentifier } from "../src/duckdb/sql";
+import { randomUUID } from "../util/randomUUID";
 import {
   createSqlNameLookup,
   findMentionedTables,
@@ -63,7 +64,7 @@ export const createSqlAutocomplete = (
                 source.fullTableRef,
                 col.name,
                 col.type,
-                `autocomplete:${crypto.randomUUID()}`,
+                `autocomplete:${randomUUID()}`,
                 source.tableSql
               );
               const distinctCount = stats?.distinctCount ?? 0;
@@ -85,7 +86,7 @@ export const createSqlAutocomplete = (
                     sourceName: source.sourceName,
                     sourceType: source.sourceType,
                     sourceNative: true,
-                    shapeId: `autocomplete:${crypto.randomUUID()}`,
+                    shapeId: `autocomplete:${randomUUID()}`,
                     transient: true,
                   });
                   optionsData = result.sampleRows.map((row) => ({ value: String(row.val), count: Number(row.cnt) }));
