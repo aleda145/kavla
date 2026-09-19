@@ -1,5 +1,6 @@
 import { tableFromIPC } from "apache-arrow";
 import { atom } from "tldraw";
+import { canvasApiURL, editorToken } from "./canvasConnection";
 
 export const backendRevision = atom("backendRevision", 0);
 export const isBackendComputing = atom("isBackendComputing", false);
@@ -8,14 +9,41 @@ let documentId: string | null = null;
 export function setBackendDocument(id: string | null): void {
   documentId = id;
 }
+const pendingRequests = new Set<Promise<Response>>();
 export function sessionFetch(path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   if (documentId) headers.set("X-Kavla-Document-ID", documentId);
-  return fetch(path, { credentials: "same-origin", ...init, headers }).catch((error: unknown) => {
-    if (error instanceof TypeError)
-      throw new Error("Cannot reach the Kavla backend. Reconnect to the CLI or desktop app and try again.");
-    throw error;
-  });
+  const token = editorToken();
+  if (token) headers.set("X-Kavla-Editor", token);
+  const method = init?.method?.toUpperCase() ?? "GET";
+  const navigation = path === "/api/session/load-path" || path === "/api/session/new";
+  if (method !== "GET" && !navigation && !token) {
+    return Promise.reject(
+      new Error("This tab is not connected as the canvas editor. Reconnect before making changes.")
+    );
+  }
+  const request = fetch(canvasApiURL(path), { credentials: "same-origin", ...init, headers }).catch(
+    (error: unknown) => {
+      if (error instanceof TypeError)
+        throw new Error("Cannot reach the Kavla backend. Reconnect to the server and try again.");
+      throw error;
+    }
+  );
+  pendingRequests.add(request);
+  void request.then(
+    () => pendingRequests.delete(request),
+    () => pendingRequests.delete(request)
+  );
+  return request;
+}
+export function hasPendingBackendOperations(): boolean {
+  return pendingRequests.size > 0 || activeOperations > 0;
+}
+export async function waitForBackendOperations(): Promise<void> {
+  do {
+    await Promise.all([...pendingRequests]);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  } while (pendingRequests.size > 0 || activeOperations > 0);
 }
 export function resetBackendCaches(): void {
   backendRevision.set(backendRevision.get() + 1);

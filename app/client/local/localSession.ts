@@ -1,3 +1,4 @@
+import { canvasApiURL, disconnectCanvas } from "../canvasConnection";
 import { sessionFetch, setBackendDocument, resetBackendCaches } from "../backendCompute";
 import type { LensShape } from "../../Lens/lens-shape-types";
 import type { Editor, TLAssetPartial, TLCamera } from "tldraw";
@@ -51,9 +52,19 @@ export type SaveLocalSessionResult = {
   path: string;
   documentName: string;
   fileSize: number;
+  canvasUrl: string;
 };
 
 export class KavlaSaveConflictError extends Error {}
+
+async function sessionErrorMessage(response: Response): Promise<string> {
+  const text = await response.text();
+  if (response.headers.get("Content-Type")?.includes("application/json")) {
+    const body = JSON.parse(text) as { error?: string };
+    return body.error || text;
+  }
+  return text;
+}
 
 let activeSession: KavlaLocalSession | null = null;
 let canvasStageQueue: Promise<void> = Promise.resolve();
@@ -73,6 +84,11 @@ function updateDocumentTitle(documentName: string): void {
   document.title = `Kavla - ${canvasName}`;
 }
 
+export function clearLocalSession(): void {
+  activeSession = null;
+  setBackendDocument(null);
+}
+
 export function getActiveLocalSession(): KavlaLocalSession | null {
   return activeSession;
 }
@@ -82,7 +98,7 @@ export function getSessionBlob(kind: KavlaBlobKind, shapeId: string): KavlaBlobD
 }
 
 export function getSessionBlobUrl(blobId: string): string {
-  const url = new URL(`/api/session/blobs/${encodeURIComponent(blobId)}`, window.location.origin);
+  const url = new URL(canvasApiURL(`/api/session/blobs/${encodeURIComponent(blobId)}`), window.location.origin);
   const descriptor = activeSession?.blobs.find((blob) => blob.id === blobId);
   if (descriptor) {
     url.searchParams.set("v", descriptor.sha256);
@@ -98,8 +114,7 @@ export async function discoverLocalSession(): Promise<KavlaLocalSession | null> 
   });
   const contentType = response.headers.get("Content-Type") ?? "";
   if (response.status === 404 || contentType.includes("text/html")) {
-    activeSession = null;
-    return null;
+    throw new Error("This canvas could not be found on the server.");
   }
   if (!response.ok) {
     throw new Error(`Local Kavla session failed with status ${response.status}`);
@@ -203,8 +218,9 @@ export function serializeLocalCanvasJson(editor: Editor, includeCurrentCamera = 
 }
 
 export function stageCanvas(editor: Editor, includeCurrentCamera = false): Promise<void> {
+  const session = activeSession;
   const operation = canvasStageQueue.then(async () => {
-    if (!activeSession) return;
+    if (!session || activeSession !== session) return;
 
     const canvasJson = serializeLocalCanvasJson(editor, includeCurrentCamera);
     if (canvasJson === activeSession.canvasJson) return;
@@ -217,7 +233,7 @@ export function stageCanvas(editor: Editor, includeCurrentCamera = false): Promi
     if (!response.ok) {
       throw new Error(`Could not stage canvas (status ${response.status})`);
     }
-    activeSession.canvasJson = canvasJson;
+    if (activeSession === session) session.canvasJson = canvasJson;
   });
   canvasStageQueue = operation.catch(() => undefined);
   return operation;
@@ -231,7 +247,7 @@ export async function saveLocalSession(): Promise<SaveLocalSessionResult | null>
     credentials: "same-origin",
   });
   if (!response.ok) {
-    const message = await response.text();
+    const message = await sessionErrorMessage(response);
     throw new Error(message || `Could not save .kavla file (status ${response.status})`);
   }
   const result = (await response.json()) as SaveLocalSessionResult;
@@ -242,16 +258,13 @@ export async function saveLocalSession(): Promise<SaveLocalSessionResult | null>
 }
 
 export async function listLocalSessionDirectory(path?: string): Promise<KavlaDirectoryListing> {
-  if (!activeSession) {
-    throw new Error("Open Kavla through the CLI to choose a save location");
-  }
   const params = path ? `?${new URLSearchParams({ path }).toString()}` : "";
   const response = await sessionFetch(`/api/session/directories${params}`, {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
   });
   if (!response.ok) {
-    const message = await response.text();
+    const message = await sessionErrorMessage(response);
     throw new Error(message || `Could not list save directory (status ${response.status})`);
   }
   return (await response.json()) as KavlaDirectoryListing;
@@ -261,6 +274,7 @@ export async function saveLocalSessionAs(options: SaveLocalSessionOptions): Prom
   if (!activeSession) {
     throw new Error("Open Kavla through the CLI to save .kavla documents");
   }
+  await canvasStageQueue;
   const response = await sessionFetch("/api/session/save-as", {
     method: "POST",
     credentials: "same-origin",
@@ -268,23 +282,26 @@ export async function saveLocalSessionAs(options: SaveLocalSessionOptions): Prom
     body: JSON.stringify(options),
   });
   if (response.status === 409) {
-    throw new KavlaSaveConflictError((await response.text()) || "The selected Kavla document already exists");
+    throw new KavlaSaveConflictError(
+      (await sessionErrorMessage(response)) || "The selected Kavla document already exists"
+    );
   }
   if (!response.ok) {
-    const message = await response.text();
+    const message = await sessionErrorMessage(response);
     throw new Error(message || `Could not save .kavla file (status ${response.status})`);
   }
   const result = (await response.json()) as SaveLocalSessionResult;
   activeSession.documentName = result.documentName;
   activeSession.fileSize = result.fileSize;
   updateDocumentTitle(result.documentName);
+  if (result.canvasUrl !== window.location.pathname.replace(/\/$/, "")) {
+    disconnectCanvas();
+    window.location.assign(result.canvasUrl);
+  }
   return result;
 }
 
-export async function loadLocalSessionPath(path: string): Promise<void> {
-  if (!activeSession) {
-    throw new Error("Open Kavla through the CLI to load .kavla documents");
-  }
+export async function loadLocalSessionPath(path: string): Promise<{ canvasUrl: string }> {
   const response = await sessionFetch("/api/session/load-path", {
     method: "POST",
     credentials: "same-origin",
@@ -292,18 +309,16 @@ export async function loadLocalSessionPath(path: string): Promise<void> {
     body: JSON.stringify({ path }),
   });
   if (!response.ok) {
-    const message = await response.text();
+    const message = await sessionErrorMessage(response);
     throw new Error(message || `Could not load .kavla file (status ${response.status})`);
   }
+  return (await response.json()) as { canvasUrl: string };
 }
 
 export async function newLocalSession(
   options: SaveLocalSessionOptions,
   canvasJson: string
 ): Promise<SaveLocalSessionResult> {
-  if (!activeSession) {
-    throw new Error("Open Kavla through the CLI to create .kavla documents");
-  }
   const response = await sessionFetch("/api/session/new", {
     method: "POST",
     credentials: "same-origin",
@@ -311,10 +326,12 @@ export async function newLocalSession(
     body: JSON.stringify({ ...options, canvasJson }),
   });
   if (response.status === 409) {
-    throw new KavlaSaveConflictError((await response.text()) || "The selected Kavla document already exists");
+    throw new KavlaSaveConflictError(
+      (await sessionErrorMessage(response)) || "The selected Kavla document already exists"
+    );
   }
   if (!response.ok) {
-    const message = await response.text();
+    const message = await sessionErrorMessage(response);
     throw new Error(message || `Could not create .kavla file (status ${response.status})`);
   }
   return (await response.json()) as SaveLocalSessionResult;
@@ -340,7 +357,7 @@ export async function stageSessionBlob(options: {
     body: options.file,
   });
   if (!response.ok) {
-    const message = await response.text();
+    const message = await sessionErrorMessage(response);
     throw new Error(message || `Could not stage ${options.kind} data (status ${response.status})`);
   }
 
@@ -369,6 +386,15 @@ export async function downloadSessionBlob(blobId: string): Promise<File> {
   return new File([await response.blob()], descriptor.fileName, {
     type: descriptor.mimeType || "application/octet-stream",
   });
+}
+
+export async function finishEditorTransfer(requestId: string, error?: string): Promise<void> {
+  const response = await sessionFetch("/api/session/transfer", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId, error }),
+  });
+  if (!response.ok) throw new Error((await sessionErrorMessage(response)) || "Could not save and transfer the canvas");
 }
 
 export async function closeLocalSession(): Promise<void> {

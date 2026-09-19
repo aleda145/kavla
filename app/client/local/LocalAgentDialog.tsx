@@ -1,3 +1,4 @@
+import { sessionFetch } from "../backendCompute";
 import { notifyAgentAuth, useAgentAuth, type AgentAuth } from "../localServer/agentAuth";
 import { cancelAgentRun, agentRequest, isAgentRunActive, useAgentRuns } from "../localServer/agentRuns";
 import { useEffect, useState } from "react";
@@ -39,7 +40,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
   }, [auth.baseUrl, auth.model]);
   useEffect(() => {
     const controller = new AbortController();
-    void fetch("/api/agent/auth", { credentials: "same-origin", cache: "no-store", signal: controller.signal })
+    void sessionFetch("/api/agent/auth", { credentials: "same-origin", cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Could not load Agent authentication settings.");
         notifyAgentAuth(await response.json());

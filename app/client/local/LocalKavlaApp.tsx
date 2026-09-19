@@ -1,7 +1,24 @@
+import { getAgentRuns, isAgentRunActive, cancelAgentRun } from "../localServer/agentRuns";
+import {
+  canvasPersistenceKey,
+  connectCanvas,
+  disconnectCanvas,
+  saveAndOpenCanvas,
+  getCanvasConnection,
+  subscribeRuntimeEvents,
+  useCanvasConnection,
+} from "../canvasConnection";
+import { waitForBackendOperations, hasPendingBackendOperations } from "../backendCompute";
+import { LocalSaveDialog } from "./LocalSaveDialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getAssetUrlsByImport } from "@tldraw/assets/imports.vite";
 import {
   defaultShapeUtils,
+  createTLStore,
+  DocumentRecordType,
+  PageRecordType,
+  TLDOCUMENT_ID,
+  getIndexAbove,
   Editor,
   getUserPreferences,
   setUserPreferences,
@@ -30,6 +47,8 @@ import { LocalServerProvider, useData } from "../useLocalServer";
 import { localUiOverrides, useLocalComponents } from "./localUi";
 import {
   closeLocalSession,
+  clearLocalSession,
+  finishEditorTransfer,
   discoverLocalSession,
   loadCanvasJson,
   loadLocalSessionPath,
@@ -70,20 +89,27 @@ const customAssetUrls: TLUiAssetUrlOverrides = {
   },
 };
 
-function createEmptyCanvasJson(editor: Editor): string {
-  const records = Object.values(editor.store.serialize("document")).filter(
-    (record) => record.typeName !== "shape" && record.typeName !== "binding" && record.typeName !== "asset"
-  );
+function createEmptyCanvasJson(): string {
+  const store = createTLStore({ shapeUtils: localShapeUtils, bindingUtils: [KavlaArrowBindingUtil] });
+  store.put([
+    DocumentRecordType.create({ id: TLDOCUMENT_ID }),
+    PageRecordType.create({ id: PageRecordType.createId(), name: "Page 1", index: getIndexAbove(null) }),
+  ]);
   return JSON.stringify({
     tldrawFileFormatVersion: 1,
-    schema: editor.store.schema.serialize(),
-    records,
+    schema: store.schema.serialize(),
+    records: Object.values(store.serialize("document")),
   });
 }
 
 const CANVAS_STAGE_IDLE_MS = 2_000;
+type PendingEditorTransfer = { id: string; cancelled: boolean };
 
 function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
+  const connection = useCanvasConnection();
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
+  const transferRef = useRef<PendingEditorTransfer | null>(null);
   const [isDocumentDirty, setIsDocumentDirty] = useState(false);
   useEffect(() => {
     const markUploadsDirty = () => {
@@ -103,6 +129,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const saveTimerRef = useRef<number | null>(null);
   const loadedRef = useRef(false);
   const loadingDocumentRef = useRef(false);
+  const navigationCommittedRef = useRef(false);
   const documentRevisionRef = useRef(0);
   const { addToast } = useToasts();
   const { deleteShapes } = useData();
@@ -119,6 +146,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   );
 
   const saveCurrentSession = useCallback(async () => {
+    if (loadingDocumentRef.current) return;
     if (!session) {
       addToast({
         title: "CLI required",
@@ -148,45 +176,154 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
     }
   }, [addToast, session, stageCurrentCanvas]);
 
+  const prepareCanvasForSave = useCallback(async () => {
+    if (loadingDocumentRef.current) throw new Error("A canvas is already being opened.");
+    loadingDocumentRef.current = true;
+    setIsNavigating(true);
+    editorRef.current?.updateInstanceState({ isReadonly: true });
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+    await Promise.all(
+      getAgentRuns()
+        .filter(isAgentRunActive)
+        .map((run) => cancelAgentRun(run.id))
+    );
+    await waitForBackendOperations();
+    await stageCurrentCanvas(true);
+  }, [stageCurrentCanvas]);
+
+  const prepareNavigation = useCallback(async () => {
+    await prepareCanvasForSave();
+    await saveLocalSession();
+    setIsDocumentDirty(false);
+  }, [prepareCanvasForSave]);
+
+  useEffect(() => {
+    const resume = (request: PendingEditorTransfer) => {
+      request.cancelled = true;
+      if (transferRef.current !== request) return;
+      transferRef.current = null;
+      loadingDocumentRef.current = false;
+      setIsNavigating(false);
+      setIsTransferring(false);
+      setIsDocumentSaving(false);
+    };
+    const unsubscribe = subscribeRuntimeEvents((event) => {
+      if (event.stream !== "editor") return;
+      const { requestId } = event.data as { requestId: string };
+      if (event.name === "transfer-cancelled") {
+        const request = transferRef.current;
+        if (request?.id === requestId) resume(request);
+        return;
+      }
+      if (event.name !== "save-request" || transferRef.current) return;
+      if (loadingDocumentRef.current) {
+        void finishEditorTransfer(requestId, "The other session is opening a canvas. Try again in a moment.").catch(
+          (error: unknown) => {
+            console.error("Could not decline the canvas transfer", error);
+          }
+        );
+        return;
+      }
+      const request: PendingEditorTransfer = { id: requestId, cancelled: false };
+      transferRef.current = request;
+      setIsTransferring(true);
+      setIsDocumentSaving(true);
+      void (async () => {
+        try {
+          if (!editorRef.current || !loadedRef.current)
+            throw new Error("The canvas is still opening. Try again in a moment.");
+          await prepareCanvasForSave();
+          if (request.cancelled) return;
+          await finishEditorTransfer(request.id);
+          if (!request.cancelled) setIsDocumentDirty(false);
+          // Stay frozen until the server confirms transfer or cancellation.
+        } catch (error) {
+          if (request.cancelled) return;
+          const message = error instanceof Error ? error.message : String(error);
+          addToast({ title: "Could not transfer canvas", description: message, severity: "error" });
+          // A lost HTTP response can follow a successful save. Keep editing
+          // paused until the server confirms cancellation or ownership changes.
+          void finishEditorTransfer(request.id, message).catch((reportError: unknown) => {
+            console.error("Could not report the failed canvas transfer", reportError);
+          });
+        }
+      })();
+    });
+    return () => {
+      unsubscribe();
+      const request = transferRef.current;
+      if (request) request.cancelled = true;
+      transferRef.current = null;
+    };
+  }, [addToast, prepareCanvasForSave]);
+
   const loadDocument = useCallback(
     async (path: string) => {
-      if (!session) {
-        throw new Error("Run Kavla through the CLI to load .kavla documents.");
-      }
-      loadingDocumentRef.current = true;
       try {
-        await loadLocalSessionPath(path);
-        window.location.reload();
+        await prepareNavigation();
+        const result = await loadLocalSessionPath(path);
+        navigationCommittedRef.current = true;
+        disconnectCanvas();
+        window.location.assign(result.canvasUrl);
       } catch (error) {
         loadingDocumentRef.current = false;
+        setIsNavigating(false);
         throw error;
       }
     },
-    [session]
+    [prepareNavigation]
   );
 
   const newDocument = useCallback(
     async (options: SaveLocalSessionOptions) => {
-      if (!session) {
-        throw new Error("Run Kavla through the CLI to create .kavla documents.");
-      }
-      const editor = editorRef.current;
-      if (!editor) {
-        throw new Error("The Kavla canvas is not ready yet.");
-      }
-      const emptyCanvasJson = createEmptyCanvasJson(editor);
-      loadingDocumentRef.current = true;
       try {
-        const result = await newLocalSession(options, emptyCanvasJson);
-        window.location.reload();
+        await prepareNavigation();
+        const result = await newLocalSession(options, createEmptyCanvasJson());
+        navigationCommittedRef.current = true;
+        disconnectCanvas();
+        window.location.assign(result.canvasUrl);
         return result;
       } catch (error) {
         loadingDocumentRef.current = false;
+        setIsNavigating(false);
         throw error;
       }
     },
-    [session]
+    [prepareNavigation]
   );
+
+  useEffect(() => {
+    if (connection.status === "ready" || !transferRef.current) return;
+    transferRef.current.cancelled = true;
+    transferRef.current = null;
+    loadingDocumentRef.current = false;
+    setIsNavigating(false);
+    setIsTransferring(false);
+    setIsDocumentSaving(false);
+  }, [connection.status]);
+
+  useEffect(() => {
+    editorRef.current?.updateInstanceState({ isReadonly: isNavigating || connection.status !== "ready" });
+    if (connection.status === "ready" && loadedRef.current && !isNavigating) {
+      void stageCurrentCanvas().catch((error: unknown) => {
+        addToast({
+          title: "Could not stage changes",
+          description: error instanceof Error ? error.message : String(error),
+          severity: "error",
+        });
+      });
+    }
+  }, [isNavigating, connection.status, stageCurrentCanvas, addToast]);
+
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if ((!isDocumentDirty && !hasPendingBackendOperations()) || navigationCommittedRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [isDocumentDirty]);
 
   useEffect(() => {
     const handleSave = async (event: KeyboardEvent) => {
@@ -203,7 +340,9 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
       if (loadingDocumentRef.current) return;
       void stageCurrentCanvas()
         .catch((error) => console.error("Could not stage Kavla canvas before closing", error))
-        .finally(() => void closeLocalSession());
+        .then(() => closeLocalSession())
+        .catch((error) => console.error("Could not save canvas before closing", error))
+        .finally(disconnectCanvas);
     };
     window.addEventListener("pagehide", handlePageHide);
     return () => window.removeEventListener("pagehide", handlePageHide);
@@ -212,6 +351,9 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const onMount = useCallback(
     async (editor: Editor) => {
       editorRef.current = editor;
+      editor.updateInstanceState({
+        isReadonly: getCanvasConnection().status !== "ready" || loadingDocumentRef.current,
+      });
       rightDragCleanupRef.current?.();
       rightDragCleanupRef.current = enableRightClickDragPan(editor);
       editor.registerExternalAssetHandler("url", getBookmarkAsset);
@@ -221,10 +363,19 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         if (session.canvasJson) {
           loadCanvasJson(editor, session.canvasJson);
         }
-        await stageCurrentCanvas();
-        if (!session.canvasJson) {
-          const savedDocument = await saveLocalSession();
-          setDocumentFileSize(savedDocument?.fileSize ?? null);
+        const isNewDocument = !session.canvasJson;
+        try {
+          await stageCurrentCanvas();
+          if (isNewDocument) {
+            const savedDocument = await saveLocalSession();
+            setDocumentFileSize(savedDocument?.fileSize ?? null);
+          }
+        } catch (error) {
+          addToast({
+            title: "Could not stage changes",
+            description: error instanceof Error ? error.message : String(error),
+            severity: "error",
+          });
         }
       }
 
@@ -302,16 +453,25 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   }, []);
 
   return (
-    <LocalCanvasMount
-      documentFileSize={documentFileSize}
-      isDocumentDirty={isDocumentDirty}
-      isDocumentSaving={isDocumentSaving}
-      onLoadDocument={loadDocument}
-      onMount={onMount}
-      onNewDocument={newDocument}
-      onSaveDocument={saveCurrentSession}
-      session={session}
-    />
+    <>
+      <LocalCanvasMount
+        documentFileSize={documentFileSize}
+        isDocumentDirty={isDocumentDirty}
+        isDocumentSaving={isDocumentSaving}
+        onLoadDocument={loadDocument}
+        onMount={onMount}
+        onNewDocument={newDocument}
+        onSaveDocument={saveCurrentSession}
+        session={session}
+      />
+      {isTransferring && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#f8f7f4]/95 p-8">
+          <div className="rounded-xl border-4 border-black bg-blue-100 p-6 font-bold">
+            Saving your changes before opening this canvas in another session…
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -348,7 +508,7 @@ function LocalCanvasMount({
 
   return (
     <Tldraw
-      persistenceKey={`kavla-${session?.documentId ?? "browser"}`}
+      persistenceKey={canvasPersistenceKey()}
       onMount={(editor) => void onMount(editor)}
       shapeUtils={localShapeUtils}
       bindingUtils={bindingUtils}
@@ -362,46 +522,131 @@ function LocalCanvasMount({
   );
 }
 
+function CanvasUnavailable({
+  message,
+  canChoose,
+  canTransfer = false,
+}: {
+  message: string;
+  canChoose: boolean;
+  canTransfer?: boolean;
+}) {
+  const [mode, setMode] = useState<"load" | "new" | null>(null);
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#f8f7f4]/95 p-8">
+      <div className="max-w-xl rounded-xl border-4 border-black bg-yellow-100 p-6 shadow-[6px_6px_0_0_#000]">
+        <h1 className="mb-2 text-xl font-black">Canvas unavailable</h1>
+        <p className="font-mono text-sm">{message}</p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            className="rounded border-2 border-black bg-white px-3 py-1 font-bold"
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </button>
+          {canTransfer && (
+            <button
+              className="rounded border-2 border-black bg-blue-100 px-3 py-1 font-bold"
+              onClick={saveAndOpenCanvas}
+            >
+              Save and open here
+            </button>
+          )}
+          {canChoose && (
+            <>
+              <button
+                className="rounded border-2 border-black bg-green-100 px-3 py-1 font-bold"
+                onClick={() => setMode("load")}
+              >
+                Open
+              </button>
+              <button
+                className="rounded border-2 border-black bg-yellow-200 px-3 py-1 font-bold"
+                onClick={() => setMode("new")}
+              >
+                New
+              </button>
+            </>
+          )}
+        </div>
+        {canTransfer && (
+          <p className="mt-3 text-sm">
+            The other session will save its latest changes and uploads before this canvas opens here. If it cannot save
+            or respond, it keeps the canvas.
+          </p>
+        )}
+        {mode && (
+          <LocalSaveDialog
+            documentName="Canvas"
+            mode={mode}
+            onClose={() => setMode(null)}
+            onLoad={async (path) => {
+              const result = await loadLocalSessionPath(path);
+              disconnectCanvas();
+              window.location.assign(result.canvasUrl);
+            }}
+            onSave={async (options) => {
+              const result = await newLocalSession(options, createEmptyCanvasJson());
+              disconnectCanvas();
+              window.location.assign(result.canvasUrl);
+              return result;
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function LocalKavlaApp() {
+  const connection = useCanvasConnection();
   const [session, setSession] = useState<KavlaLocalSession | null>(null);
-  const [ready, setReady] = useState(false);
   const [initializationError, setInitializationError] = useState<string | null>(null);
 
   useEffect(() => {
     const preferences = { ...getUserPreferences(), colorScheme: "light" as const };
     setUserPreferences(preferences);
-    discoverLocalSession()
-      .then((nextSession) => {
-        setSession(nextSession);
-        setReady(true);
-      })
-      .catch((error) => {
-        console.error("Could not initialize Kavla", error);
-        setInitializationError(error instanceof Error ? error.message : String(error));
-        setReady(true);
-      });
+    connectCanvas();
   }, []);
 
-  if (!ready) {
-    return <div className="fixed inset-0 flex items-center justify-center bg-[#f8f7f4] font-bold">Opening Kavla…</div>;
-  }
+  useEffect(() => {
+    if (connection.status === "transferred") {
+      clearLocalSession();
+      setSession(null);
+    }
+  }, [connection.status]);
 
-  if (initializationError) {
+  useEffect(() => {
+    if (connection.status !== "ready" || session) return;
+    let cancelled = false;
+    discoverLocalSession()
+      .then((nextSession) => {
+        if (!cancelled) setSession(nextSession);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setInitializationError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connection.status, session]);
+
+  if (initializationError) return <CanvasUnavailable message={initializationError} canChoose />;
+  if (!session) {
+    if (connection.status === "blocked" || connection.status === "transferred")
+      return <CanvasUnavailable message={connection.message} canChoose canTransfer={connection.status === "blocked"} />;
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[#f8f7f4] p-8">
-        <div className="max-w-xl rounded-xl border-4 border-black bg-red-100 p-6 shadow-[6px_6px_0_0_#000]">
-          <h1 className="mb-2 text-xl font-black">Kavla could not open this document</h1>
-          <p className="font-mono text-sm">{initializationError}</p>
-        </div>
+      <div className="fixed inset-0 flex items-center justify-center bg-[#f8f7f4] font-bold">
+        {connection.message || "Opening canvas…"}
       </div>
     );
   }
-
   return (
     <div className="fixed inset-0">
       <LocalServerProvider>
         <SessionLifecycle session={session} />
       </LocalServerProvider>
+      {connection.status !== "ready" && <CanvasUnavailable message={connection.message} canChoose={false} />}
     </div>
   );
 }

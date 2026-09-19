@@ -1,3 +1,9 @@
+import {
+  subscribeRuntimeEvents,
+  subscribeCanvasConnection,
+  getCanvasConnection,
+  type RuntimeEvent,
+} from "../canvasConnection";
 import { withBackendActivity, sessionFetch, resetBackendCaches } from "../backendCompute";
 import { loadQueryResultRows } from "../loadQueryResultRows";
 import { notifyAgentAuth } from "./agentAuth";
@@ -72,21 +78,13 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const url = new URL("/api/runtime/events", window.location.href);
-    url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    let socket: WebSocket | null = null;
-    let reconnectTimer: number | undefined;
-    let connectTimer: number | undefined;
-    let reconnectDelay = 1000;
-    let stopped = false;
-
-    const disconnected = () => {
-      notifyCliStatus(false);
-      notifyAgentStatus({ state: "error", message: "The Kavla server connection is disconnected. Reconnecting…" });
-    };
-
-    const receiveEvent = (message: MessageEvent<string>) => {
-      const event = JSON.parse(message.data) as { stream: "cli" | "agent"; name: string; data: unknown };
+    const unsubscribeConnection = subscribeCanvasConnection(() => {
+      if (getCanvasConnection().status !== "ready") {
+        notifyCliStatus(false);
+        notifyAgentStatus({ state: "error", message: "The server connection is disconnected. Reconnecting…" });
+      }
+    });
+    const receiveEvent = (event: RuntimeEvent) => {
       if (event.stream === "cli") {
         switch (event.name) {
           case "snapshot": {
@@ -139,57 +137,11 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const connect = () => {
-      if (stopped || socket) return;
-      const connection = new WebSocket(url);
-      socket = connection;
-      connectTimer = window.setTimeout(() => connection.close(), 10000);
-      connection.onopen = () => {
-        window.clearTimeout(connectTimer);
-        reconnectDelay = 1000;
-      };
-      connection.onmessage = receiveEvent;
-      connection.onerror = disconnected;
-      connection.onclose = () => {
-        window.clearTimeout(connectTimer);
-        socket = null;
-        if (stopped) return;
-        disconnected();
-        reconnectTimer = window.setTimeout(connect, reconnectDelay);
-        reconnectDelay = Math.min(reconnectDelay * 2, 15000);
-      };
-    };
-
-    const disconnect = () => {
-      window.clearTimeout(reconnectTimer);
-      window.clearTimeout(connectTimer);
-      if (socket) {
-        socket.onopen = null;
-        socket.onmessage = null;
-        socket.onerror = null;
-        socket.onclose = null;
-        socket.close();
-        socket = null;
-      }
-      notifyCliStatus(false);
-    };
-    const onPageHide = () => {
-      stopped = true;
-      disconnect();
-    };
-    const onPageShow = () => {
-      stopped = false;
-      connect();
-    };
-    window.addEventListener("pagehide", onPageHide);
-    window.addEventListener("pageshow", onPageShow);
-    connect();
-
+    const unsubscribeEvents = subscribeRuntimeEvents(receiveEvent);
     return () => {
-      stopped = true;
-      window.removeEventListener("pagehide", onPageHide);
-      window.removeEventListener("pageshow", onPageShow);
-      disconnect();
+      unsubscribeEvents();
+      unsubscribeConnection();
+      notifyCliStatus(false);
     };
   }, []);
 

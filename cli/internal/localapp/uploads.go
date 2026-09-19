@@ -332,7 +332,7 @@ func (s *Server) documentRequests(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		exclusive := r.Method != http.MethodGet && (strings.HasPrefix(r.URL.Path, "/api/session/uploads") || strings.HasPrefix(r.URL.Path, "/api/cli/sources") || strings.HasPrefix(r.URL.Path, "/api/session/blobs") || r.URL.Path == "/api/session/document" || r.URL.Path == "/api/session/save" || r.URL.Path == "/api/session/save-as" || r.URL.Path == "/api/session/close" || r.URL.Path == "/api/session/load-path" || r.URL.Path == "/api/session/new")
+		exclusive := r.Method != http.MethodGet && (strings.HasPrefix(r.URL.Path, "/api/session/uploads") || strings.HasPrefix(r.URL.Path, "/api/cli/sources") || strings.HasPrefix(r.URL.Path, "/api/session/blobs") || r.URL.Path == "/api/session/document" || r.URL.Path == "/api/session/save" || r.URL.Path == "/api/session/transfer" || r.URL.Path == "/api/session/save-as" || r.URL.Path == "/api/session/close" || r.URL.Path == "/api/session/load-path" || r.URL.Path == "/api/session/new")
 		if exclusive {
 			s.documentGate.Lock()
 			defer s.documentGate.Unlock()
@@ -343,6 +343,15 @@ func (s *Server) documentRequests(next http.Handler) http.Handler {
 		if documentID := r.Header.Get("X-Kavla-Document-ID"); documentID != "" && documentID != s.document.Manifest().DocumentID {
 			writeAPIError(w, http.StatusConflict, fmt.Errorf("the active document changed; reload the canvas"))
 			return
+		}
+		if r.Method != http.MethodGet {
+			s.transferMu.Lock()
+			saved := s.transfer != nil && s.transfer.saved
+			s.transferMu.Unlock()
+			if saved {
+				writeAPIError(w, http.StatusConflict, fmt.Errorf("the canvas has been saved and is being opened in another session"))
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})

@@ -1,3 +1,4 @@
+import { sessionFetch } from "../backendCompute";
 import type { LocalServerContextType } from "./types";
 import { useSyncExternalStore } from "react";
 import { getActiveLocalSession } from "../local/localSession";
@@ -78,7 +79,7 @@ export function useAgentRuns() {
   }, getAgentRuns);
 }
 export async function agentRequest<T>(path: string, payload: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`/api/agent/${path}`, {
+  const response = await sessionFetch(`/api/agent/${path}`, {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },

@@ -2,6 +2,10 @@ package localapp
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+
+	"github.com/google/uuid"
 	"net/http"
 	"time"
 
@@ -18,6 +22,15 @@ type runtimeSocketEvent struct {
 // One WebSocket carries both event streams without occupying the browser's
 // HTTP connection pool, which is shared by uploads and other open Kavla tabs.
 func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
+	settingsHeld := s.canvases != nil
+	if settingsHeld {
+		s.canvases.settings.RLock()
+	}
+	defer func() {
+		if settingsHeld {
+			s.canvases.settings.RUnlock()
+		}
+	}()
 	connection, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
@@ -34,8 +47,8 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 		s.workerMu.Unlock()
 		return
 	}
-	s.workers.Add(1)
-	defer s.workers.Done()
+	s.connections.Add(1)
+	defer s.connections.Done()
 	s.eventMu.Lock()
 	s.eventSubscribers[cliEvents] = struct{}{}
 	s.eventMu.Unlock()
@@ -58,6 +71,67 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 		return wsjson.Write(writeContext, connection, runtimeSocketEvent{
 			Stream: stream, Name: event.name, Data: event.data,
 		})
+	}
+
+	var revoked <-chan struct{}
+	var editorEvents <-chan cliRuntimeEvent
+	if s.canvases != nil {
+		client := r.URL.Query().Get("client")
+		previousGeneration := r.URL.Query().Get("generation")
+		transfer := r.URL.Query().Get("transfer") == "true"
+		// Waiting for the other browser must not block its save requests or
+		// shared settings changes. This connection is already tracked for shutdown.
+		s.canvases.settings.RUnlock()
+		settingsHeld = false
+		var token, generation, event string
+		if transfer {
+			if err := write("editor", cliRuntimeEvent{name: "opening", data: map[string]string{"message": "Waiting for the other session to save…"}}); err != nil {
+				return
+			}
+			token, generation, err = s.transferEditor(ctx, client)
+			event = "blocked"
+		} else {
+			s.editorMu.Lock()
+			token, generation, event, err = s.acquireEditor(ctx, client, previousGeneration)
+			s.editorMu.Unlock()
+		}
+		if token == "" {
+			message := "This canvas is already open. Save and open it here, or choose another canvas."
+			if err != nil {
+				message = err.Error()
+			}
+			_ = write("editor", cliRuntimeEvent{name: event, data: map[string]string{"message": message}})
+			return
+		}
+		s.ownerMu.RLock()
+		revoked, editorEvents = s.ownerRevoked, s.ownerEvents
+		s.ownerMu.RUnlock()
+		defer func() {
+			s.editorMu.Lock()
+			defer s.editorMu.Unlock()
+			s.ownerMu.RLock()
+			current := s.ownerToken == token
+			cancel := s.ownerCancel
+			s.ownerMu.RUnlock()
+			if !current {
+				return
+			}
+			cancel()
+			s.cancelAgentRun("", "The canvas editor disconnected.")
+			s.ownerMu.Lock()
+			defer s.ownerMu.Unlock()
+			// Finish acknowledged writes before another editor can load this canvas.
+			s.documentGate.Lock()
+			if err := s.document.Save(); err != nil {
+				s.logCLIOutput("Could not save disconnected canvas: %v\n", err)
+			}
+			s.documentGate.Unlock()
+			s.ownerToken = ""
+			s.ownerCancel = nil
+		}()
+		if err := write("editor", cliRuntimeEvent{name: "ready", data: map[string]string{"token": token, "generation": generation}}); err != nil {
+			return
+		}
 	}
 
 	// Subscribe before taking snapshots so changes during initialization are
@@ -84,6 +158,13 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 	defer heartbeat.Stop()
 	for {
 		select {
+		case <-revoked:
+			_ = write("editor", cliRuntimeEvent{name: "transferred", data: map[string]string{"message": "Your canvas was saved and opened in another session."}})
+			return
+		case event := <-editorEvents:
+			if write("editor", event) != nil {
+				return
+			}
 		case event, open := <-cliEvents:
 			if !open || write("cli", event) != nil {
 				return
@@ -103,4 +184,57 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// editorMu serializes ownership transitions, including save-on-disconnect.
+func (s *Server) acquireEditor(ctx context.Context, client, previousGeneration string) (string, string, string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", "", "blocked", err
+	}
+	if client == "" {
+		return "", "", "blocked", fmt.Errorf("an editor client ID is required")
+	}
+	s.workerMu.Lock()
+	closing := s.closing
+	s.workerMu.Unlock()
+	if closing {
+		return "", "", "blocked", fmt.Errorf("Kavla is closing")
+	}
+	s.ownerMu.RLock()
+	busy, sameClient := s.ownerToken != "", s.ownerClient == client
+	generation := strconv.FormatUint(s.ownerGeneration, 10)
+	s.ownerMu.RUnlock()
+	if busy {
+		if sameClient {
+			return "", "", "retry", nil
+		}
+		return "", "", "blocked", nil
+	}
+	if previousGeneration != "" && previousGeneration != generation {
+		return "", "", "blocked", fmt.Errorf("another session opened this canvas; reload to use the saved version")
+	}
+	s.transferMu.Lock()
+	pending := s.transfer != nil
+	s.transferMu.Unlock()
+	if pending {
+		return "", "", "blocked", fmt.Errorf("the canvas is being transferred to another session")
+	}
+	s.ownerMu.Lock()
+	defer s.ownerMu.Unlock()
+	token, generation := s.grantEditor(ctx, client)
+	return token, generation, "ready", nil
+}
+
+// Both editorMu and ownerMu must be held by the caller.
+func (s *Server) grantEditor(ctx context.Context, client string) (string, string) {
+	if s.ownerClient != client {
+		s.ownerGeneration++
+		s.ownerClient = client
+	}
+	token := uuid.NewString()
+	s.ownerContext, s.ownerCancel = context.WithCancel(ctx)
+	s.ownerRevoked = make(chan struct{})
+	s.ownerEvents = make(chan cliRuntimeEvent, 8)
+	s.ownerToken = token
+	return token, strconv.FormatUint(s.ownerGeneration, 10)
 }

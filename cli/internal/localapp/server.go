@@ -47,6 +47,22 @@ type cliRuntimeEvent struct {
 }
 
 type Server struct {
+	canvasHandler   http.Handler
+	canvases        *canvasRegistry
+	canvasName      string
+	editorMu        sync.Mutex
+	ownerCancel     context.CancelFunc
+	ownerRevoked    chan struct{}
+	ownerEvents     chan cliRuntimeEvent
+	transferMu      sync.Mutex
+	transfer        *editorTransfer
+	ownerMu         sync.RWMutex
+	ownerContext    context.Context
+	ownerToken      string
+	ownerClient     string
+	ownerGeneration uint64
+	connections     sync.WaitGroup
+
 	documentGate sync.RWMutex
 	document     *Document
 	assets       fs.FS
@@ -111,9 +127,13 @@ func (s *Server) SetDocumentChangeHandler(handler func(documentName, documentPat
 func (s *Server) notifyDocumentChanged() {
 	documentName := s.document.Manifest().DocumentName
 	documentPath := s.document.Path()
-	s.documentChangeMu.RLock()
-	handler := s.documentChangeHandler
-	s.documentChangeMu.RUnlock()
+	owner := s
+	if s.canvases != nil {
+		owner = s.canvases.root
+	}
+	owner.documentChangeMu.RLock()
+	handler := owner.documentChangeHandler
+	owner.documentChangeMu.RUnlock()
 	if handler != nil {
 		handler(documentName, documentPath)
 	}
@@ -165,6 +185,7 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		return nil, fmt.Errorf("load agent run history: %w", err)
 	}
 	server.startAgentDetection()
+	server.canvasHandler = server.routes()
 	return server, nil
 }
 
@@ -251,10 +272,19 @@ func (s *Server) Start(host string, port int, fallbackIfPortIsBusy bool) (string
 			internalHost = "::1"
 		}
 	}
+	var handler http.Handler = http.HandlerFunc(s.handleStatic)
+	if s.document != nil {
+		registry, err := newCanvasRegistry(s)
+		if err != nil {
+			_ = listener.Close()
+			return "", err
+		}
+		handler = registry
+	}
 	s.listener = listener
 	s.baseURL = "http://" + net.JoinHostPort(internalHost, fmt.Sprintf("%d", actualPort))
 	s.http = &http.Server{
-		Handler:           s.routes(),
+		Handler:           s.securityHeaders(handler),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
@@ -264,12 +294,15 @@ func (s *Server) Start(host string, port int, fallbackIfPortIsBusy bool) (string
 		}
 	}()
 	launchURL := "http://" + net.JoinHostPort(advertisedHost, fmt.Sprintf("%d", actualPort))
-	return launchURL + "/", nil
+	return launchURL + s.canvasURL(), nil
 }
 
 func (s *Server) Close(ctx context.Context) error {
 	var closeErr error
 	s.shutdownOnce.Do(func() {
+		if s.canvases != nil && s.canvases.root == s {
+			closeErr = s.canvases.closeOthers(ctx)
+		}
 		s.workerMu.Lock()
 		s.closing = true
 		s.workerMu.Unlock()
@@ -286,12 +319,14 @@ func (s *Server) Close(ctx context.Context) error {
 			}
 		}
 		s.workers.Wait()
+		s.connections.Wait()
 		if err := s.queries.Close(); closeErr == nil && err != nil {
 			closeErr = err
 		}
 
-		if err := s.document.Save(); closeErr == nil && err != nil {
-			closeErr = err
+		if err := s.document.Save(); err != nil {
+			closeErr = errors.Join(closeErr, fmt.Errorf("save %s (working copy retained at %s): %w", s.document.Path(), s.document.workingDir, err))
+			return
 		}
 		if err := s.document.CleanupWorkingCopy(); closeErr == nil && err != nil {
 			closeErr = err
@@ -313,6 +348,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("GET /api/runtime/events", s.sameOriginMutation(s.handleRuntimeEvents))
 	mux.HandleFunc("PUT /api/session/document", s.sameOriginMutation(s.handleDocument))
+	mux.HandleFunc("POST /api/session/transfer", s.sameOriginMutation(s.handleEditorTransferResult))
 	mux.HandleFunc("POST /api/session/save", s.sameOriginMutation(s.handleSave))
 	mux.HandleFunc("POST /api/session/save-as", s.sameOriginMutation(s.handleSaveAs))
 	mux.HandleFunc("GET /api/session/directories", s.handleDirectories)
@@ -465,6 +501,7 @@ func (s *Server) writeSavedDocumentResponse(w http.ResponseWriter) {
 		"path":         s.document.Path(),
 		"documentName": manifest.DocumentName,
 		"fileSize":     fileSize,
+		"canvasUrl":    s.canvasURL(),
 	})
 }
 
@@ -575,6 +612,16 @@ func (s *Server) handleSaveAs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if s.canvases != nil {
+		if err := s.canvases.saveAs(s, targetPath, request.Overwrite); err != nil {
+			writeAPIError(w, 409, err)
+			return
+		}
+		s.publishAgentRuns(true)
+		s.notifyDocumentChanged()
+		s.writeSavedDocumentResponse(w)
+		return
+	}
 	if err := s.document.SaveAs(targetPath); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -599,6 +646,15 @@ func (s *Server) handleLoadPath(w http.ResponseWriter, r *http.Request) {
 	info, err := os.Stat(request.Path)
 	if err != nil || !info.Mode().IsRegular() {
 		http.Error(w, "selected Kavla document does not exist", http.StatusBadRequest)
+		return
+	}
+	if s.canvases != nil {
+		canvasURL, err := s.canvases.openPath(request.Path)
+		if err != nil {
+			writeAPIError(w, 409, err)
+			return
+		}
+		writeJSON(w, 200, map[string]string{"canvasUrl": canvasURL})
 		return
 	}
 	s.closeAgent()
@@ -632,6 +688,19 @@ func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, "invalid new document request", http.StatusBadRequest)
+		return
+	}
+	if s.canvases != nil {
+		next, err := s.canvases.newDocument(request.Directory, request.FileName, request.Overwrite, request.CanvasJSON)
+		if err != nil {
+			status := http.StatusBadRequest
+			if errors.Is(err, os.ErrExist) {
+				status = http.StatusConflict
+			}
+			writeAPIError(w, status, err)
+			return
+		}
+		next.writeSavedDocumentResponse(w)
 		return
 	}
 	targetPath, err := resolveSelectedDocumentPath(request.Directory, request.FileName)
@@ -1063,7 +1132,7 @@ func (s *Server) handleExportSourceTable(w http.ResponseWriter, r *http.Request)
 	}
 	s.logExport("source", request.TableRef, request.RowCount, request.Format, fileInfo.Size())
 	writeJSON(w, http.StatusCreated, map[string]string{
-		"downloadUrl": "/api/session/query-results/" + url.PathEscape(id),
+		"downloadUrl": s.scopedURL("/api/session/query-results/" + url.PathEscape(id)),
 		"fileName":    fileName,
 	})
 }
@@ -1144,7 +1213,7 @@ func (s *Server) handleExportQueryResult(w http.ResponseWriter, r *http.Request)
 	}
 	s.logExport("query", resultMetadata.Name, &resultMetadata.RowCount, request.Format, fileInfo.Size())
 	writeJSON(w, http.StatusCreated, map[string]string{
-		"downloadUrl": "/api/session/query-results/" + url.PathEscape(id),
+		"downloadUrl": s.scopedURL("/api/session/query-results/" + url.PathEscape(id)),
 		"fileName":    fileName,
 	})
 }
