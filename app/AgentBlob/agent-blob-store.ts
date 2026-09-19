@@ -144,7 +144,11 @@ export function setAgentBlobStatus(
   }
 
   const lastMessage = message ?? existingBlob.props.lastMessage;
-  if (existingBlob.props.status === status && existingBlob.props.currentJobId === jobId && existingBlob.props.lastMessage === lastMessage) {
+  if (
+    existingBlob.props.status === status &&
+    existingBlob.props.currentJobId === jobId &&
+    existingBlob.props.lastMessage === lastMessage
+  ) {
     return true;
   }
 
@@ -155,9 +159,10 @@ export function setAgentBlobStatus(
       status,
       currentJobId: jobId,
       lastMessage,
-      lastFinishedAt: status === "done" || status === "error"
-        ? (existingBlob.props.currentJobId === jobId ? existingBlob.props.lastFinishedAt : null) ?? Date.now()
-        : null,
+      lastFinishedAt:
+        status === "done" || status === "error"
+          ? ((existingBlob.props.currentJobId === jobId ? existingBlob.props.lastFinishedAt : null) ?? Date.now())
+          : null,
     },
   });
   editor.bringToFront([AGENT_BLOB_SHAPE_ID]);
@@ -173,10 +178,14 @@ export function removeAgentBlob(editor: Editor) {
 }
 
 export function startAgentBlob(editor: Editor, jobId: string, targetShapeId?: string) {
-  if (targetShapeId && moveAgentBlobToShape(editor, targetShapeId as TLShapeId, jobId, "Thinking", {
-    createIfMissing: true,
-    status: "thinking",
-  })) return;
+  if (
+    targetShapeId &&
+    moveAgentBlobToShape(editor, targetShapeId as TLShapeId, jobId, "Thinking", {
+      createIfMissing: true,
+      status: "thinking",
+    })
+  )
+    return;
   const center = editor.getViewportPageBounds().center;
   upsertAgentBlob(editor, {
     jobId,

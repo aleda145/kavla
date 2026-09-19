@@ -11,13 +11,13 @@ type Status struct {
 }
 
 type Model struct {
-	ID                     string                    `json:"id"`
-	Model                  string                    `json:"model"`
-	DisplayName            string                    `json:"displayName"`
-	Hidden                 bool                      `json:"hidden"`
-	DefaultReasoningEffort string                    `json:"defaultReasoningEffort,omitempty"`
+	ID                     string                     `json:"id"`
+	Model                  string                     `json:"model"`
+	DisplayName            string                     `json:"displayName"`
+	Hidden                 bool                       `json:"hidden"`
+	DefaultReasoningEffort string                     `json:"defaultReasoningEffort,omitempty"`
 	SupportedEfforts       []SupportedReasoningEffort `json:"supportedReasoningEfforts,omitempty"`
-	IsDefault              bool                      `json:"isDefault"`
+	IsDefault              bool                       `json:"isDefault"`
 }
 
 type SupportedReasoningEffort struct {

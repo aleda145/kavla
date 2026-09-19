@@ -1,8 +1,8 @@
 package localapp
 
 import (
+	"context"
 	"encoding/json"
- "context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -28,7 +28,7 @@ type cliSourceDefinitionResponse struct {
 }
 
 type cliSourceResponse struct {
- Builtin bool `json:"builtin,omitempty"`
+	Builtin    bool   `json:"builtin,omitempty"`
 	Name       string `json:"name"`
 	Type       string `json:"type"`
 	Connection string `json:"connection"`
@@ -91,7 +91,10 @@ func (s *Server) mutateCLISource(w http.ResponseWriter, r *http.Request, origina
 	}
 
 	name := strings.TrimSpace(request.Name)
- if strings.EqualFold(name, "uploaded_files") { http.Error(w, "uploaded_files is a built-in document source", 400); return }
+	if strings.EqualFold(name, "uploaded_files") {
+		http.Error(w, "uploaded_files is a built-in document source", 400)
+		return
+	}
 	if !cliSourceNamePattern.MatchString(name) {
 		http.Error(w, "source name must start with a letter and contain only letters, numbers, and underscores", http.StatusBadRequest)
 		return
@@ -160,7 +163,10 @@ func (s *Server) applyCLIConfig(config *kavlaconfig.Config) error {
 		return fmt.Errorf("start updated CLI sources: %w", err)
 	}
 
- if err := s.restoreUploads(context.Background(), nextSession); err != nil { _ = nextSession.Close(); return err }
+	if err := s.restoreUploads(context.Background(), nextSession); err != nil {
+		_ = nextSession.Close()
+		return err
+	}
 	s.workerMu.Lock()
 	if s.closing {
 		s.workerMu.Unlock()

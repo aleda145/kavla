@@ -68,7 +68,8 @@ export function restoreRemoteQueryView(
       sourceNative: executionState.sourceNativePreview,
       restore: true,
     });
-    if (backendRevision.get() !== revision) throw new MissingQueryResultError("The backend session changed. Reload this result.");
+    if (backendRevision.get() !== revision)
+      throw new MissingQueryResultError("The backend session changed. Reload this result.");
     restoredMetadata.set(currentShape.id, result);
     return result;
   })();

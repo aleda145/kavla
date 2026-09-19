@@ -65,12 +65,17 @@ export function useQueryResultRows({
     });
 
     void (async () => {
-
       try {
         {
           const resultShapeId = serverResultShapeId ?? sourceShapeId;
           const rowLimit = typeof limit === "number" ? Math.max(1, Math.floor(limit)) : null;
-          const loadRows = () => loadQueryResultRows(getQueryResultPage, resultShapeId, rowLimit === null ? null : rowLimit + 1, controller.signal);
+          const loadRows = () =>
+            loadQueryResultRows(
+              getQueryResultPage,
+              resultShapeId,
+              rowLimit === null ? null : rowLimit + 1,
+              controller.signal
+            );
           let loadedRows;
           try {
             loadedRows = await loadRows();
@@ -95,7 +100,6 @@ export function useQueryResultRows({
           }
           return;
         }
-
       } catch (error) {
         if (!cancelled) {
           setResult({
@@ -120,7 +124,7 @@ export function useQueryResultRows({
     sourceShapeId,
     sourceTableName,
     serverResultShapeId,
-      restoreServerResult,
+    restoreServerResult,
   ]);
 
   return result;

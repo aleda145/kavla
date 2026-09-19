@@ -13,22 +13,38 @@ export function resolveAgentDataShape(editor: Editor, shapeId: string): DataSour
   let shape = editor.getShape(shapeId as TLShapeId);
   while (shape && !seen.has(shape.id)) {
     seen.add(shape.id);
-    if (shape.type === "data-source" || shape.type === "sql-text-area") return shape as DataSourceShape | SQLTextAreaShape;
-    shape = "sourceShapeId" in shape.props && typeof shape.props.sourceShapeId === "string" ? editor.getShape(shape.props.sourceShapeId as TLShapeId) : undefined;
+    if (shape.type === "data-source" || shape.type === "sql-text-area")
+      return shape as DataSourceShape | SQLTextAreaShape;
+    shape =
+      "sourceShapeId" in shape.props && typeof shape.props.sourceShapeId === "string"
+        ? editor.getShape(shape.props.sourceShapeId as TLShapeId)
+        : undefined;
   }
   throw new Error("Choose a data source or a connected query, table, chart, or Lens.");
 }
 
-export async function getAgentDataPreview(editor: Editor, shapeId: string, data: AgentToolEnvironment["data"], limit: number | null = 5, signal?: AbortSignal): Promise<Record<string, unknown>[]> {
+export async function getAgentDataPreview(
+  editor: Editor,
+  shapeId: string,
+  data: AgentToolEnvironment["data"],
+  limit: number | null = 5,
+  signal?: AbortSignal
+): Promise<Record<string, unknown>[]> {
   const shape = resolveAgentDataShape(editor, shapeId);
   if (shape.type !== "sql-text-area") throw new Error("Create a visible query to preview this source.");
-  if (shape.props.isDirty || shape.props.stale || shape.props.error || !shape.props.lastRunStats) throw new Error("Run the source query first.");
+  if (shape.props.isDirty || shape.props.stale || shape.props.error || !shape.props.lastRunStats)
+    throw new Error("Run the source query first.");
   return loadQueryResultRows(data.getQueryResultPage, shape.id, limit, signal);
 }
 
-export async function computeAgentProfiles(editor: Editor, args: Record<string, unknown>, env: AgentToolEnvironment): Promise<Record<string, unknown>> {
+export async function computeAgentProfiles(
+  editor: Editor,
+  args: Record<string, unknown>,
+  env: AgentToolEnvironment
+): Promise<Record<string, unknown>> {
   const shape = resolveAgentDataShape(editor, String(args.shapeId || ""));
-  if (shape.type === "sql-text-area" && (shape.props.isDirty || shape.props.stale || shape.props.error)) throw new Error("Run this visible query before profiling its output.");
+  if (shape.type === "sql-text-area" && (shape.props.isDirty || shape.props.stale || shape.props.error))
+    throw new Error("Run this visible query before profiling its output.");
   const schema = (shape.type === "data-source" ? shape.props.metadata : shape.props.outputSchema) || [];
   const columns = Array.isArray(args.columns) ? args.columns : schema.slice(0, 12).map((column) => column.name);
   if (!columns.length || columns.length > 20) throw new Error("Choose between 1 and 20 columns to profile.");
@@ -45,7 +61,12 @@ export async function computeAgentProfiles(editor: Editor, args: Record<string, 
     env.signal.throwIfAborted();
     const table = quoteIdentifier(shape.props.name);
     const col = quoteIdentifier(column.name);
-    const { sql, analysisType } = buildColumnStatsQuery({ quotedTable: table, quotedColumn: col, columnType: column.type, sourceType: executionState.sourceNativePreview ? executionState.sourceType : null });
+    const { sql, analysisType } = buildColumnStatsQuery({
+      quotedTable: table,
+      quotedColumn: col,
+      columnType: column.type,
+      sourceType: executionState.sourceNativePreview ? executionState.sourceType : null,
+    });
     let rows: Record<string, unknown>[];
     {
       const requestId = `agent-profile:${crypto.randomUUID()}`;
@@ -54,21 +75,50 @@ export async function computeAgentProfiles(editor: Editor, args: Record<string, 
       try {
         // Pack the profile into one preview row so histogram buckets are never truncated by the CLI preview limit.
         const sourceType = executionState.sourceNativePreview ? executionState.sourceType : null;
-        const aggregate = sourceType === "postgres" ? "json_agg(kavla_profile)" : sourceType === "bigquery" ? "TO_JSON_STRING(ARRAY_AGG(kavla_profile))" : "to_json(list(kavla_profile))";
+        const aggregate =
+          sourceType === "postgres"
+            ? "json_agg(kavla_profile)"
+            : sourceType === "bigquery"
+              ? "TO_JSON_STRING(ARRAY_AGG(kavla_profile))"
+              : "to_json(list(kavla_profile))";
         const packedSQL = `SELECT ${aggregate} AS profile_rows FROM (${sql}) AS kavla_profile`;
-        const response = await env.data.runRemoteQuery({ sql: buildRemoteSQLFromDag(packedSQL, orderedDependencies), sourceName: executionState.sourceName, sourceType: executionState.sourceType, sourceNative: executionState.sourceNativePreview, shapeId: requestId, transient: true });
+        const response = await env.data.runRemoteQuery({
+          sql: buildRemoteSQLFromDag(packedSQL, orderedDependencies),
+          sourceName: executionState.sourceName,
+          sourceType: executionState.sourceType,
+          sourceNative: executionState.sourceNativePreview,
+          shapeId: requestId,
+          transient: true,
+        });
         const packed = response.sampleRows[0]?.profile_rows;
         const decoded: unknown = typeof packed === "string" ? JSON.parse(packed) : packed;
         if (!Array.isArray(decoded)) throw new Error("The server returned an invalid column profile.");
         rows = decoded as Record<string, unknown>[];
-      } finally { env.signal.removeEventListener("abort", cancel); }
+      } finally {
+        env.signal.removeEventListener("abort", cancel);
+      }
     }
     env.signal.throwIfAborted();
-    const profile = JSON.parse(JSON.stringify(parseColumnStatsRows(analysisType, rows), (_key, value: unknown) => typeof value === "bigint" ? value.toString() : value)) as ColumnStats;
+    const profile = JSON.parse(
+      JSON.stringify(parseColumnStatsRows(analysisType, rows), (_key, value: unknown) =>
+        typeof value === "bigint" ? value.toString() : value
+      )
+    ) as ColumnStats;
     profiles[column.name] = profile;
     const current = editor.getShape<DataSourceShape | SQLTextAreaShape>(shape.id);
-    if (!current || current.props.name !== shape.props.name || (shape.type === "sql-text-area" && current.type === "sql-text-area" && (current.props.text !== shape.props.text || current.props.isDirty || current.props.stale))) throw new Error("The source changed while profiling it.");
-    editor.updateShape<DataSourceShape | SQLTextAreaShape>({ id: shape.id, type: shape.type, props: { columnStats: { ...current.props.columnStats, ...profiles } } });
+    if (
+      !current ||
+      current.props.name !== shape.props.name ||
+      (shape.type === "sql-text-area" &&
+        current.type === "sql-text-area" &&
+        (current.props.text !== shape.props.text || current.props.isDirty || current.props.stale))
+    )
+      throw new Error("The source changed while profiling it.");
+    editor.updateShape<DataSourceShape | SQLTextAreaShape>({
+      id: shape.id,
+      type: shape.type,
+      props: { columnStats: { ...current.props.columnStats, ...profiles } },
+    });
   }
   return { ok: true, shapeId: shape.id, profiles, profileScope: "Full source/query output, including distributions." };
 }

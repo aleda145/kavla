@@ -24,10 +24,10 @@ func (c *generationTestRuntime) Close() error { return nil }
 
 func TestGenerationDeadlines(t *testing.T) {
 	for _, test := range []struct {
-		name string
+		name                string
 		runBudget, expected time.Duration
 	}{
-		{"heavy Lens", 15*time.Minute, 10*time.Minute},
+		{"heavy Lens", 15 * time.Minute, 10 * time.Minute},
 		{"remaining run budget", time.Minute, time.Minute},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -39,12 +39,16 @@ func TestGenerationDeadlines(t *testing.T) {
 			s.agentClient = &generationTestRuntime{generate: func(ctx context.Context) (map[string]interface{}, error) {
 				deadline, ok := ctx.Deadline()
 				remaining := time.Until(deadline)
-				if !ok || remaining > test.expected || remaining < test.expected-time.Second { t.Errorf("unexpected generation budget: %s", remaining) }
+				if !ok || remaining > test.expected || remaining < test.expected-time.Second {
+					t.Errorf("unexpected generation budget: %s", remaining)
+				}
 				return map[string]interface{}{"code": "Lens"}, nil
 			}}
 			w := httptest.NewRecorder()
 			s.handleAgentGenerateLens(w, httptest.NewRequest(http.MethodPost, "/api/agent/generate-lens", strings.NewReader(`{"runId":"run","clientId":"owner","prompt":"Generate"}`)))
-			if w.Code != http.StatusOK { t.Fatal(w.Body.String()) }
+			if w.Code != http.StatusOK {
+				t.Fatal(w.Body.String())
+			}
 		})
 	}
 }
@@ -52,8 +56,10 @@ func TestGenerationDeadlines(t *testing.T) {
 func TestGenerationReportsWhichDeadlineExpired(t *testing.T) {
 	for _, runExpired := range []bool{false, true} {
 		s := newAPIAgentTestServer(t)
-		deadline := time.Now().Add(15*time.Minute)
-		if runExpired { deadline = time.Now().Add(-time.Second) }
+		deadline := time.Now().Add(15 * time.Minute)
+		if runExpired {
+			deadline = time.Now().Add(-time.Second)
+		}
 		parent, cancel := context.WithDeadline(context.Background(), deadline)
 		defer cancel()
 		run := &agentRunState{ID: "run", ClientID: "owner", Status: "waiting_for_tool", ctx: parent, cancel: cancel}
@@ -62,8 +68,12 @@ func TestGenerationReportsWhichDeadlineExpired(t *testing.T) {
 		w := httptest.NewRecorder()
 		s.handleAgentGenerateLens(w, httptest.NewRequest(http.MethodPost, "/api/agent/generate-lens", strings.NewReader(`{"runId":"run","clientId":"owner","prompt":"Generate"}`)))
 		expected := "Lens generation exceeded its 10-minute limit"
-		if runExpired { expected = "Agent run exceeded its 15-minute limit" }
-		if w.Code != http.StatusGatewayTimeout || !strings.Contains(w.Body.String(), expected) { t.Fatalf("unexpected timeout error: %d %s", w.Code, w.Body.String()) }
+		if runExpired {
+			expected = "Agent run exceeded its 15-minute limit"
+		}
+		if w.Code != http.StatusGatewayTimeout || !strings.Contains(w.Body.String(), expected) {
+			t.Fatalf("unexpected timeout error: %d %s", w.Code, w.Body.String())
+		}
 	}
 }
 
@@ -75,13 +85,18 @@ func TestGenerationStopsWhenBrowserRequestIsCancelled(t *testing.T) {
 	s.agentRun, s.agentHistory = run, []*agentRunState{run}
 	s.agentClient = &generationTestRuntime{generate: func(ctx context.Context) (map[string]interface{}, error) {
 		select {
-		case <-ctx.Done(): return nil, ctx.Err()
-		case <-time.After(time.Second): t.Error("generation ignored request cancellation"); return nil, context.DeadlineExceeded
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Second):
+			t.Error("generation ignored request cancellation")
+			return nil, context.DeadlineExceeded
 		}
 	}}
 	requestCtx, cancelRequest := context.WithCancel(context.Background())
 	cancelRequest()
 	w := httptest.NewRecorder()
 	s.handleAgentGenerateLens(w, httptest.NewRequest(http.MethodPost, "/api/agent/generate-lens", strings.NewReader(`{"runId":"run","clientId":"owner","prompt":"Generate"}`)).WithContext(requestCtx))
-	if !strings.Contains(w.Body.String(), "context canceled") { t.Fatal(w.Body.String()) }
+	if !strings.Contains(w.Body.String(), "context canceled") {
+		t.Fatal(w.Body.String())
+	}
 }

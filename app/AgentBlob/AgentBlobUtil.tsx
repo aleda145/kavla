@@ -82,7 +82,11 @@ export class AgentBlobUtil extends ShapeUtil<AgentBlobShape> {
           `}
         </style>
         <div
-          title={shape.props.lastMessage ? `${shape.props.lastMessage} · Double-click to open chat` : "Double-click to open chat"}
+          title={
+            shape.props.lastMessage
+              ? `${shape.props.lastMessage} · Double-click to open chat`
+              : "Double-click to open chat"
+          }
           style={{
             ...blobStyle,
             width: "100%",

@@ -1,12 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Editor, TLShape, TLShapeId, TLShapePartial } from "tldraw";
-import { getAgentLayout, getAgentPlacement, reflowAgentQuery, registerAgentQueryReflow, trackAgentQueryLayout } from "./agentLayout.ts";
+import {
+  getAgentLayout,
+  getAgentPlacement,
+  reflowAgentQuery,
+  registerAgentQueryReflow,
+  trackAgentQueryLayout,
+} from "./agentLayout.ts";
 import { getAutoExpandedSQLShapeSize } from "../SQLTextArea/sqlShapeSize.ts";
 
-type TestShape = TLShape & { props: { w: number; h: number; linkedTableId?: string | null; isManuallyResized?: boolean } };
+type TestShape = TLShape & {
+  props: { w: number; h: number; linkedTableId?: string | null; isManuallyResized?: boolean };
+};
 function shape(name: string, type: string, x: number, y: number, w = 400, h = 300): TestShape {
-  return { id: `shape:${name}`, type, x, y, rotation: 0, parentId: "page:page", props: { w, h }, meta: {}, isLocked: false } as TestShape;
+  return {
+    id: `shape:${name}`,
+    type,
+    x,
+    y,
+    rotation: 0,
+    parentId: "page:page",
+    props: { w, h },
+    meta: {},
+    isLocked: false,
+  } as TestShape;
 }
 
 function canvas(...initial: TestShape[]) {
@@ -15,7 +33,18 @@ function canvas(...initial: TestShape[]) {
   const bounds = (id: TLShapeId) => {
     const item = shapes.get(id);
     if (!item) return undefined;
-    return { minX: item.x, minY: item.y, maxX: item.x + item.props.w, maxY: item.y + item.props.h, x: item.x, y: item.y, w: item.props.w, h: item.props.h, width: item.props.w, height: item.props.h };
+    return {
+      minX: item.x,
+      minY: item.y,
+      maxX: item.x + item.props.w,
+      maxY: item.y + item.props.h,
+      x: item.x,
+      y: item.y,
+      w: item.props.w,
+      h: item.props.h,
+      width: item.props.w,
+      height: item.props.h,
+    };
   };
   const editor = {
     getShape: (id: TLShapeId) => shapes.get(id),
@@ -34,7 +63,9 @@ function canvas(...initial: TestShape[]) {
     sideEffects: {
       registerAfterChangeHandler: (_type: string, callback: typeof listener) => {
         listener = callback;
-        return () => { listener = undefined; };
+        return () => {
+          listener = undefined;
+        };
       },
     },
   } as unknown as Editor;
@@ -46,7 +77,10 @@ function assertClear(state: ReturnType<typeof canvas>, id: TLShapeId) {
   for (const other of state.shapes.values()) {
     if (other.id === id || ["arrow", "agent-blob", "agent-chat"].includes(other.type)) continue;
     const b = state.bounds(other.id)!;
-    assert.ok(a.maxX <= b.minX - 28 || a.minX >= b.maxX + 28 || a.maxY <= b.minY - 28 || a.minY >= b.maxY + 28, `${id} overlaps ${other.id}`);
+    assert.ok(
+      a.maxX <= b.minX - 28 || a.minX >= b.maxX + 28 || a.maxY <= b.minY - 28 || a.minY >= b.maxY + 28,
+      `${id} overlaps ${other.id}`
+    );
   }
 }
 
@@ -87,7 +121,8 @@ test("clear positions and manually sized or locked queries are preserved", () =>
     const query = shape("query", "sql-text-area", 470, 0);
     const state = canvas(source, query);
     if (mode !== "untracked") trackAgentQueryLayout(state.editor, query.id, getAgentLayout({}, source.id, "right"));
-    if (mode === "manual") state.editor.updateShape({ id: query.id, type: query.type, props: { isManuallyResized: true } });
+    if (mode === "manual")
+      state.editor.updateShape({ id: query.id, type: query.type, props: { isManuallyResized: true } });
     if (mode === "locked") state.editor.updateShape({ id: query.id, type: query.type, isLocked: true });
     if (mode !== "clear") state.shapes.set("shape:obstacle" as TLShapeId, shape("obstacle", "note", 940, 0));
     const stop = registerAgentQueryReflow(state.editor);
@@ -115,6 +150,9 @@ test("a crowded canvas falls back to free space beyond the occupied area", () =>
   const source = shape("source", "data-source", 0, 0);
   const obstacle = shape("obstacle", "note", -10000, -10000, 20000, 20000);
   const state = canvas(source, obstacle);
-  const placement = getAgentPlacement(state.editor, getAgentLayout({}, source.id, "right"), source.id, { w: 600, h: 600 });
+  const placement = getAgentPlacement(state.editor, getAgentLayout({}, source.id, "right"), source.id, {
+    w: 600,
+    h: 600,
+  });
   assert.ok(placement.x > obstacle.x + obstacle.props.w);
 });

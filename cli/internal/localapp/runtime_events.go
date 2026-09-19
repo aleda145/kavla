@@ -71,7 +71,7 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 	}}); err != nil {
 		return
 	}
- if err := write("agent", cliRuntimeEvent{name: "snapshot", data: map[string]interface{}{
+	if err := write("agent", cliRuntimeEvent{name: "snapshot", data: map[string]interface{}{
 		"status": s.currentAgentStatus(),
 		"models": s.currentAgentModels(),
 		"runs":   s.currentAgentRuns(),
@@ -89,7 +89,7 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case event, open := <-agentEvents:
-   if !open || write("agent", event) != nil {
+			if !open || write("agent", event) != nil {
 				return
 			}
 		case <-heartbeat.C:

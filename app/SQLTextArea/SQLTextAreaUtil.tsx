@@ -36,12 +36,7 @@ import { SQLTextAreaBody } from "./SQLTextAreaBody";
 import { SQLTextAreaFooter } from "./SQLTextAreaFooter";
 import { SQLTextAreaHeader } from "./SQLTextAreaHeader";
 import { clearRestoredRemoteQueryMetadata } from "./restoreRemoteQueryView";
-import {
-  buildRemoteSQLFromDag,
-  describeQueryExecution,
-  getMissingSourceMessage,
-  walkSQLDag,
-} from "./walkSQLDag";
+import { buildRemoteSQLFromDag, describeQueryExecution, getMissingSourceMessage, walkSQLDag } from "./walkSQLDag";
 import { getAutoExpandedSQLShapeSize } from "./sqlShapeSize";
 
 export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
@@ -229,11 +224,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         });
         return { success: false, error: dagWalk.error.message };
       }
-      const {
-        executionState: currentQueryExecutionState,
-        nextUpstreamShapeIds,
-        orderedDependencies,
-      } = dagWalk.plan;
+      const { executionState: currentQueryExecutionState, nextUpstreamShapeIds, orderedDependencies } = dagWalk.plan;
       const runnerName = "CLI";
       setShapeUpstreamConnections(
         this.editor,

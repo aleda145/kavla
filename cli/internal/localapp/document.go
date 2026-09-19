@@ -33,14 +33,14 @@ const (
 )
 
 type BlobDescriptor struct {
- TableName string `json:"tableName,omitempty"`
-	ID       string   `json:"id"`
-	Kind     BlobKind `json:"kind"`
-	ShapeID  string   `json:"shapeId,omitempty"`
-	FileName string   `json:"fileName"`
-	MIMEType string   `json:"mimeType"`
-	Size     int64    `json:"size"`
-	SHA256   string   `json:"sha256"`
+	TableName string   `json:"tableName,omitempty"`
+	ID        string   `json:"id"`
+	Kind      BlobKind `json:"kind"`
+	ShapeID   string   `json:"shapeId,omitempty"`
+	FileName  string   `json:"fileName"`
+	MIMEType  string   `json:"mimeType"`
+	Size      int64    `json:"size"`
+	SHA256    string   `json:"sha256"`
 }
 
 type Manifest struct {
@@ -231,7 +231,9 @@ func (d *Document) DeleteBlobsForShapes(shapeIDs []string) error {
 	}
 	removed := make(map[string]BlobDescriptor)
 	for id, descriptor := range d.blobs {
-        if descriptor.TableName != "" { continue }
+		if descriptor.TableName != "" {
+			continue
+		}
 		if _, ok := shapes[descriptor.ShapeID]; !ok {
 			continue
 		}
@@ -432,7 +434,7 @@ func (d *Document) saveNewLocked(path string) error {
 }
 
 func (d *Document) writeArchiveLocked(path string, replace bool) error {
- d.manifest.FormatVersion = FormatVersion
+	d.manifest.FormatVersion = FormatVersion
 	if len(d.canvasJSON) == 0 {
 		return fmt.Errorf("cannot save a Kavla document without canvas state")
 	}
@@ -611,11 +613,13 @@ func (d *Document) loadArchive() error {
 	seenTables := make(map[string]bool)
 	seenBlobIDs := make(map[string]struct{}, len(d.manifest.Blobs))
 	for _, descriptor := range d.manifest.Blobs {
-        if descriptor.TableName != "" {
-            name := strings.ToLower(descriptor.TableName)
-            if descriptor.Kind != BlobKindSource || !uploadTableName.MatchString(descriptor.TableName) || seenTables[name] { return fmt.Errorf("invalid or duplicate uploaded table %q", descriptor.TableName) }
-            seenTables[name] = true
-        }
+		if descriptor.TableName != "" {
+			name := strings.ToLower(descriptor.TableName)
+			if descriptor.Kind != BlobKindSource || !uploadTableName.MatchString(descriptor.TableName) || seenTables[name] {
+				return fmt.Errorf("invalid or duplicate uploaded table %q", descriptor.TableName)
+			}
+			seenTables[name] = true
+		}
 		if !blobIDPattern.MatchString(descriptor.ID) {
 			return fmt.Errorf("manifest contains invalid blob id")
 		}
@@ -679,7 +683,9 @@ func (d *Document) pruneUnreferencedBlobsLocked() error {
 
 	removed := make(map[string]BlobDescriptor)
 	for id, descriptor := range d.blobs {
-        if descriptor.TableName != "" { continue }
+		if descriptor.TableName != "" {
+			continue
+		}
 		if descriptor.Kind != BlobKindSource && descriptor.Kind != BlobKindAsset {
 			removed[id] = descriptor
 			delete(d.blobs, id)

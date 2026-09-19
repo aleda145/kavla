@@ -14,12 +14,13 @@ export function getOrderedDependenciesForSQL(
 } {
   const orderedDependencies: SQLDependencyShape[] = [];
   const visited = new Set<TLShapeId>();
-  const shapes = editor.getCurrentPageShapes().filter(
-    (shape): shape is SQLDependencyShape => shape.type === "sql-text-area" || shape.type === "data-source"
-  );
-  const resolveInputs = (sql: string): SQLDependencyShape[] => extractTableNames(sql)
-    .map((name) => shapes.find((shape) => shape.props.name.toLowerCase() === name.toLowerCase()))
-    .filter((shape): shape is SQLDependencyShape => Boolean(shape));
+  const shapes = editor
+    .getCurrentPageShapes()
+    .filter((shape): shape is SQLDependencyShape => shape.type === "sql-text-area" || shape.type === "data-source");
+  const resolveInputs = (sql: string): SQLDependencyShape[] =>
+    extractTableNames(sql)
+      .map((name) => shapes.find((shape) => shape.props.name.toLowerCase() === name.toLowerCase()))
+      .filter((shape): shape is SQLDependencyShape => Boolean(shape));
 
   const getOrderedDeps = (currentShape: SQLDependencyShape) => {
     if (visited.has(currentShape.id)) return;

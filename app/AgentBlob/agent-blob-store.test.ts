@@ -5,25 +5,43 @@ import { AgentBlobMigrations } from "./agent-blob-migrations.ts";
 import { AgentBlobProps } from "./agent-blob-props.ts";
 import { AgentChatProps } from "./agent-chat-props.ts";
 import type { AgentBlobShape } from "./agent-blob-types.ts";
-import { AGENT_BLOB_SHAPE_ID, getAgentBlob, moveAgentBlobToShape, removeAgentBlob, setAgentBlobStatus, startAgentBlob } from "./agent-blob-store.ts";
+import {
+  AGENT_BLOB_SHAPE_ID,
+  getAgentBlob,
+  moveAgentBlobToShape,
+  removeAgentBlob,
+  setAgentBlobStatus,
+  startAgentBlob,
+} from "./agent-blob-store.ts";
 
 function canvas() {
   let blob: AgentBlobShape | undefined;
   const bounds = new Map<TLShapeId, Box>();
   const editor = {
-    getShape: (id: TLShapeId) => id === AGENT_BLOB_SHAPE_ID ? blob : undefined,
+    getShape: (id: TLShapeId) => (id === AGENT_BLOB_SHAPE_ID ? blob : undefined),
     getShapePageBounds: (id: TLShapeId) => bounds.get(id),
     getViewportPageBounds: () => new Box(200, 100, 800, 600),
     createShape: (shape: TLShapePartial<AgentBlobShape>) => {
       assert.equal(blob, undefined, "Only one agent blob should exist");
-      blob = { ...shape, typeName: "shape", parentId: "page:page", index: "a1", rotation: 0, isLocked: false, opacity: 1, meta: {} } as AgentBlobShape;
+      blob = {
+        ...shape,
+        typeName: "shape",
+        parentId: "page:page",
+        index: "a1",
+        rotation: 0,
+        isLocked: false,
+        opacity: 1,
+        meta: {},
+      } as AgentBlobShape;
     },
     updateShape: (shape: TLShapePartial<AgentBlobShape>) => {
       assert.ok(blob);
       blob = { ...blob, ...shape, props: { ...blob.props, ...shape.props } };
     },
     bringToFront: () => {},
-    deleteShapes: () => { blob = undefined; },
+    deleteShapes: () => {
+      blob = undefined;
+    },
   } as unknown as Editor;
   return { editor, bounds };
 }
@@ -78,12 +96,24 @@ test("missing targets fall back to the viewport and deleted blobs stay deleted u
 
 test("chat history and blob records round-trip through the canvas schema", () => {
   const shapes = { ...defaultShapeSchemas, "agent-chat": { props: AgentChatProps } };
-  const schema = createTLSchema({ shapes: { ...shapes, "agent-blob": { props: AgentBlobProps, migrations: AgentBlobMigrations } } });
+  const schema = createTLSchema({
+    shapes: { ...shapes, "agent-blob": { props: AgentBlobProps, migrations: AgentBlobMigrations } },
+  });
   const chat = schema.types.shape.create({
-    id: "shape:agent-chat", type: "agent-chat", parentId: "page:page", index: "a1",
+    id: "shape:agent-chat",
+    type: "agent-chat",
+    parentId: "page:page",
+    index: "a1",
     props: {
-      w: 1, h: 1, name: "Agent", entries: [{ id: "entry:1", role: "user", text: "Keep my analysis", createdAt: 1 }],
-      threadId: "thread:1", isRunning: false, streamingText: "", activity: null, isOpen: true,
+      w: 1,
+      h: 1,
+      name: "Agent",
+      entries: [{ id: "entry:1", role: "user", text: "Keep my analysis", createdAt: 1 }],
+      threadId: "thread:1",
+      isRunning: false,
+      streamingText: "",
+      activity: null,
+      isOpen: true,
     },
   });
   schema.types.shape.validator.validate(chat);
@@ -92,7 +122,9 @@ test("chat history and blob records round-trip through the canvas schema", () =>
   startAgentBlob(editor, "run:1");
   const blob = getAgentBlob(editor)!;
   schema.types.shape.validator.validate(blob);
-  const snapshot = JSON.parse(JSON.stringify({ schema: schema.serialize(), store: { [chat.id]: chat, [blob.id]: blob } }));
+  const snapshot = JSON.parse(
+    JSON.stringify({ schema: schema.serialize(), store: { [chat.id]: chat, [blob.id]: blob } })
+  );
   const restored = schema.migrateStoreSnapshot(snapshot);
   assert.equal(restored.type, "success");
   if (restored.type !== "success") return;

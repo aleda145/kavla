@@ -46,18 +46,18 @@ async function responseError(response: Response): Promise<Error> {
 }
 
 async function postJSON<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
- return withBackendActivity(async () => {
-  const response = await sessionFetch(path, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
+  return withBackendActivity(async () => {
+    const response = await sessionFetch(path, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!response.ok) throw await responseError(response);
+    if (response.status === 204 || response.status === 202) return undefined as T;
+    return (await response.json()) as T;
   });
-  if (!response.ok) throw await responseError(response);
-  if (response.status === 204 || response.status === 202) return undefined as T;
-  return (await response.json()) as T;
- });
 }
 
 export function LocalServerProvider({ children }: { children: ReactNode }) {
@@ -237,11 +237,14 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
   const getQueryResultPage = useCallback<LocalServerContextType["getQueryResultPage"]>(
     async ({ shapeId, offset, limit, signal }) => {
       const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
-      const response = await sessionFetch(`/api/session/queries/${encodeURIComponent(shapeId)}/rows?${query.toString()}`, {
-        credentials: "same-origin",
-        headers: { Accept: "application/vnd.apache.arrow.stream" },
-        signal,
-      });
+      const response = await sessionFetch(
+        `/api/session/queries/${encodeURIComponent(shapeId)}/rows?${query.toString()}`,
+        {
+          credentials: "same-origin",
+          headers: { Accept: "application/vnd.apache.arrow.stream" },
+          signal,
+        }
+      );
       if (response.status === 404) throw new MissingQueryResultError();
       if (!response.ok) throw await responseError(response);
       const table = tableFromIPC(new Uint8Array(await response.arrayBuffer()));
@@ -251,43 +254,47 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
   );
 
   const runRemoteQuery = useCallback(
-    async (payload: RunRemoteQueryPayload) => withBackendActivity(async () => {
-      const executionEngine = payload.sourceNative ? payload.sourceType?.trim() || undefined : undefined;
-      if (executionEngine && !payload.sourceName) throw new Error("sourceName is required for source-native preview");
-      const sql = executionEngine ? transpileRemoteSQL(payload.sql, payload.sourceName!, executionEngine) : payload.sql;
+    async (payload: RunRemoteQueryPayload) =>
+      withBackendActivity(async () => {
+        const executionEngine = payload.sourceNative ? payload.sourceType?.trim() || undefined : undefined;
+        if (executionEngine && !payload.sourceName) throw new Error("sourceName is required for source-native preview");
+        const sql = executionEngine
+          ? transpileRemoteSQL(payload.sql, payload.sourceName!, executionEngine)
+          : payload.sql;
 
-      queryControllers.current.get(payload.shapeId)?.abort();
-      const controller = new AbortController();
-      queryControllers.current.set(payload.shapeId, controller);
+        queryControllers.current.get(payload.shapeId)?.abort();
+        const controller = new AbortController();
+        queryControllers.current.set(payload.shapeId, controller);
 
-      try {
-        const result = await postJSON<{
-          rowCount: number;
-          schema: { name: string; type: string }[];
-        }>(
-          "/api/session/queries",
-          { ...payload, sql, ...(executionEngine ? { executionEngine } : {}) },
-          controller.signal
-        );
-        const sampleRows = payload.transient
-          ? await loadQueryResultRows(getQueryResultPage, payload.shapeId, null, controller.signal)
-          : (await getQueryResultPage({ shapeId: payload.shapeId, offset: 0, limit: 5, signal: controller.signal })).rows;
-        return {
-          rowCount: Number(result.rowCount ?? 0),
-          schema: result.schema,
-          sampleRows,
-        };
-      } finally {
-        if (payload.transient) {
-          await sessionFetch(`/api/session/queries/${encodeURIComponent(payload.shapeId)}/result`, {
-            method: "DELETE",
-            credentials: "same-origin",
-          }).catch(() => undefined);
+        try {
+          const result = await postJSON<{
+            rowCount: number;
+            schema: { name: string; type: string }[];
+          }>(
+            "/api/session/queries",
+            { ...payload, sql, ...(executionEngine ? { executionEngine } : {}) },
+            controller.signal
+          );
+          const sampleRows = payload.transient
+            ? await loadQueryResultRows(getQueryResultPage, payload.shapeId, null, controller.signal)
+            : (await getQueryResultPage({ shapeId: payload.shapeId, offset: 0, limit: 5, signal: controller.signal }))
+                .rows;
+          return {
+            rowCount: Number(result.rowCount ?? 0),
+            schema: result.schema,
+            sampleRows,
+          };
+        } finally {
+          if (payload.transient) {
+            await sessionFetch(`/api/session/queries/${encodeURIComponent(payload.shapeId)}/result`, {
+              method: "DELETE",
+              credentials: "same-origin",
+            }).catch(() => undefined);
+          }
+          if (queryControllers.current.get(payload.shapeId) === controller)
+            queryControllers.current.delete(payload.shapeId);
         }
-        if (queryControllers.current.get(payload.shapeId) === controller)
-          queryControllers.current.delete(payload.shapeId);
-      }
-    }),
+      }),
     [getQueryResultPage]
   );
 
@@ -315,7 +322,11 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
 
   const sendAgentPrompt = useCallback<LocalServerContextType["sendAgentPrompt"]>(
     (payload) => {
-      void postJSON("/api/agent/prompts", { ...payload, clientId: agentClientId, documentId: getActiveLocalSession()?.documentId }).catch(reportAgentRequestError);
+      void postJSON("/api/agent/prompts", {
+        ...payload,
+        clientId: agentClientId,
+        documentId: getActiveLocalSession()?.documentId,
+      }).catch(reportAgentRequestError);
     },
     [reportAgentRequestError]
   );

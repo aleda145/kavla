@@ -311,15 +311,15 @@ func TestBlobEndpointsRequireSameHostOriginForMutations(t *testing.T) {
 	if !strings.Contains(contentSecurityPolicy, "connect-src 'self'") {
 		t.Fatalf("expected CSP to allow same-origin connections, got %q", contentSecurityPolicy)
 	}
-    if !strings.Contains(contentSecurityPolicy, "connect-src 'self' *") {
-        t.Fatalf("expected CSP to allow external connections without a domain allowlist, got %q", contentSecurityPolicy)
-    }
-    if !strings.Contains(contentSecurityPolicy, "img-src 'self' *") {
-        t.Fatalf("expected CSP to allow external images without a domain allowlist, got %q", contentSecurityPolicy)
-    }
-    if sessionResponse.Header().Get("Cross-Origin-Embedder-Policy") != "credentialless" {
-        t.Fatal("expected credentialless embedding for external resources and DuckDB isolation")
-    }
+	if !strings.Contains(contentSecurityPolicy, "connect-src 'self' *") {
+		t.Fatalf("expected CSP to allow external connections without a domain allowlist, got %q", contentSecurityPolicy)
+	}
+	if !strings.Contains(contentSecurityPolicy, "img-src 'self' *") {
+		t.Fatalf("expected CSP to allow external images without a domain allowlist, got %q", contentSecurityPolicy)
+	}
+	if sessionResponse.Header().Get("Cross-Origin-Embedder-Policy") != "credentialless" {
+		t.Fatal("expected credentialless embedding for external resources and DuckDB isolation")
+	}
 	var sessionDescription struct {
 		DocumentID   string           `json:"documentId"`
 		DocumentName string           `json:"documentName"`

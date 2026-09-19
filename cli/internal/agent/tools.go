@@ -19,12 +19,12 @@ func dynamicTools() []map[string]interface{} {
 		tool("run_query", "Execute an SQL query shape that already exists visibly on the Kavla canvas. This cannot accept new SQL; use create_query for new work and update_query to correct existing SQL.", objectSchema(map[string]interface{}{
 			"shapeId": map[string]string{"type": "string"},
 		}, "shapeId")),
-        tool("move_shapes", "Move up to 12 existing shapes to page-space top-left bounds. Use for small local adjustments as the story develops, never a final whole-canvas rearrangement. Include related tables/charts explicitly when moving them together. Locked shapes and overlapping destinations are rejected before any moves. Read current canvasLayout first. Returned arrowOverlaps are advisory; moves succeed even when a crossing is unavoidable.", objectSchema(map[string]interface{}{
-         "moves": map[string]interface{}{"type":"array", "minItems":1, "maxItems":12, "items":objectSchema(map[string]interface{}{"shapeId":map[string]string{"type":"string"}, "x":map[string]string{"type":"number"}, "y":map[string]string{"type":"number"}}, "shapeId", "x", "y")},
-        }, "moves")),
-        tool("set_query_table", "Show or hide an existing query's result table without changing SQL. Showing requires a successful current result. An optional layout positions a newly shown table. Existing tables retain their position; use move_shapes to move them. Hiding removes only the linked result-table display.", objectSchema(map[string]interface{}{
-         "shapeId":map[string]string{"type":"string"}, "show":map[string]string{"type":"boolean"}, "layout":layoutSchema(),
-        }, "shapeId", "show")),
+		tool("move_shapes", "Move up to 12 existing shapes to page-space top-left bounds. Use for small local adjustments as the story develops, never a final whole-canvas rearrangement. Include related tables/charts explicitly when moving them together. Locked shapes and overlapping destinations are rejected before any moves. Read current canvasLayout first. Returned arrowOverlaps are advisory; moves succeed even when a crossing is unavoidable.", objectSchema(map[string]interface{}{
+			"moves": map[string]interface{}{"type": "array", "minItems": 1, "maxItems": 12, "items": objectSchema(map[string]interface{}{"shapeId": map[string]string{"type": "string"}, "x": map[string]string{"type": "number"}, "y": map[string]string{"type": "number"}}, "shapeId", "x", "y")},
+		}, "moves")),
+		tool("set_query_table", "Show or hide an existing query's result table without changing SQL. Showing requires a successful current result. An optional layout positions a newly shown table. Existing tables retain their position; use move_shapes to move them. Hiding removes only the linked result-table display.", objectSchema(map[string]interface{}{
+			"shapeId": map[string]string{"type": "string"}, "show": map[string]string{"type": "boolean"}, "layout": layoutSchema(),
+		}, "shapeId", "show")),
 		tool("update_query", "Edit or repair ONE operation in an existing query and execute it. No CTEs or subqueries. Use HAVING/QUALIFY sparingly for simple result filters. Keep repairs in place; new analytical operations belong in new downstream nodes.", objectSchema(map[string]interface{}{
 			"shapeId": map[string]string{"type": "string"},
 			"name":    map[string]string{"type": "string"},
@@ -37,11 +37,11 @@ func dynamicTools() []map[string]interface{} {
 			"x":             map[string]string{"type": "string"},
 			"y":             map[string]string{"type": "string"},
 			"color":         map[string]string{"type": "string"},
-            "yAxisScale": map[string]interface{}{"type":"string","enum":[]string{"default","auto","zero"}},
-            "isStacked": map[string]string{"type":"boolean"},
-            "limit": map[string]interface{}{"type":[]string{"integer","null"},"minimum":1},
-            "w": map[string]string{"type":"number"}, "h": map[string]string{"type":"number"},
-			"layout":        layoutSchema(),
+			"yAxisScale":    map[string]interface{}{"type": "string", "enum": []string{"default", "auto", "zero"}},
+			"isStacked":     map[string]string{"type": "boolean"},
+			"limit":         map[string]interface{}{"type": []string{"integer", "null"}, "minimum": 1},
+			"w":             map[string]string{"type": "number"}, "h": map[string]string{"type": "number"},
+			"layout": layoutSchema(),
 		}, "sourceShapeId", "chartType", "x", "y")),
 		tool("create_note", "Add a short explanatory post-it near its supporting shape when useful: a cleaning rationale, assumption, join purpose, finding, or transition. Explain why it matters; avoid repeating titles or adding a note for every step.", objectSchema(map[string]interface{}{
 			"anchorShapeId": map[string]string{"type": "string"},
@@ -49,34 +49,34 @@ func dynamicTools() []map[string]interface{} {
 			"layout":        layoutSchema(),
 		}, "text")),
 		tool("update_chart", "Edit an existing chart in place. Keep its source query, position, and size. Omitted settings stay unchanged; use color: null to remove grouping and limit: null to remove the row limit.", objectSchema(map[string]interface{}{
-			"shapeId":       map[string]string{"type": "string"},
-			"name":          map[string]string{"type": "string"},
-			"chartType":     map[string]interface{}{"type": "string", "enum": []string{"scatter", "line", "bar", "area"}},
-			"x":             map[string]string{"type": "string"},
-			"y":             map[string]string{"type": "string"},
-			"color":         map[string]interface{}{"type": []string{"string", "null"}},
-			"yAxisScale":    map[string]interface{}{"type": "string", "enum": []string{"default", "auto", "zero"}},
-			"isStacked":     map[string]string{"type": "boolean"},
-			"limit":         map[string]interface{}{"type": []string{"integer", "null"}, "minimum": 1},
+			"shapeId":    map[string]string{"type": "string"},
+			"name":       map[string]string{"type": "string"},
+			"chartType":  map[string]interface{}{"type": "string", "enum": []string{"scatter", "line", "bar", "area"}},
+			"x":          map[string]string{"type": "string"},
+			"y":          map[string]string{"type": "string"},
+			"color":      map[string]interface{}{"type": []string{"string", "null"}},
+			"yAxisScale": map[string]interface{}{"type": "string", "enum": []string{"default", "auto", "zero"}},
+			"isStacked":  map[string]string{"type": "boolean"},
+			"limit":      map[string]interface{}{"type": []string{"integer", "null"}, "minimum": 1},
 		}, "shapeId")),
 		tool("update_note", "Replace the text of an existing note in place, preserving its position, size, and style. Supply the complete replacement text, up to 4000 characters.", objectSchema(map[string]interface{}{
 			"shapeId": map[string]string{"type": "string"},
 			"text":    map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 4000},
 		}, "shapeId", "text")),
-        tool("compute_column_profiles", "Read or compute deterministic column profiles on a source or query. This updates the shape's profiles and records the operation without creating a SQL node. It is not for filtered or cross-column analysis.", objectSchema(map[string]interface{}{
-         "shapeId": map[string]string{"type":"string"}, "columns": map[string]interface{}{"type":"array","items":map[string]string{"type":"string"}},
-        }, "shapeId")),
-        tool("create_lens", "Create a persistent custom visualization, map, globe, or Lens. A focused generator supplies its React code and presentation SQL. Existing query, result, chart, or Lens shapes may be used as the source.", objectSchema(map[string]interface{}{
-         "sourceShapeId": map[string]string{"type":"string"}, "visualPrompt": map[string]string{"type":"string"}, "name": map[string]string{"type":"string"}, "dataIntent": map[string]string{"type":"string"}, "w": map[string]string{"type":"number"}, "h": map[string]string{"type":"number"}, "layout": layoutSchema(),
-        }, "sourceShapeId", "visualPrompt")),
-        tool("update_lens", "Edit or repair an existing Lens in place using its current code, data, and error. Use for visual or presentational changes. Do not create unrelated query shapes for a Lens edit.", objectSchema(map[string]interface{}{
-         "shapeId": map[string]string{"type":"string"}, "visualPrompt": map[string]string{"type":"string"}, "dataIntent": map[string]string{"type":"string"},
-        }, "shapeId")),
-        tool("create_summary", "Present the analytical answer on the canvas, including findings, interpretation, and relevant assumptions or data issues. The one-sentence answer is also shown in chat before the summary link; put supporting detail in sections. Cite existing successful evidence shapes. Short answers can use empty sections.", objectSchema(map[string]interface{}{
-         "question": map[string]string{"type":"string"}, "answer": map[string]string{"type":"string", "description":"One sentence stating the main result, including an essential caveat if needed. This is also the chat takeaway."}, "name": map[string]string{"type":"string"},
-         "sections": map[string]interface{}{"type":"array","items":objectSchema(map[string]interface{}{"title":map[string]string{"type":"string"},"body":map[string]string{"type":"string"}},"title","body")},
-         "artifacts": map[string]interface{}{"type":"array","maxItems":6,"items":objectSchema(map[string]interface{}{"shapeId":map[string]string{"type":"string"},"title":map[string]string{"type":"string"},"note":map[string]string{"type":"string"}},"shapeId","title","note")}, "layout": layoutSchema(),
-        }, "question", "answer", "sections", "artifacts")),
+		tool("compute_column_profiles", "Read or compute deterministic column profiles on a source or query. This updates the shape's profiles and records the operation without creating a SQL node. It is not for filtered or cross-column analysis.", objectSchema(map[string]interface{}{
+			"shapeId": map[string]string{"type": "string"}, "columns": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+		}, "shapeId")),
+		tool("create_lens", "Create a persistent custom visualization, map, globe, or Lens. A focused generator supplies its React code and presentation SQL. Existing query, result, chart, or Lens shapes may be used as the source.", objectSchema(map[string]interface{}{
+			"sourceShapeId": map[string]string{"type": "string"}, "visualPrompt": map[string]string{"type": "string"}, "name": map[string]string{"type": "string"}, "dataIntent": map[string]string{"type": "string"}, "w": map[string]string{"type": "number"}, "h": map[string]string{"type": "number"}, "layout": layoutSchema(),
+		}, "sourceShapeId", "visualPrompt")),
+		tool("update_lens", "Edit or repair an existing Lens in place using its current code, data, and error. Use for visual or presentational changes. Do not create unrelated query shapes for a Lens edit.", objectSchema(map[string]interface{}{
+			"shapeId": map[string]string{"type": "string"}, "visualPrompt": map[string]string{"type": "string"}, "dataIntent": map[string]string{"type": "string"},
+		}, "shapeId")),
+		tool("create_summary", "Present the analytical answer on the canvas, including findings, interpretation, and relevant assumptions or data issues. The one-sentence answer is also shown in chat before the summary link; put supporting detail in sections. Cite existing successful evidence shapes. Short answers can use empty sections.", objectSchema(map[string]interface{}{
+			"question": map[string]string{"type": "string"}, "answer": map[string]string{"type": "string", "description": "One sentence stating the main result, including an essential caveat if needed. This is also the chat takeaway."}, "name": map[string]string{"type": "string"},
+			"sections":  map[string]interface{}{"type": "array", "items": objectSchema(map[string]interface{}{"title": map[string]string{"type": "string"}, "body": map[string]string{"type": "string"}}, "title", "body")},
+			"artifacts": map[string]interface{}{"type": "array", "maxItems": 6, "items": objectSchema(map[string]interface{}{"shapeId": map[string]string{"type": "string"}, "title": map[string]string{"type": "string"}, "note": map[string]string{"type": "string"}}, "shapeId", "title", "note")}, "layout": layoutSchema(),
+		}, "question", "answer", "sections", "artifacts")),
 	}
 	return []map[string]interface{}{{
 		"type":        "namespace",
@@ -115,8 +115,8 @@ func layoutSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
-			"x": map[string]interface{}{"type":"number", "description":"Preferred page-space left coordinate. Supply with y instead of relative placement. New shapes may shift up to 160 units per axis for arrow clearance; use returned placedShapes bounds."},
-			"y": map[string]interface{}{"type":"number", "description":"Preferred page-space top coordinate; requires x."},
+			"x":             map[string]interface{}{"type": "number", "description": "Preferred page-space left coordinate. Supply with y instead of relative placement. New shapes may shift up to 160 units per axis for arrow clearance; use returned placedShapes bounds."},
+			"y":             map[string]interface{}{"type": "number", "description": "Preferred page-space top coordinate; requires x."},
 			"parentShapeId": map[string]string{"type": "string"},
 			"placement": map[string]interface{}{
 				"type": "string",

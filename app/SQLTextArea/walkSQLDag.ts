@@ -32,7 +32,9 @@ type SQLDagWalkResult =
     };
 
 export function getMissingSourceMessage(orderedDependencies: SQLDependencyShape[]): string | null {
-  const missing = orderedDependencies.find(dependency => dependency.type === "data-source" && !getRemoteSourceMetadata(dependency));
+  const missing = orderedDependencies.find(
+    (dependency) => dependency.type === "data-source" && !getRemoteSourceMetadata(dependency)
+  );
   return missing ? `Source "${missing.props.name}" is missing its uploaded table. Upload the file again.` : null;
 }
 
@@ -182,8 +184,9 @@ export function walkSQLDag(editor: Editor, sqlText: string): SQLDagWalkResult {
 }
 
 export function buildRemoteSQLFromDag(sqlText: string, orderedDependencies: SQLDependencyShape[]): string {
-  const ctes = orderedDependencies.map(dependency => {
-    if (dependency.type === "sql-text-area") return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(dependency.props.text)})`;
+  const ctes = orderedDependencies.map((dependency) => {
+    if (dependency.type === "sql-text-area")
+      return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(dependency.props.text)})`;
     const source = getRemoteSourceMetadata(dependency);
     if (!source) throw new Error(`Source "${dependency.props.name}" is unavailable.`);
     return `${quoteIdentifier(dependency.props.name)} AS (SELECT * FROM ${quoteDottedIdentifier(source.remoteTableRef)})`;

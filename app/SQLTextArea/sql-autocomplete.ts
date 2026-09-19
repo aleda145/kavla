@@ -56,7 +56,16 @@ export const createSqlAutocomplete = (
             try {
               const source = sourceMap.get(col.tableName);
               if (!source) return null;
-              const stats = await getCachedRemoteColumnStats(source.runRemoteQuery, source.sourceName, source.sourceType, source.fullTableRef, col.name, col.type, `autocomplete:${crypto.randomUUID()}`, source.tableSql);
+              const stats = await getCachedRemoteColumnStats(
+                source.runRemoteQuery,
+                source.sourceName,
+                source.sourceType,
+                source.fullTableRef,
+                col.name,
+                col.type,
+                `autocomplete:${crypto.randomUUID()}`,
+                source.tableSql
+              );
               const distinctCount = stats?.distinctCount ?? 0;
 
               if (stats && distinctCount > 0 && distinctCount <= 10) {
@@ -68,13 +77,18 @@ export const createSqlAutocomplete = (
                   // Numeric and temporal profiles contain buckets, not exact
                   // values, so fetch values only for low-cardinality columns.
                   const quotedColumn = quoteIdentifier(col.name);
-                  const quotedTable = source.tableSql ? `(${source.tableSql})` : quoteDottedIdentifier(source.fullTableRef);
+                  const quotedTable = source.tableSql
+                    ? `(${source.tableSql})`
+                    : quoteDottedIdentifier(source.fullTableRef);
                   const result = await source.runRemoteQuery({
                     sql: `SELECT ${quotedColumn} AS val, COUNT(*) AS cnt FROM ${quotedTable} WHERE ${quotedColumn} IS NOT NULL GROUP BY ${quotedColumn} ORDER BY cnt DESC LIMIT 10`,
-                    sourceName: source.sourceName, sourceType: source.sourceType, sourceNative: true,
-                    shapeId: `autocomplete:${crypto.randomUUID()}`, transient: true,
+                    sourceName: source.sourceName,
+                    sourceType: source.sourceType,
+                    sourceNative: true,
+                    shapeId: `autocomplete:${crypto.randomUUID()}`,
+                    transient: true,
                   });
-                  optionsData = result.sampleRows.map(row => ({ value: String(row.val), count: Number(row.cnt) }));
+                  optionsData = result.sampleRows.map((row) => ({ value: String(row.val), count: Number(row.cnt) }));
                 }
 
                 if (optionsData.length > 0) {

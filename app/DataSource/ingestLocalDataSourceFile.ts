@@ -70,9 +70,17 @@ export async function ingestLocalDataSourceFile(
 ): Promise<LocalDataSourceProps> {
   const result = await withBackendActivity(async () => {
     const response = await backendRequest(`/api/session/uploads?${new URLSearchParams({ fileName: file.name })}`, {
-      method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file,
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
     });
-    return await response.json() as { tableName: string; tableRef: string; blob: KavlaBlobDescriptor; schema: ColumnMetadata[]; rowCount: number };
+    return (await response.json()) as {
+      tableName: string;
+      tableRef: string;
+      blob: KavlaBlobDescriptor;
+      schema: ColumnMetadata[];
+      rowCount: number;
+    };
   });
   rememberUploadedBlob(result.blob);
   const name = getUniqueName(editor, toValidSqlName(result.tableName), shapeId);

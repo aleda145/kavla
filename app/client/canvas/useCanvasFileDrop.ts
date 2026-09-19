@@ -15,16 +15,22 @@ export function useCanvasFileDrop(
         return;
       }
 
-      const files = Array.from(event.dataTransfer.files).filter(file => /\.(csv|parquet|json|ndjson)$/i.test(file.name));
+      const files = Array.from(event.dataTransfer.files).filter((file) =>
+        /\.(csv|parquet|json|ndjson)$/i.test(file.name)
+      );
       if (!files.length) return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
       const point = editor.screenToPage({ x: event.clientX, y: event.clientY });
-      const otherFiles = Array.from(event.dataTransfer.files).filter(file => !files.includes(file));
+      const otherFiles = Array.from(event.dataTransfer.files).filter((file) => !files.includes(file));
       if (otherFiles.length) {
-        void editor.putExternalContent({ type: "files", files: otherFiles, point }).catch(error => {
-          addToast({ title: "Could not add canvas files", description: error instanceof Error ? error.message : String(error), severity: "error" });
+        void editor.putExternalContent({ type: "files", files: otherFiles, point }).catch((error) => {
+          addToast({
+            title: "Could not add canvas files",
+            description: error instanceof Error ? error.message : String(error),
+            severity: "error",
+          });
         });
       }
       for (const [index, file] of files.entries()) {

@@ -189,17 +189,28 @@ export async function prepareGeneratedChartWidgetRuntime(): Promise<void> {
 function loadGeneratedWidgetLibraries(): Promise<GeneratedWidgetLibraries> {
   if (generatedWidgetRuntime) return generatedWidgetRuntime;
   generatedWidgetRuntime = (async () => {
-    try { new Function("return true")(); }
-    catch { throw new LensRuntimeUnavailableError("Lens JavaScript is blocked by Content Security Policy. Restart the updated Kavla server and reload the page. Generating different code cannot fix this."); }
+    try {
+      new Function("return true")();
+    } catch {
+      throw new LensRuntimeUnavailableError(
+        "Lens JavaScript is blocked by Content Security Policy. Restart the updated Kavla server and reload the page. Generating different code cannot fix this."
+      );
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
         importGeneratedWidgetLibraries(),
-        new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Timed out loading Lens libraries.")), 30000); }),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error("Timed out loading Lens libraries.")), 30000);
+        }),
       ]);
     } catch (error) {
-      throw new LensRuntimeUnavailableError(`Lens libraries could not load. Reload the app before retrying. ${error instanceof Error ? error.message : String(error)}`);
-    } finally { if (timer !== undefined) clearTimeout(timer); }
+      throw new LensRuntimeUnavailableError(
+        `Lens libraries could not load. Reload the app before retrying. ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   })();
   return generatedWidgetRuntime;
 }
@@ -637,17 +648,19 @@ function createRunSql(rows: Record<string, unknown>[], columns: string[], source
 
     const normalizedRows = rows.map(normalizeSqlRow);
     const names = getRunSqlColumns(normalizedRows, columns);
-    const values = names.map(name => createArrowColumnValues(normalizedRows.map(row => row[name] ?? null)));
+    const values = names.map((name) => createArrowColumnValues(normalizedRows.map((row) => row[name] ?? null)));
     const fields = names.map((name, index) => {
-      const value = values[index].find(value => value !== null && value !== undefined);
+      const value = values[index].find((value) => value !== null && value !== undefined);
       return { name, type: typeof value === "number" ? "DOUBLE" : typeof value === "boolean" ? "BOOLEAN" : "VARCHAR" };
     });
-    return (await queryBackendRows("/api/session/widget-query", {
-      sql: trimmedSql,
-      tableName: sourceName?.trim() || "lens_data",
-      columns: fields,
-      rows: normalizedRows.map((_row, index) => values.map(column => column[index])),
-    })).map(normalizeSqlRow);
+    return (
+      await queryBackendRows("/api/session/widget-query", {
+        sql: trimmedSql,
+        tableName: sourceName?.trim() || "lens_data",
+        columns: fields,
+        rows: normalizedRows.map((_row, index) => values.map((column) => column[index])),
+      })
+    ).map(normalizeSqlRow);
   };
 }
 

@@ -192,8 +192,17 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
         const remoteSource = getRemoteSourceMetadata(currentShape);
         const isRemoteSource = remoteSource !== null;
 
-        if (!isRemoteSource && currentShape.props.filename && !currentShape.props.isRunning && !currentShape.props.error) {
-          this.editor.updateShape<DataSourceShape>({ id: currentShape.id, type: "data-source", props: { error: "The source file is missing from this document. Upload it again." } });
+        if (
+          !isRemoteSource &&
+          currentShape.props.filename &&
+          !currentShape.props.isRunning &&
+          !currentShape.props.error
+        ) {
+          this.editor.updateShape<DataSourceShape>({
+            id: currentShape.id,
+            type: "data-source",
+            props: { error: "The source file is missing from this document. Upload it again." },
+          });
           return;
         }
 

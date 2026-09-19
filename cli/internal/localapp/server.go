@@ -47,10 +47,10 @@ type cliRuntimeEvent struct {
 }
 
 type Server struct {
- documentGate sync.RWMutex
-	document *Document
-	assets   fs.FS
-	verbose  bool
+	documentGate sync.RWMutex
+	document     *Document
+	assets       fs.FS
+	verbose      bool
 
 	listener         net.Listener
 	http             *http.Server
@@ -75,15 +75,15 @@ type Server struct {
 	shutdownOnce          sync.Once
 
 	agentMu            sync.Mutex
- agentAuthMu sync.Mutex
- agentAuthMode string
- agentAPIKey string
- apiProvider agent.APIConfig
- agentConfigPath string
- agentAuthChanging bool
- agentJournalMu sync.Mutex
- agentRun *agentRunState
- agentHistory []*agentRunState
+	agentAuthMu        sync.Mutex
+	agentAuthMode      string
+	agentAPIKey        string
+	apiProvider        agent.APIConfig
+	agentConfigPath    string
+	agentAuthChanging  bool
+	agentJournalMu     sync.Mutex
+	agentRun           *agentRunState
+	agentHistory       []*agentRunState
 	agentClient        agent.Runtime
 	agentStatus        agent.Status
 	agentContext       context.Context
@@ -154,12 +154,16 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		_ = os.RemoveAll(transientDir)
 		return nil, fmt.Errorf("start local query session: %w", err)
 	}
- if err := server.restoreUploads(context.Background(), querySession); err != nil { _ = querySession.Close(); _ = os.RemoveAll(transientDir); return nil, err }
- if err := server.loadAgentRuns(); err != nil {
-  _ = querySession.Close()
-  _ = os.RemoveAll(transientDir)
-  return nil, fmt.Errorf("load agent run history: %w", err)
- }
+	if err := server.restoreUploads(context.Background(), querySession); err != nil {
+		_ = querySession.Close()
+		_ = os.RemoveAll(transientDir)
+		return nil, err
+	}
+	if err := server.loadAgentRuns(); err != nil {
+		_ = querySession.Close()
+		_ = os.RemoveAll(transientDir)
+		return nil, fmt.Errorf("load agent run history: %w", err)
+	}
 	server.startAgentDetection()
 	return server, nil
 }
@@ -301,11 +305,11 @@ func (s *Server) Close(ctx context.Context) error {
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
- mux.HandleFunc("POST /api/session/uploads", s.sameOriginMutation(s.handleUpload))
- mux.HandleFunc("DELETE /api/session/uploads/{id}", s.sameOriginMutation(s.handleDeleteUpload))
- mux.HandleFunc("POST /api/session/compute", s.sameOriginMutation(s.handleCompute))
- mux.HandleFunc("POST /api/session/validate", s.sameOriginMutation(s.handleCompute))
- mux.HandleFunc("POST /api/session/widget-query", s.sameOriginMutation(s.handleCompute))
+	mux.HandleFunc("POST /api/session/uploads", s.sameOriginMutation(s.handleUpload))
+	mux.HandleFunc("DELETE /api/session/uploads/{id}", s.sameOriginMutation(s.handleDeleteUpload))
+	mux.HandleFunc("POST /api/session/compute", s.sameOriginMutation(s.handleCompute))
+	mux.HandleFunc("POST /api/session/validate", s.sameOriginMutation(s.handleCompute))
+	mux.HandleFunc("POST /api/session/widget-query", s.sameOriginMutation(s.handleCompute))
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("GET /api/runtime/events", s.sameOriginMutation(s.handleRuntimeEvents))
 	mux.HandleFunc("PUT /api/session/document", s.sameOriginMutation(s.handleDocument))
@@ -325,10 +329,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/cli/sources/{name}", s.sameOriginMutation(s.handleDeleteCLISource))
 	mux.HandleFunc("GET /api/cli/source-paths", s.handleCLISourcePaths)
 	mux.HandleFunc("GET /api/agent/events", s.handleAgentEvents)
- mux.HandleFunc("GET /api/agent/auth", s.handleAgentAuth)
- mux.HandleFunc("POST /api/agent/auth", s.sameOriginMutation(s.handleAgentAuth))
- mux.HandleFunc("POST /api/agent/tool-claims", s.sameOriginMutation(s.handleAgentToolClaim))
- mux.HandleFunc("POST /api/agent/generate-lens", s.sameOriginMutation(s.handleAgentGenerateLens))
+	mux.HandleFunc("GET /api/agent/auth", s.handleAgentAuth)
+	mux.HandleFunc("POST /api/agent/auth", s.sameOriginMutation(s.handleAgentAuth))
+	mux.HandleFunc("POST /api/agent/tool-claims", s.sameOriginMutation(s.handleAgentToolClaim))
+	mux.HandleFunc("POST /api/agent/generate-lens", s.sameOriginMutation(s.handleAgentGenerateLens))
 	mux.HandleFunc("POST /api/agent/prompts", s.sameOriginMutation(s.handleAgentPrompt))
 	mux.HandleFunc("POST /api/agent/cancel", s.sameOriginMutation(s.handleAgentCancel))
 	mux.HandleFunc("POST /api/agent/tool-results", s.sameOriginMutation(s.handleAgentToolResult))
@@ -353,9 +357,9 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
-        // Allow external requests to any origin, including generated Lens assets and modules.
-        // Lens compiles user-visible React code with Function; WASM permission alone does not allow it.
-        w.Header().Set("Content-Security-Policy", "default-src 'self' * data: blob:; base-uri 'none'; object-src * data: blob:; frame-src * data: blob:; script-src 'self' * data: blob: 'wasm-unsafe-eval' 'unsafe-eval'; style-src 'self' * data: blob: 'unsafe-inline'; img-src 'self' * data: blob:; media-src 'self' * data: blob:; font-src 'self' * data: blob:; connect-src 'self' * data: blob: ws: wss:; worker-src 'self' * data: blob:")
+		// Allow external requests to any origin, including generated Lens assets and modules.
+		// Lens compiles user-visible React code with Function; WASM permission alone does not allow it.
+		w.Header().Set("Content-Security-Policy", "default-src 'self' * data: blob:; base-uri 'none'; object-src * data: blob:; frame-src * data: blob:; script-src 'self' * data: blob: 'wasm-unsafe-eval' 'unsafe-eval'; style-src 'self' * data: blob: 'unsafe-inline'; img-src 'self' * data: blob:; media-src 'self' * data: blob:; font-src 'self' * data: blob:; connect-src 'self' * data: blob: ws: wss:; worker-src 'self' * data: blob:")
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 		// Permit external no-cors resources while retaining cross-origin isolation.
 		w.Header().Set("Cross-Origin-Embedder-Policy", "credentialless")
@@ -600,14 +604,20 @@ func (s *Server) handleLoadPath(w http.ResponseWriter, r *http.Request) {
 	s.closeAgent()
 	defer s.startAgentDetection()
 	nextDocument, err := OpenDocument(filepath.Clean(request.Path))
- if err != nil {
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
- defer nextDocument.CleanupWorkingCopy()
- if err := s.switchDocument(r.Context(), nextDocument); err != nil { writeAPIError(w, 422, err); return }
- if err := s.loadAgentRuns(); err != nil { writeAPIError(w, 500, err); return }
- s.publishAgentRuns(false)
+	defer nextDocument.CleanupWorkingCopy()
+	if err := s.switchDocument(r.Context(), nextDocument); err != nil {
+		writeAPIError(w, 422, err)
+		return
+	}
+	if err := s.loadAgentRuns(); err != nil {
+		writeAPIError(w, 500, err)
+		return
+	}
+	s.publishAgentRuns(false)
 	s.notifyDocumentChanged()
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -641,7 +651,7 @@ func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
 	s.closeAgent()
 	defer s.startAgentDetection()
 	nextDocument := &Document{}
- if err := nextDocument.NewAtPath(targetPath, []byte(request.CanvasJSON), request.Overwrite); err != nil {
+	if err := nextDocument.NewAtPath(targetPath, []byte(request.CanvasJSON), request.Overwrite); err != nil {
 		if !request.Overwrite && errors.Is(err, os.ErrExist) {
 			http.Error(w, "A Kavla document with this name already exists.", http.StatusConflict)
 			return
@@ -649,10 +659,16 @@ func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
- defer nextDocument.CleanupWorkingCopy()
- if err := s.switchDocument(r.Context(), nextDocument); err != nil { writeAPIError(w, 500, err); return }
- if err := s.loadAgentRuns(); err != nil { writeAPIError(w, 500, err); return }
- s.publishAgentRuns(false)
+	defer nextDocument.CleanupWorkingCopy()
+	if err := s.switchDocument(r.Context(), nextDocument); err != nil {
+		writeAPIError(w, 500, err)
+		return
+	}
+	if err := s.loadAgentRuns(); err != nil {
+		writeAPIError(w, 500, err)
+		return
+	}
+	s.publishAgentRuns(false)
 	s.notifyDocumentChanged()
 	s.writeSavedDocumentResponse(w)
 }
@@ -809,9 +825,10 @@ func (s *Server) discardTransientResult(id string) {
 }
 
 func (s *Server) handlePutBlob(w http.ResponseWriter, r *http.Request) {
- if _, existing, err := s.document.BlobPath(r.PathValue("id")); err == nil && existing.TableName != "" {
-  writeAPIError(w, http.StatusConflict, fmt.Errorf("uploaded files must be managed through the uploads API")); return
- }
+	if _, existing, err := s.document.BlobPath(r.PathValue("id")); err == nil && existing.TableName != "" {
+		writeAPIError(w, http.StatusConflict, fmt.Errorf("uploaded files must be managed through the uploads API"))
+		return
+	}
 
 	query := r.URL.Query()
 	descriptor, err := s.document.PutBlob(r.PathValue("id"), BlobDescriptor{
@@ -832,9 +849,10 @@ func (s *Server) handlePutBlob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteBlob(w http.ResponseWriter, r *http.Request) {
- if _, existing, err := s.document.BlobPath(r.PathValue("id")); err == nil && existing.TableName != "" {
-  writeAPIError(w, http.StatusConflict, fmt.Errorf("delete this table through the uploads API")); return
- }
+	if _, existing, err := s.document.BlobPath(r.PathValue("id")); err == nil && existing.TableName != "" {
+		writeAPIError(w, http.StatusConflict, fmt.Errorf("delete this table through the uploads API"))
+		return
+	}
 
 	if err := s.document.DeleteBlob(r.PathValue("id")); errors.Is(err, fs.ErrNotExist) {
 		http.NotFound(w, r)
@@ -1112,7 +1130,9 @@ func (s *Server) handleExportQueryResult(w http.ResponseWriter, r *http.Request)
 
 	fileName := sourceExportFileName(request.FileName, shapeID, request.Format)
 	mimeType := "application/vnd.apache.parquet"
-	if request.Format == "tsv" { mimeType = "text/tab-separated-values; charset=utf-8" }
+	if request.Format == "tsv" {
+		mimeType = "text/tab-separated-values; charset=utf-8"
+	}
 	if request.Format == "csv" {
 		mimeType = "text/csv; charset=utf-8"
 	}
@@ -1203,8 +1223,8 @@ func (c *localHTTPQueryClient) SendResultData(shapeID string, format runner.Resu
 }
 
 func (c *localHTTPQueryClient) ResolveBlobURL(blobID string) (string, error) {
- path, _, err := c.server.document.BlobPath(blobID)
- return path, err
+	path, _, err := c.server.document.BlobPath(blobID)
+	return path, err
 }
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
@@ -1309,9 +1329,10 @@ func writeArrowResult(w http.ResponseWriter, reader interface {
 }
 
 func (s *Server) handleCancelQuery(w http.ResponseWriter, r *http.Request) {
- if documentID := r.Header.Get("X-Kavla-Document-ID"); documentID != "" && documentID != s.document.Manifest().DocumentID {
-  writeAPIError(w, http.StatusConflict, fmt.Errorf("the active document changed; reload the canvas")); return
- }
+	if documentID := r.Header.Get("X-Kavla-Document-ID"); documentID != "" && documentID != s.document.Manifest().DocumentID {
+		writeAPIError(w, http.StatusConflict, fmt.Errorf("the active document changed; reload the canvas"))
+		return
+	}
 
 	shapeID := strings.TrimSpace(r.PathValue("shapeId"))
 	if shapeID == "" {

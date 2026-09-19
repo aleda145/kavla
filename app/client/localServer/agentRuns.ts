@@ -44,9 +44,15 @@ try {
 export const agentClientId = clientId;
 export const isAgentRunActive = (run: AgentRun) => ["planning", "running", "waiting_for_tool"].includes(run.status);
 export function notifyAgentRuns(value: unknown) {
-  if (!Array.isArray(value)) { if (value === null) value = []; else return; }
+  if (!Array.isArray(value)) {
+    if (value === null) value = [];
+    else return;
+  }
   const incoming = value as AgentRun[];
-  runs = incoming.filter((run) => run && typeof run.documentId === "string" && typeof run.id === "string" && Array.isArray(run.tools))
+  runs = incoming
+    .filter(
+      (run) => run && typeof run.documentId === "string" && typeof run.id === "string" && Array.isArray(run.tools)
+    )
     .map((run) => {
       const previous = runs.find((item) => item.id === run.id);
       return previous && previous.revision > run.revision ? previous : run;
@@ -63,16 +69,29 @@ export function getAgentRuns() {
   return cachedRuns;
 }
 export function useAgentRuns() {
-  return useSyncExternalStore((listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; }, getAgentRuns);
+  return useSyncExternalStore((listener) => {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }, getAgentRuns);
 }
 export async function agentRequest<T>(path: string, payload: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`/api/agent/${path}`, {
-    method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload, (_key, value: unknown) => typeof value === "bigint" ? value.toString() : value), signal,
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload, (_key, value: unknown) => (typeof value === "bigint" ? value.toString() : value)),
+    signal,
   });
   const text = await response.text();
   if (!response.ok) {
     let message = text;
-    try { message = (JSON.parse(text) as { error?: string }).error || text; } catch { /* Plain HTTP error. */ }
+    try {
+      message = (JSON.parse(text) as { error?: string }).error || text;
+    } catch {
+      /* Plain HTTP error. */
+    }
     throw new Error(message || `Agent request failed (${response.status}).`);
   }
   return (text ? JSON.parse(text) : undefined) as T;
@@ -89,9 +108,17 @@ export type AgentToolEnvironment = {
   prompt: string;
   generateLens: (prompt: string, context: unknown) => Promise<LensGeneration>;
 };
-export function createAgentToolEnvironment(run: AgentRun, signal: AbortSignal, data: LocalServerContextType): AgentToolEnvironment {
+export function createAgentToolEnvironment(
+  run: AgentRun,
+  signal: AbortSignal,
+  data: LocalServerContextType
+): AgentToolEnvironment {
   return {
-    runId: run.id, signal, data, prompt: run.prompt,
-    generateLens: (prompt, context) => agentRequest("generate-lens", { runId: run.id, clientId: agentClientId, prompt, context }, signal),
+    runId: run.id,
+    signal,
+    data,
+    prompt: run.prompt,
+    generateLens: (prompt, context) =>
+      agentRequest("generate-lens", { runId: run.id, clientId: agentClientId, prompt, context }, signal),
   };
 }

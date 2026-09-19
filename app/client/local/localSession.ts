@@ -171,13 +171,22 @@ export function loadCanvasJson(editor: Editor, canvasJson: string): void {
     editor.updateShapes(interruptedShapes);
   }
   for (const shape of editor.getCurrentPageShapes()) {
-    if (shape.type === "lens-shape" && ["generating", "repairing"].includes((shape as LensShape).props.generationStatus)) {
-      editor.updateShape<LensShape>({ id: shape.id, type: "lens-shape", props: { generationStatus: "error", error: "Lens generation was interrupted. Ask the Agent to continue or edit the code." } });
+    if (
+      shape.type === "lens-shape" &&
+      ["generating", "repairing"].includes((shape as LensShape).props.generationStatus)
+    ) {
+      editor.updateShape<LensShape>({
+        id: shape.id,
+        type: "lens-shape",
+        props: {
+          generationStatus: "error",
+          error: "Lens generation was interrupted. Ask the Agent to continue or edit the code.",
+        },
+      });
     }
   }
   if (getAgentChat(editor)?.props.isRunning) {
     updateAgentChat(editor, { isRunning: false, streamingText: "", activity: null });
-
   }
   editor.clearHistory();
 }
@@ -373,10 +382,10 @@ export async function closeLocalSession(): Promise<void> {
 
 export function rememberUploadedBlob(blob: KavlaBlobDescriptor): void {
   if (!activeSession) throw new Error("The Kavla document is unavailable.");
-  activeSession.blobs = [...activeSession.blobs.filter(entry => entry.id !== blob.id), blob];
+  activeSession.blobs = [...activeSession.blobs.filter((entry) => entry.id !== blob.id), blob];
   window.dispatchEvent(new Event("kavla:uploads-changed"));
 }
 export function forgetUploadedBlob(id: string): void {
-  if (activeSession) activeSession.blobs = activeSession.blobs.filter(entry => entry.id !== id);
+  if (activeSession) activeSession.blobs = activeSession.blobs.filter((entry) => entry.id !== id);
   window.dispatchEvent(new Event("kavla:uploads-changed"));
 }

@@ -9,7 +9,13 @@ import { AGENT_BLOB_SHAPE_ID, getAgentBlob, removeAgentBlob, startAgentBlob } fr
 import type { AgentChatEntry } from "./agent-chat-types";
 import { AgentRuntime } from "./AgentRuntime";
 import { getCanvasBadges, getMentionRanges, getShapeCitations, type ContextBadge } from "./agent-shape-references";
-import { agentClientId, agentRequest, getAgentRuns, isAgentRunActive, useAgentRuns } from "../client/localServer/agentRuns";
+import {
+  agentClientId,
+  agentRequest,
+  getAgentRuns,
+  isAgentRunActive,
+  useAgentRuns,
+} from "../client/localServer/agentRuns";
 import { getActiveLocalSession, stageCanvas } from "../client/local/localSession";
 import "./agent-chat.css";
 
@@ -67,7 +73,10 @@ function fallbackHistory(entries: AgentChatEntry[]): string {
   return entries
     .filter((entry) => entry.role !== "thought" && !(entry.role === "event" && entry.toolCallId))
     .slice(-40)
-    .map((entry) => `${entry.role}: ${entry.text}\nCanvas references: ${[...(entry.contextShapeIds ?? []), ...(entry.shapeIds ?? [])].join(", ")}`)
+    .map(
+      (entry) =>
+        `${entry.role}: ${entry.text}\nCanvas references: ${[...(entry.contextShapeIds ?? []), ...(entry.shapeIds ?? [])].join(", ")}`
+    )
     .join("\n\n")
     .slice(-24_000);
 }
@@ -99,24 +108,52 @@ function ContextChip({ badge, onClick }: { badge: ContextBadge; onClick: () => v
   );
 }
 
-function AnswerText({ text, badgesById, onNavigate }: {
+function AnswerText({
+  text,
+  badgesById,
+  onNavigate,
+}: {
   text: string;
   badgesById: Map<string, ContextBadge>;
   onNavigate: (shapeId: string) => void;
 }) {
   const citations = getShapeCitations(text);
   let offset = 0;
-  return <>{citations.map((citation) => {
-    const before = text.slice(offset, citation.from);
-    offset = citation.to;
-    const badge = badgesById.get(citation.shapeId);
-    return <span key={citation.from}>{before}{badge ? (
-      <button type="button" onClick={() => onNavigate(citation.shapeId)} title={`Go to ${badge.name}`}
-        style={{ display: "inline", background: badge.backgroundColor, border: 0, borderBottom: `2px solid ${badge.borderBottomColor}`, padding: "0 2px", font: "inherit", cursor: "pointer" }}>
-        {citation.label}
-      </button>
-    ) : <span title="This canvas shape is unavailable">{citation.label}</span>}</span>;
-  })}{text.slice(offset)}</>;
+  return (
+    <>
+      {citations.map((citation) => {
+        const before = text.slice(offset, citation.from);
+        offset = citation.to;
+        const badge = badgesById.get(citation.shapeId);
+        return (
+          <span key={citation.from}>
+            {before}
+            {badge ? (
+              <button
+                type="button"
+                onClick={() => onNavigate(citation.shapeId)}
+                title={`Go to ${badge.name}`}
+                style={{
+                  display: "inline",
+                  background: badge.backgroundColor,
+                  border: 0,
+                  borderBottom: `2px solid ${badge.borderBottomColor}`,
+                  padding: "0 2px",
+                  font: "inherit",
+                  cursor: "pointer",
+                }}
+              >
+                {citation.label}
+              </button>
+            ) : (
+              <span title="This canvas shape is unavailable">{citation.label}</span>
+            )}
+          </span>
+        );
+      })}
+      {text.slice(offset)}
+    </>
+  );
 }
 
 function AgentChatOverlay() {
@@ -141,12 +178,21 @@ function AgentChatOverlay() {
   const selectedIds = useValue("Kavla agent selection", () => editor.getSelectedShapeIds(), [editor]);
   const selectedBadges = canvasBadges.filter((badge) => selectedIds.includes(badge.id as TLShapeId));
   const badgesById = useMemo(() => new Map(canvasBadges.map((badge) => [badge.id, badge])), [canvasBadges]);
-  const mentionBadges = [...chosenMentions, ...canvasBadges.filter((badge) => !chosenMentions.some((chosen) => chosen.name === badge.name))];
+  const mentionBadges = [
+    ...chosenMentions,
+    ...canvasBadges.filter((badge) => !chosenMentions.some((chosen) => chosen.name === badge.name)),
+  ];
   const mentionRanges = getMentionRanges(prompt, mentionBadges);
-  const contextBadges = Array.from(new Map([
-    ...selectedBadges,
-    ...mentionRanges.map((range) => badgesById.get(range.badge.id)).filter((badge): badge is ContextBadge => Boolean(badge)),
-  ].map((badge) => [badge.id, badge])).values());
+  const contextBadges = Array.from(
+    new Map(
+      [
+        ...selectedBadges,
+        ...mentionRanges
+          .map((range) => badgesById.get(range.badge.id))
+          .filter((badge): badge is ContextBadge => Boolean(badge)),
+      ].map((badge) => [badge.id, badge])
+    ).values()
+  );
   const mentionMatch = prompt.slice(0, cursor).match(/(?:^|[\s({])@([^@\n]*)$/);
   const mentionStart = mentionMatch ? cursor - mentionMatch[1].length - 1 : -1;
   const mentionKey = `${mentionStart}:${cursor}:${prompt}`;
@@ -157,12 +203,17 @@ function AgentChatOverlay() {
     : [];
   const activeMentionIndex = Math.min(mentionIndex, Math.max(0, mentionSuggestions.length - 1));
   useEffect(() => {
-    if (showMentions) document.getElementById(`agent-mention-${activeMentionIndex}`)?.scrollIntoView({ block: "nearest" });
+    if (showMentions)
+      document.getElementById(`agent-mention-${activeMentionIndex}`)?.scrollIntoView({ block: "nearest" });
   }, [showMentions, activeMentionIndex]);
-  const activeBounds = useValue("Kavla agent active shape", () => {
-    const bounds = editor.getShapePageBounds(AGENT_BLOB_SHAPE_ID);
-    return bounds ? { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h } : null;
-  }, [editor]);
+  const activeBounds = useValue(
+    "Kavla agent active shape",
+    () => {
+      const bounds = editor.getShapePageBounds(AGENT_BLOB_SHAPE_ID);
+      return bounds ? { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h } : null;
+    },
+    [editor]
+  );
 
   useEffect(() => {
     if (!isFollowing || !activeBounds) return;
@@ -176,7 +227,21 @@ function AgentChatOverlay() {
     };
     const container = editor.getContainer();
     const pauseForNavigationKey = (event: globalThis.KeyboardEvent) => {
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", "+", "-", "="].includes(event.key)) {
+      if (
+        [
+          "ArrowUp",
+          "ArrowDown",
+          "ArrowLeft",
+          "ArrowRight",
+          "PageUp",
+          "PageDown",
+          "Home",
+          "End",
+          "+",
+          "-",
+          "=",
+        ].includes(event.key)
+      ) {
         pauseFollowing(event);
       }
     };
@@ -245,26 +310,40 @@ function AgentChatOverlay() {
     try {
       editor.run(() => startAgentBlob(editor, runId, contextShapeIds[0]), { history: "ignore" });
       const context = await hydratePromptCanvasContext(editor, dataSocket, contextShapeIds);
-      if (getAgentRuns().some(isAgentRunActive)) throw new Error("The Agent started another run. Wait or stop it before sending.");
+      if (getAgentRuns().some(isAgentRunActive))
+        throw new Error("The Agent started another run. Wait or stop it before sending.");
       await stageCanvas(editor);
       await agentRequest("prompts", {
-        runId, clientId: agentClientId, documentId: getActiveLocalSession()?.documentId,
-        prompt: text, threadId: currentAgent?.props.threadId ?? null,
+        runId,
+        clientId: agentClientId,
+        documentId: getActiveLocalSession()?.documentId,
+        prompt: text,
+        threadId: currentAgent?.props.threadId ?? null,
         context: { ...context, mentions: mentionRanges.map(({ badge }) => ({ name: badge.name, shapeId: badge.id })) },
         fallbackHistory: fallbackHistory(currentAgent?.props.entries ?? []),
         mainModel: agentModels.mainModel,
       });
       const latest = getAgentChat(editor);
       const userEntry = latest?.props.entries.find((entry) => entry.role === "user" && entry.runId === runId);
-      if (userEntry) updateAgentChat(editor, { entries: latest!.props.entries.map((entry) => entry.id === userEntry.id ? { ...entry, contextShapeIds } : entry) });
+      if (userEntry)
+        updateAgentChat(editor, {
+          entries: latest!.props.entries.map((entry) =>
+            entry.id === userEntry.id ? { ...entry, contextShapeIds } : entry
+          ),
+        });
       else appendAgentChatEntry(editor, { role: "user", runId, text, contextShapeIds });
-      setPrompt(""); setCursor(0); setChosenMentions([]); setDismissedMention(null);
+      setPrompt("");
+      setCursor(0);
+      setChosenMentions([]);
+      setDismissedMention(null);
     } catch (error) {
       if (getAgentBlob(editor)?.props.currentJobId === runId) {
         editor.run(() => removeAgentBlob(editor), { history: "ignore" });
       }
       appendAgentChatEntry(editor, { role: "error", text: error instanceof Error ? error.message : String(error) });
-    } finally { setIsSending(false); }
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const onPromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -278,7 +357,10 @@ function AgentChatOverlay() {
       }
       if (mentionSuggestions.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
         event.preventDefault();
-        setMentionIndex((activeMentionIndex + (event.key === "ArrowDown" ? 1 : -1) + mentionSuggestions.length) % mentionSuggestions.length);
+        setMentionIndex(
+          (activeMentionIndex + (event.key === "ArrowDown" ? 1 : -1) + mentionSuggestions.length) %
+            mentionSuggestions.length
+        );
         return;
       }
       if (mentionSuggestions.length && (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey))) {
@@ -287,9 +369,14 @@ function AgentChatOverlay() {
         return;
       }
     }
-    if ((event.key === "Backspace" || event.key === "Delete") && event.currentTarget.selectionStart === event.currentTarget.selectionEnd) {
+    if (
+      (event.key === "Backspace" || event.key === "Delete") &&
+      event.currentTarget.selectionStart === event.currentTarget.selectionEnd
+    ) {
       const position = event.currentTarget.selectionStart;
-      const mention = mentionRanges.find((range) => event.key === "Backspace" ? range.to === position : range.from === position);
+      const mention = mentionRanges.find((range) =>
+        event.key === "Backspace" ? range.to === position : range.from === position
+      );
       if (mention) {
         event.preventDefault();
         setPrompt(prompt.slice(0, mention.from) + prompt.slice(mention.to));
@@ -309,7 +396,13 @@ function AgentChatOverlay() {
   return (
     <div
       data-kavla-agent-ui
-      style={{ fontFamily: '"Kavla Agent Inter", sans-serif', inset: 0, pointerEvents: "none", position: "fixed", zIndex: 100000 }}
+      style={{
+        fontFamily: '"Kavla Agent Inter", sans-serif',
+        inset: 0,
+        pointerEvents: "none",
+        position: "fixed",
+        zIndex: 100000,
+      }}
     >
       <style>{`
         @keyframes kavla-agent-thinking-dot { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
@@ -365,7 +458,21 @@ function AgentChatOverlay() {
                 onClick={() => setIsFollowing((value) => !value)}
                 title="Follow active work. Moving around the canvas pauses following."
                 type="button"
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", background: isFollowing ? "#fef08a" : "#fff", color: "#000", border: "2px solid #000", borderRadius: 5, height: 24, padding: "0 6px", fontSize: 9, fontWeight: 900, textTransform: "uppercase", cursor: "pointer" }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: isFollowing ? "#fef08a" : "#fff",
+                  color: "#000",
+                  border: "2px solid #000",
+                  borderRadius: 5,
+                  height: 24,
+                  padding: "0 6px",
+                  fontSize: 9,
+                  fontWeight: 900,
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                }}
               >
                 Follow
               </button>
@@ -373,7 +480,13 @@ function AgentChatOverlay() {
                 aria-label="Clear chat"
                 disabled={isRunning}
                 onClick={() =>
-                  updateAgentChat(editor, { entries: [], threadId: null, streamingText: "", activity: null, historyClearedAt: Date.now() })
+                  updateAgentChat(editor, {
+                    entries: [],
+                    threadId: null,
+                    streamingText: "",
+                    activity: null,
+                    historyClearedAt: Date.now(),
+                  })
                 }
                 style={{
                   alignItems: "center",
@@ -409,7 +522,18 @@ function AgentChatOverlay() {
               <button
                 aria-label="Close agent chat"
                 onClick={() => updateAgentChat(editor, { isOpen: false })}
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", border: "2px solid #000", borderRadius: 5, height: 24, width: 24, padding: 0, cursor: "pointer" }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "#fff",
+                  border: "2px solid #000",
+                  borderRadius: 5,
+                  height: 24,
+                  width: 24,
+                  padding: 0,
+                  cursor: "pointer",
+                }}
                 title="Close chat"
                 type="button"
               >
@@ -479,7 +603,13 @@ function AgentChatOverlay() {
                   key={entry.id}
                   style={{
                     alignSelf: isUser ? "flex-end" : "flex-start",
-                    background: isError ? "#fee2e2" : isThought ? "#f3f4f6" : entry.role === "event" ? "#e0f2fe" : "#fff",
+                    background: isError
+                      ? "#fee2e2"
+                      : isThought
+                        ? "#f3f4f6"
+                        : entry.role === "event"
+                          ? "#e0f2fe"
+                          : "#fff",
                     border: "2px solid #000",
                     borderRadius: 7,
                     boxShadow: "2px 2px 0 0 rgba(0,0,0,.16)",
@@ -500,10 +630,16 @@ function AgentChatOverlay() {
                   ) : null}
                   {isThought ? (
                     <details>
-                      <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>Thinking</summary>
-                      <div style={{ marginTop: 6 }}><AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} /></div>
+                      <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>
+                        Thinking
+                      </summary>
+                      <div style={{ marginTop: 6 }}>
+                        <AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} />
+                      </div>
                     </details>
-                  ) : <AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} />}
+                  ) : (
+                    <AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} />
+                  )}
                 </div>
               );
             })}
@@ -524,7 +660,9 @@ function AgentChatOverlay() {
                 }}
               >
                 <details>
-                  <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>Thinking</summary>
+                  <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>
+                    Thinking
+                  </summary>
                   <div style={{ marginTop: 6 }}>{agent.props.streamingText}</div>
                 </details>
               </div>
@@ -553,7 +691,15 @@ function AgentChatOverlay() {
             <div ref={endRef} />
           </div>
 
-          <div style={{ background: "#fff", borderRadius: "0 0 9px 9px", borderTop: "3px solid #000", padding: 7, position: "relative" }}>
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "0 0 9px 9px",
+              borderTop: "3px solid #000",
+              padding: 7,
+              position: "relative",
+            }}
+          >
             {contextBadges.length ? (
               <div
                 style={{
@@ -575,21 +721,72 @@ function AgentChatOverlay() {
               </div>
             ) : null}
             {showMentions && ready && !isRunning ? (
-              <div id="agent-mention-list" role="listbox" aria-label="Canvas shapes" style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 8, right: 8, maxHeight: 210, overflowY: "auto", background: "#fff", border: "2px solid #000", borderRadius: 6, boxShadow: "4px 4px 0 #000", zIndex: 1 }}>
-                {mentionSuggestions.length ? mentionSuggestions.map((badge, index) => (
-                  <button
-                    key={badge.id}
-                    id={`agent-mention-${index}`}
-                    role="option"
-                    aria-selected={index === activeMentionIndex}
-                    type="button"
-                    onPointerDown={(event) => event.preventDefault()}
-                    onClick={() => chooseMention(badge)}
-                    style={{ display: "flex", alignItems: "center", width: "100%", minWidth: 0, textAlign: "left", background: index === activeMentionIndex ? "#ede9fe" : "#fff", border: 0, borderBottom: index === mentionSuggestions.length - 1 ? 0 : "1px solid #e5e7eb", padding: "7px 8px", fontSize: 12, fontWeight: 850, cursor: "pointer" }}
-                  >
-                    <span style={{ fontFamily: "monospace", background: badge.backgroundColor, borderBottom: `2px solid ${badge.borderBottomColor}`, padding: "0 2px", fontWeight: 900, display: "block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{badge.name}</span>
-                  </button>
-                )) : <div style={{ padding: "7px 8px", fontSize: 12, fontWeight: 850, color: "#6b7280" }}>No matching context</div>}
+              <div
+                id="agent-mention-list"
+                role="listbox"
+                aria-label="Canvas shapes"
+                style={{
+                  position: "absolute",
+                  bottom: "calc(100% + 6px)",
+                  left: 8,
+                  right: 8,
+                  maxHeight: 210,
+                  overflowY: "auto",
+                  background: "#fff",
+                  border: "2px solid #000",
+                  borderRadius: 6,
+                  boxShadow: "4px 4px 0 #000",
+                  zIndex: 1,
+                }}
+              >
+                {mentionSuggestions.length ? (
+                  mentionSuggestions.map((badge, index) => (
+                    <button
+                      key={badge.id}
+                      id={`agent-mention-${index}`}
+                      role="option"
+                      aria-selected={index === activeMentionIndex}
+                      type="button"
+                      onPointerDown={(event) => event.preventDefault()}
+                      onClick={() => chooseMention(badge)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        width: "100%",
+                        minWidth: 0,
+                        textAlign: "left",
+                        background: index === activeMentionIndex ? "#ede9fe" : "#fff",
+                        border: 0,
+                        borderBottom: index === mentionSuggestions.length - 1 ? 0 : "1px solid #e5e7eb",
+                        padding: "7px 8px",
+                        fontSize: 12,
+                        fontWeight: 850,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontFamily: "monospace",
+                          background: badge.backgroundColor,
+                          borderBottom: `2px solid ${badge.borderBottomColor}`,
+                          padding: "0 2px",
+                          fontWeight: 900,
+                          display: "block",
+                          maxWidth: "100%",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {badge.name}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <div style={{ padding: "7px 8px", fontSize: 12, fontWeight: 850, color: "#6b7280" }}>
+                    No matching context
+                  </div>
+                )}
               </div>
             ) : null}
             <div
@@ -602,23 +799,61 @@ function AgentChatOverlay() {
                 position: "relative",
               }}
             >
-              <div ref={highlightsRef} aria-hidden="true" style={{ position: "absolute", inset: 0, padding: "7px 56px 7px 8px", boxSizing: "border-box", whiteSpace: "pre-wrap", overflowWrap: "break-word", overflow: "hidden", font: '700 12px/1.35 "Kavla Agent Inter", sans-serif', color: "#000", pointerEvents: "none" }}>
+              <div
+                ref={highlightsRef}
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  padding: "7px 56px 7px 8px",
+                  boxSizing: "border-box",
+                  whiteSpace: "pre-wrap",
+                  overflowWrap: "break-word",
+                  overflow: "hidden",
+                  font: '700 12px/1.35 "Kavla Agent Inter", sans-serif',
+                  color: "#000",
+                  pointerEvents: "none",
+                }}
+              >
                 {(() => {
                   let offset = 0;
-                  return <>{mentionRanges.map((range) => {
-                    const prefix = prompt.slice(offset, range.from);
-                    offset = range.to;
-                    return <span key={`${range.from}:${range.badge.id}`}>{prefix}<span style={{ background: range.badge.backgroundColor, borderBottom: `1px solid ${range.badge.borderBottomColor}`, borderRadius: 3 }}>{prompt.slice(range.from, range.to)}</span></span>;
-                  })}{prompt.slice(offset)}{"\n"}</>;
+                  return (
+                    <>
+                      {mentionRanges.map((range) => {
+                        const prefix = prompt.slice(offset, range.from);
+                        offset = range.to;
+                        return (
+                          <span key={`${range.from}:${range.badge.id}`}>
+                            {prefix}
+                            <span
+                              style={{
+                                background: range.badge.backgroundColor,
+                                borderBottom: `1px solid ${range.badge.borderBottomColor}`,
+                                borderRadius: 3,
+                              }}
+                            >
+                              {prompt.slice(range.from, range.to)}
+                            </span>
+                          </span>
+                        );
+                      })}
+                      {prompt.slice(offset)}
+                      {"\n"}
+                    </>
+                  );
                 })()}
               </div>
               <textarea
                 ref={promptRef}
-                onScroll={(event) => { if (highlightsRef.current) highlightsRef.current.scrollTop = event.currentTarget.scrollTop; }}
+                onScroll={(event) => {
+                  if (highlightsRef.current) highlightsRef.current.scrollTop = event.currentTarget.scrollTop;
+                }}
                 aria-label="Ask the Kavla Agent"
                 aria-autocomplete="list"
                 aria-controls={showMentions ? "agent-mention-list" : undefined}
-                aria-activedescendant={showMentions && mentionSuggestions.length ? `agent-mention-${activeMentionIndex}` : undefined}
+                aria-activedescendant={
+                  showMentions && mentionSuggestions.length ? `agent-mention-${activeMentionIndex}` : undefined
+                }
                 disabled={!ready || isRunning}
                 onChange={(event) => {
                   setPrompt(event.currentTarget.value);

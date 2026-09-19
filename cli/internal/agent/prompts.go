@@ -19,12 +19,16 @@ var lensDeveloperInstructions string
 const DefaultMaxToolCalls = 50
 
 func MaxToolCallsOrDefault(value int) int {
-	if value == 0 { return DefaultMaxToolCalls }
+	if value == 0 {
+		return DefaultMaxToolCalls
+	}
 	return value
 }
 
 func ValidateMaxToolCalls(value int) error {
-	if value < 1 || value > 1000 { return fmt.Errorf("tool-call limit must be a whole number between 1 and 1000") }
+	if value < 1 || value > 1000 {
+		return fmt.Errorf("tool-call limit must be a whole number between 1 and 1000")
+	}
 	return nil
 }
 

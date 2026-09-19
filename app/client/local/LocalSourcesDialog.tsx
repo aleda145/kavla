@@ -493,19 +493,21 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
                         >
                           <Database size={14} /> Tables
                         </button>
-                        {!source.builtin && <button
-                          aria-label={`Edit ${source.name}`}
-                          onClick={() => beginEdit(source)}
-                          style={{
-                            ...iconButtonBorderedStyle,
-                            alignSelf: "center",
-                            justifyContent: "center",
-                            width: 34,
-                          }}
-                          type="button"
-                        >
-                          <Pencil size={15} />
-                        </button>}
+                        {!source.builtin && (
+                          <button
+                            aria-label={`Edit ${source.name}`}
+                            onClick={() => beginEdit(source)}
+                            style={{
+                              ...iconButtonBorderedStyle,
+                              alignSelf: "center",
+                              justifyContent: "center",
+                              width: 34,
+                            }}
+                            type="button"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        )}
                       </span>
                     </div>
                   );
@@ -616,28 +618,45 @@ function SourceTablesBrowser({
   }, [getSourceSchema, getSourceStats, selectedTable]);
 
   useEffect(() => {
-    const refresh = () => setRevision(value => value + 1);
+    const refresh = () => setRevision((value) => value + 1);
     window.addEventListener("kavla:uploads-changed", refresh);
     return () => window.removeEventListener("kavla:uploads-changed", refresh);
   }, []);
 
   const deleteUploadedTable = async () => {
-    if (!selectedTable || !window.confirm(`Delete ${selectedTable} from this document? Queries using it will no longer work.`)) return;
+    if (
+      !selectedTable ||
+      !window.confirm(`Delete ${selectedTable} from this document? Queries using it will no longer work.`)
+    )
+      return;
     setDeleting(true);
     try {
-      const currentSession = await (await backendRequest("/api/session")).json() as KavlaLocalSession;
-      const blob = currentSession.blobs.find(blob => blob.tableName && `uploaded_files.main.${blob.tableName}` === selectedTable);
+      const currentSession = (await (await backendRequest("/api/session")).json()) as KavlaLocalSession;
+      const blob = currentSession.blobs.find(
+        (blob) => blob.tableName && `uploaded_files.main.${blob.tableName}` === selectedTable
+      );
       if (!blob) throw new Error("The uploaded table no longer exists.");
       await backendRequest(`/api/session/uploads/${encodeURIComponent(blob.id)}`, { method: "DELETE" });
       forgetUploadedBlob(blob.id);
       for (const record of Object.values(editor.store.serialize("document"))) {
-        if (record.typeName === "shape" && record.type === "data-source" && (record as DataSourceShape).props.remoteTableRef === selectedTable) {
-          editor.updateShape<DataSourceShape>({ id: record.id, type: "data-source", props: { error: "This uploaded table was deleted. Select another source or upload the file again." } });
+        if (
+          record.typeName === "shape" &&
+          record.type === "data-source" &&
+          (record as DataSourceShape).props.remoteTableRef === selectedTable
+        ) {
+          editor.updateShape<DataSourceShape>({
+            id: record.id,
+            type: "data-source",
+            props: { error: "This uploaded table was deleted. Select another source or upload the file again." },
+          });
         }
       }
       setSelectedTable(null);
-    } catch (error) { setDetailsError(error instanceof Error ? error.message : String(error)); }
-    finally { setDeleting(false); }
+    } catch (error) {
+      setDetailsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const visibleTables = useMemo(() => {
@@ -664,7 +683,17 @@ function SourceTablesBrowser({
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div style={subheaderStyle}>
-        {source.builtin && selectedTable && <button type="button" disabled={deleting} onClick={() => void deleteUploadedTable()} style={iconButtonBorderedStyle} title="Delete uploaded table"><Trash2 size={15} /></button>}
+        {source.builtin && selectedTable && (
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() => void deleteUploadedTable()}
+            style={iconButtonBorderedStyle}
+            title="Delete uploaded table"
+          >
+            <Trash2 size={15} />
+          </button>
+        )}
         <button aria-label="Back to CLI sources" onClick={onBack} style={iconButtonBorderedStyle} type="button">
           <ChevronLeft size={17} />
         </button>

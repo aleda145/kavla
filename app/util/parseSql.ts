@@ -1,8 +1,12 @@
 export function extractTableNames(sql: string): string[] {
   // Keep quoted identifiers and string literals intact so their contents cannot
   // be mistaken for FROM/JOIN clauses. Comments may separate a clause and name.
-  const tokens = Array.from(sql.matchAll(/--[^\r\n]*|\/\*[\s\S]*?\*\/|'(?:''|[^'])*'|"(?:""|[^"])*"|`(?:``|[^`])*`|[a-zA-Z_][a-zA-Z0-9_$]*|[^\s]/g), (match) => match[0])
-    .filter((token) => !token.startsWith("--") && !token.startsWith("/*"));
+  const tokens = Array.from(
+    sql.matchAll(
+      /--[^\r\n]*|\/\*[\s\S]*?\*\/|'(?:''|[^'])*'|"(?:""|[^"])*"|`(?:``|[^`])*`|[a-zA-Z_][a-zA-Z0-9_$]*|[^\s]/g
+    ),
+    (match) => match[0]
+  ).filter((token) => !token.startsWith("--") && !token.startsWith("/*"));
   const identifier = (token: string | undefined): string | null => {
     if (!token) return null;
     if (token.startsWith('"')) return token.slice(1, -1).replace(/""/g, '"');

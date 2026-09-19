@@ -14,26 +14,32 @@ export type AgentLayout = {
 type LayoutRect = { minX: number; minY: number; maxX: number; maxY: number };
 
 function layoutObject(args: Record<string, unknown>) {
-  return args.layout && typeof args.layout === "object" ? args.layout as Record<string, unknown> : {};
+  return args.layout && typeof args.layout === "object" ? (args.layout as Record<string, unknown>) : {};
 }
 
 export function getAgentLayout(
   args: Record<string, unknown>,
   fallbackParentShapeId: TLShapeId | null,
-  defaultPlacement: AgentPlacement,
+  defaultPlacement: AgentPlacement
 ): AgentLayout {
   const layout = layoutObject(args);
   const placement = typeof layout.placement === "string" ? layout.placement : defaultPlacement;
-  if ((layout.x !== undefined || layout.y !== undefined) && (typeof layout.x !== "number" || !Number.isFinite(layout.x) || typeof layout.y !== "number" || !Number.isFinite(layout.y))) throw new Error("Supply both finite page coordinates layout.x and layout.y.");
+  if (
+    (layout.x !== undefined || layout.y !== undefined) &&
+    (typeof layout.x !== "number" ||
+      !Number.isFinite(layout.x) ||
+      typeof layout.y !== "number" ||
+      !Number.isFinite(layout.y))
+  )
+    throw new Error("Supply both finite page coordinates layout.x and layout.y.");
   const rawOrder = typeof layout.order === "number" && Number.isFinite(layout.order) ? layout.order : 0;
   return {
     ...(typeof layout.x === "number" && typeof layout.y === "number" ? { x: layout.x, y: layout.y } : {}),
-    parentShapeId: typeof layout.parentShapeId === "string"
-      ? layout.parentShapeId as TLShapeId
-      : fallbackParentShapeId,
+    parentShapeId:
+      typeof layout.parentShapeId === "string" ? (layout.parentShapeId as TLShapeId) : fallbackParentShapeId,
     order: Math.max(0, Math.min(20, rawOrder)),
     placement: ["right", "left", "below", "above", "summary"].includes(placement)
-      ? placement as AgentPlacement
+      ? (placement as AgentPlacement)
       : defaultPlacement,
   };
 }
@@ -48,7 +54,8 @@ export function getAgentShapeBounds(editor: Editor, id: TLShapeId) {
 }
 
 export function getAgentCanvasLayout(editor: Editor) {
-  return editor.getCurrentPageShapes()
+  return editor
+    .getCurrentPageShapes()
     .filter((shape) => !["agent-chat", "agent-blob"].includes(shape.type))
     .slice(0, 200)
     .map((shape) => ({
@@ -57,12 +64,17 @@ export function getAgentCanvasLayout(editor: Editor) {
       name: "name" in shape.props ? shape.props.name : undefined,
       bounds: getAgentShapeBounds(editor, shape.id),
       isLocked: shape.isLocked,
-      ...(shape.type === "arrow" ? {
-        points: editor.getShapeGeometry(shape).getVertices({ includeLabels: false, includeInternal: false }).map((point) => {
-          const page = editor.getShapePageTransform(shape).applyToPoint(point);
-          return { x: page.x, y: page.y };
-        }),
-      } : {}),
+      ...(shape.type === "arrow"
+        ? {
+            points: editor
+              .getShapeGeometry(shape)
+              .getVertices({ includeLabels: false, includeInternal: false })
+              .map((point) => {
+                const page = editor.getShapePageTransform(shape).applyToPoint(point);
+                return { x: page.x, y: page.y };
+              }),
+          }
+        : {}),
     }));
 }
 
@@ -74,26 +86,35 @@ type ArrowSegment = {
 };
 
 function arrowSegments(editor: Editor): ArrowSegment[] {
-  return editor.getCurrentPageShapes().filter((shape) => shape.type === "arrow").flatMap((arrow) => {
-    const targets = editor.getBindingsFromShape<TLArrowBinding>(arrow, "arrow").map((binding) => binding.toId);
-    const transform = editor.getShapePageTransform(arrow);
-    const points = editor.getShapeGeometry(arrow).getVertices({ includeLabels: false, includeInternal: false }).map((point) => transform.applyToPoint(point));
-    return points.slice(1).map((point, index) => ({ arrowId: arrow.id, targets, start: points[index], end: point }));
-  });
+  return editor
+    .getCurrentPageShapes()
+    .filter((shape) => shape.type === "arrow")
+    .flatMap((arrow) => {
+      const targets = editor.getBindingsFromShape<TLArrowBinding>(arrow, "arrow").map((binding) => binding.toId);
+      const transform = editor.getShapePageTransform(arrow);
+      const points = editor
+        .getShapeGeometry(arrow)
+        .getVertices({ includeLabels: false, includeInternal: false })
+        .map((point) => transform.applyToPoint(point));
+      return points.slice(1).map((point, index) => ({ arrowId: arrow.id, targets, start: points[index], end: point }));
+    });
 }
 
 // Clip the actual segment against a padded rectangle, including diagonal arrows.
 function crosses(rect: LayoutRect, segment: ArrowSegment, padding = 18) {
-  let enter = 0, leave = 1;
+  let enter = 0,
+    leave = 1;
   for (const axis of ["x", "y"] as const) {
     const low = (axis === "x" ? rect.minX : rect.minY) - padding;
     const high = (axis === "x" ? rect.maxX : rect.maxY) + padding;
-    const start = segment.start[axis], delta = segment.end[axis] - start;
+    const start = segment.start[axis],
+      delta = segment.end[axis] - start;
     if (Math.abs(delta) < 1e-8) {
       if (start < low || start > high) return false;
       continue;
     }
-    const a = (low - start) / delta, b = (high - start) / delta;
+    const a = (low - start) / delta,
+      b = (high - start) / delta;
     enter = Math.max(enter, Math.min(a, b));
     leave = Math.min(leave, Math.max(a, b));
     if (enter > leave) return false;
@@ -114,12 +135,17 @@ export function getAgentArrowOverlaps(editor: Editor, affectedIds: TLShapeId[]) 
     if (["arrow", "agent-chat", "agent-blob"].includes(shape.type)) continue;
     const bounds = editor.getShapePageBounds(shape.id);
     if (!bounds) continue;
-    const arrowIds = new Set(segments.filter((segment) =>
-      (affected.has(shape.id) || segment.targets.some((id) => affected.has(id))) &&
-      !segment.targets.includes(shape.id) &&
-      !segment.targets.some((id) => editor.hasAncestor(id, shape.id)) &&
-      crosses(bounds, segment)
-    ).map((segment) => segment.arrowId));
+    const arrowIds = new Set(
+      segments
+        .filter(
+          (segment) =>
+            (affected.has(shape.id) || segment.targets.some((id) => affected.has(id))) &&
+            !segment.targets.includes(shape.id) &&
+            !segment.targets.some((id) => editor.hasAncestor(id, shape.id)) &&
+            crosses(bounds, segment)
+        )
+        .map((segment) => segment.arrowId)
+    );
     if (arrowIds.size) conflicts.push({ shapeId: shape.id, arrowIds: [...arrowIds] });
   }
   return conflicts;
@@ -130,11 +156,10 @@ export function getAgentPlacement(
   layout: AgentLayout,
   fallbackAnchorShapeId: TLShapeId | null,
   size: { w: number; h: number },
-  movingShapeId: TLShapeId | null = null,
+  movingShapeId: TLShapeId | null = null
 ) {
-  const anchorShapeId = layout.parentShapeId && editor.getShape(layout.parentShapeId)
-    ? layout.parentShapeId
-    : fallbackAnchorShapeId;
+  const anchorShapeId =
+    layout.parentShapeId && editor.getShape(layout.parentShapeId) ? layout.parentShapeId : fallbackAnchorShapeId;
   const anchorBounds = anchorShapeId ? editor.getShapePageBounds(anchorShapeId) : null;
   const viewportCenter = editor.getViewportPageBounds().center;
   const anchor = anchorBounds ?? {
@@ -145,21 +170,37 @@ export function getAgentPlacement(
     width: 0,
     height: 0,
   };
-  const occupied = editor.getCurrentPageShapes()
-    .filter((shape) => shape.id !== movingShapeId && shape.type !== "arrow" && shape.type !== "agent-chat" && shape.type !== "agent-blob")
+  const occupied = editor
+    .getCurrentPageShapes()
+    .filter(
+      (shape) =>
+        shape.id !== movingShapeId &&
+        shape.type !== "arrow" &&
+        shape.type !== "agent-chat" &&
+        shape.type !== "agent-blob"
+    )
     .flatMap((shape) => {
       const bounds = editor.getShapePageBounds(shape.id);
-      return bounds ? [{
-        minX: bounds.minX - 28,
-        minY: bounds.minY - 28,
-        maxX: bounds.maxX + 28,
-        maxY: bounds.maxY + 28,
-      }] : [];
+      return bounds
+        ? [
+            {
+              minX: bounds.minX - 28,
+              minY: bounds.minY - 28,
+              maxX: bounds.maxX + 28,
+              maxY: bounds.maxY + 28,
+            },
+          ]
+        : [];
     });
-  const segments = arrowSegments(editor).filter((segment) => !movingShapeId || !segment.targets.includes(movingShapeId));
+  const segments = arrowSegments(editor).filter(
+    (segment) => !movingShapeId || !segment.targets.includes(movingShapeId)
+  );
   if (layout.x !== undefined && layout.y !== undefined) {
     const rect = { minX: layout.x, minY: layout.y, maxX: layout.x + size.w, maxY: layout.y + size.h };
-    if (occupied.some((other) => overlaps(rect, other))) throw new Error("Requested placement overlaps another shape. Read canvasLayout and leave at least 30 units of clearance.");
+    if (occupied.some((other) => overlaps(rect, other)))
+      throw new Error(
+        "Requested placement overlaps another shape. Read canvasLayout and leave at least 30 units of clearance."
+      );
     let best = { x: layout.x, y: layout.y, score: crossingCount(rect, segments) * 6000 };
     if (best.score === 0) return best;
     // Try only the immediate neighborhood; never move a new node far from its intended story.
@@ -221,14 +262,18 @@ export function getAgentPlacement(
     }
   }
 
-  return candidates.sort((a, b) => a.score - b.score)[0]
-    ?? { x: Math.max(anchor.maxX, ...occupied.map((rect) => rect.maxX)) + xGap, y: anchor.minY };
+  return (
+    candidates.sort((a, b) => a.score - b.score)[0] ?? {
+      x: Math.max(anchor.maxX, ...occupied.map((rect) => rect.maxX)) + xGap,
+      y: anchor.minY,
+    }
+  );
 }
 
 function getQueryLayout(shape: SQLTextAreaShape): AgentLayout | null {
   const layout = shape.meta.agentQueryLayout;
   if (!layout || typeof layout !== "object" || Array.isArray(layout)) return null;
-  return getAgentLayout({ layout }, shape.props.upstreamShapeIds?.[0] as TLShapeId | undefined ?? null, "right");
+  return getAgentLayout({ layout }, (shape.props.upstreamShapeIds?.[0] as TLShapeId | undefined) ?? null, "right");
 }
 
 export function trackAgentQueryLayout(editor: Editor, shapeId: TLShapeId, layout: AgentLayout) {
@@ -250,12 +295,15 @@ function hasLayoutCollision(editor: Editor, shapeId: TLShapeId) {
     // Frames and groups contain their children intentionally.
     if (editor.hasAncestor(shapeId, other.id) || editor.hasAncestor(other.id, shapeId)) return false;
     const otherBounds = editor.getShapePageBounds(other.id);
-    return otherBounds && overlaps(bounds, {
-      minX: otherBounds.minX - 28,
-      minY: otherBounds.minY - 28,
-      maxX: otherBounds.maxX + 28,
-      maxY: otherBounds.maxY + 28,
-    });
+    return (
+      otherBounds &&
+      overlaps(bounds, {
+        minX: otherBounds.minX - 28,
+        minY: otherBounds.minY - 28,
+        maxX: otherBounds.maxX + 28,
+        maxY: otherBounds.maxY + 28,
+      })
+    );
   });
 }
 
@@ -267,15 +315,32 @@ export function reflowAgentQuery(editor: Editor, shapeId: TLShapeId) {
   const bounds = editor.getShapePageBounds(shapeId);
   if (!bounds) return;
   if (hasLayoutCollision(editor, shapeId)) {
-    const placement = getAgentPlacement(editor, { ...layout, parentShapeId: shapeId, x: undefined, y: undefined }, shapeId, { w: bounds.w, h: bounds.h }, shapeId);
+    const placement = getAgentPlacement(
+      editor,
+      { ...layout, parentShapeId: shapeId, x: undefined, y: undefined },
+      shapeId,
+      { w: bounds.w, h: bounds.h },
+      shapeId
+    );
     const origin = editor.getPointInParentSpace(query, placement);
     editor.updateShape({ id: shapeId, type: query.type, x: origin.x, y: origin.y });
   }
   const resultId = query.props.linkedTableId as TLShapeId | null;
   const result = resultId ? editor.getShape(resultId) : null;
   const resultBounds = resultId ? editor.getShapePageBounds(resultId) : null;
-  if (result?.type === "sql-result-table" && !result.isLocked && resultBounds && hasLayoutCollision(editor, result.id)) {
-    const placement = getAgentPlacement(editor, { parentShapeId: shapeId, placement: "below", order: layout.order }, shapeId, { w: resultBounds.w, h: resultBounds.h }, result.id);
+  if (
+    result?.type === "sql-result-table" &&
+    !result.isLocked &&
+    resultBounds &&
+    hasLayoutCollision(editor, result.id)
+  ) {
+    const placement = getAgentPlacement(
+      editor,
+      { parentShapeId: shapeId, placement: "below", order: layout.order },
+      shapeId,
+      { w: resultBounds.w, h: resultBounds.h },
+      result.id
+    );
     const origin = editor.getPointInParentSpace(result, placement);
     editor.updateShape({ id: result.id, type: result.type, x: origin.x, y: origin.y });
   }

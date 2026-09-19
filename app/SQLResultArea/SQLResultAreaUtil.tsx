@@ -139,7 +139,6 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
           setTotalRows(restoredMetadata?.rowCount ?? sourceShape.props.lastRunStats?.rowCount ?? 0);
           return;
         }
-
       } catch (e: any) {
         if (e instanceof MissingQueryResultError) {
           setPageData([]);
@@ -407,10 +406,12 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
     const handleCopyTSV = async () => {
       if (!sourceShape) return;
       try {
-        const prepare = () => prepareQueryResultDownload({ shapeId: sourceShape.id, format: "tsv", fileName: sourceShape.props.name });
+        const prepare = () =>
+          prepareQueryResultDownload({ shapeId: sourceShape.id, format: "tsv", fileName: sourceShape.props.name });
         let download;
-        try { download = await prepare(); }
-        catch (error) {
+        try {
+          download = await prepare();
+        } catch (error) {
           if (!(error instanceof MissingQueryResultError)) throw error;
           await restoreRemoteQueryView(this.editor, sourceShape, runRemoteQuery);
           download = await prepare();
@@ -420,7 +421,11 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
         setIsCopied(true);
         setTimeout(() => setIsCopied(false), 2000);
       } catch (error) {
-        addToast({ title: "Copy failed", description: error instanceof Error ? error.message : String(error), severity: "error" });
+        addToast({
+          title: "Copy failed",
+          description: error instanceof Error ? error.message : String(error),
+          severity: "error",
+        });
       }
     };
 
@@ -463,8 +468,6 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
         }
         return;
       }
-
-
     };
 
     const virtualRows = rowVirtualizer.getVirtualItems();
