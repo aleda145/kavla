@@ -133,7 +133,7 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({ sources, onF
                 event.stopPropagation();
                 if (event.pointerType === "touch") onFileClick();
               }}
-              title="Upload a CSV, Parquet, or JSON file"
+              title="Upload a CSV, Parquet, JSON, or NDJSON file"
             >
               <Upload size={18} />
               <span>Upload file</span>

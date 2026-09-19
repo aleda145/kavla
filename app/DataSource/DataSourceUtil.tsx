@@ -7,16 +7,13 @@ import { getCliSourcesSnapshot, useData, useCliSources } from "../client/useLoca
 import { getUniqueName } from "../util/getUniqueName";
 import { toValidSqlName } from "../util/sql";
 import { quoteDottedIdentifier } from "../src/duckdb/sql";
-import { DuckDBService } from "@/duckdb-service";
 import { useTldrawScrollArea } from "./useTldrawScrollArea";
 import { getRemoteSourceMetadata, getRemoteTableDisplayName } from "./remote-source-metadata";
 import { DataSourceHeader } from "./DataSourceHeader";
 import { LocalDataSourceBody as DataSourceBody } from "./LocalDataSourceBody";
-import { ensureBundledSourceTable } from "../client/local/bundledTables";
 import {
   calculateDataSourceHeight,
   calculateDataSourceWidth,
-  getLocalDataSourceSizeError,
   ingestLocalDataSourceFile,
 } from "./ingestLocalDataSourceFile";
 import { getEngineAppearance, ShapeEngineTabs, type ShapeEngineTab } from "../util/ShapeEngineTabs";
@@ -195,55 +192,9 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
         const remoteSource = getRemoteSourceMetadata(currentShape);
         const isRemoteSource = remoteSource !== null;
 
-        if (!isRemoteSource && currentShape.props.filename && !currentShape.props.isRunning) {
-          if (currentShape.props.metadata) {
-            return;
-          }
-          try {
-            const duckDBService = DuckDBService.getInstance();
-            await duckDBService.init();
-            const isAvailable = await ensureBundledSourceTable({
-              shapeId: shape.id,
-              tableName: currentShape.props.name,
-              filename: currentShape.props.filename,
-            });
-            if (!isAvailable) {
-              throw new Error("The .kavla document does not contain this source file.");
-            }
-
-            const { schema, count } = await duckDBService.getFileMetadata(
-              `KAVLA_BLOB_SOURCE_${shape.id}`,
-              currentShape.props.name,
-              currentShape.props.filename
-            );
-
-            this.editor.updateShape<DataSourceShape>({
-              id: currentShape.id,
-              type: "data-source",
-              props: {
-                metadata: schema,
-                rowCount: count,
-                isRunning: false,
-                error: null,
-                h: calculateDataSourceHeight(schema, count),
-                w: calculateDataSourceWidth(schema, currentShape.props.filename),
-              },
-            });
-
-            return;
-          } catch (localErr) {
-            console.error("Local .kavla source load failed", localErr);
-            const reason = localErr instanceof Error ? localErr.message : String(localErr);
-            this.editor.updateShape<DataSourceShape>({
-              id: currentShape.id,
-              type: "data-source",
-              props: {
-                error: `Could not load ${currentShape.props.filename}: ${reason}`,
-                isRunning: false,
-              },
-            });
-            return;
-          }
+        if (!isRemoteSource && currentShape.props.filename && !currentShape.props.isRunning && !currentShape.props.error) {
+          this.editor.updateShape<DataSourceShape>({ id: currentShape.id, type: "data-source", props: { error: "The source file is missing from this document. Upload it again." } });
+          return;
         }
 
         if (currentShape.props.filename && !currentShape.props.metadata && remoteSource) {
@@ -315,22 +266,8 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
     const inputRef = useRef<HTMLInputElement | null>(null);
 
     const handleFileSelected = async (file: File) => {
-      const sizeError = getLocalDataSourceSizeError(file.size);
-      if (sizeError) {
-        this.editor.updateShape<DataSourceShape>({
-          id: shape.id,
-          type: "data-source",
-          props: {
-            error: sizeError,
-            filename: file.name,
-            isRunning: false,
-          },
-        });
-        return;
-      }
-
       beginSourceChange({
-        filename: `Saving ${file.name} locally...`,
+        filename: `Importing ${file.name}...`,
         fileSize: file.size,
       });
 
@@ -439,7 +376,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
 
           <input
             type="file"
-            accept=".parquet,.csv,.json"
+            accept=".parquet,.csv,.json,.ndjson"
             style={{ display: "none" }}
             ref={inputRef}
             onChange={handleUpload}

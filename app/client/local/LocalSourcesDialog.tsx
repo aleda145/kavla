@@ -1,3 +1,5 @@
+import { backendRequest } from "../backendCompute";
+import { forgetUploadedBlob, type KavlaLocalSession } from "./localSession";
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -474,7 +476,7 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
                               whiteSpace: "nowrap",
                             }}
                           >
-                            {source.type} · {source.connection}
+                            {source.builtin ? "Files stored in this document" : `${source.type} · ${source.connection}`}
                           </span>
                           {source.error ? (
                             <span style={{ color: "#b91c1c", fontSize: 10, fontWeight: 700 }}>{source.error}</span>
@@ -491,7 +493,7 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
                         >
                           <Database size={14} /> Tables
                         </button>
-                        <button
+                        {!source.builtin && <button
                           aria-label={`Edit ${source.name}`}
                           onClick={() => beginEdit(source)}
                           style={{
@@ -503,7 +505,7 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
                           type="button"
                         >
                           <Pencil size={15} />
-                        </button>
+                        </button>}
                       </span>
                     </div>
                   );
@@ -555,6 +557,9 @@ function SourceTablesBrowser({
   onQuery: (table: string, details: SourceTableDetails) => void;
   source: CliConfiguredSource;
 }) {
+  const editor = useEditor();
+  const [revision, setRevision] = useState(0);
+  const [deleting, setDeleting] = useState(false);
   const [tables, setTables] = useState<string[]>([]);
   const [loadingTables, setLoadingTables] = useState(true);
   const [tableError, setTableError] = useState<string | null>(null);
@@ -581,7 +586,7 @@ function SourceTablesBrowser({
     return () => {
       cancelled = true;
     };
-  }, [getSourceTables, source.name]);
+  }, [getSourceTables, source.name, revision]);
 
   useEffect(() => {
     if (!selectedTable) {
@@ -610,6 +615,31 @@ function SourceTablesBrowser({
     };
   }, [getSourceSchema, getSourceStats, selectedTable]);
 
+  useEffect(() => {
+    const refresh = () => setRevision(value => value + 1);
+    window.addEventListener("kavla:uploads-changed", refresh);
+    return () => window.removeEventListener("kavla:uploads-changed", refresh);
+  }, []);
+
+  const deleteUploadedTable = async () => {
+    if (!selectedTable || !window.confirm(`Delete ${selectedTable} from this document? Queries using it will no longer work.`)) return;
+    setDeleting(true);
+    try {
+      const currentSession = await (await backendRequest("/api/session")).json() as KavlaLocalSession;
+      const blob = currentSession.blobs.find(blob => blob.tableName && `uploaded_files.main.${blob.tableName}` === selectedTable);
+      if (!blob) throw new Error("The uploaded table no longer exists.");
+      await backendRequest(`/api/session/uploads/${encodeURIComponent(blob.id)}`, { method: "DELETE" });
+      forgetUploadedBlob(blob.id);
+      for (const record of Object.values(editor.store.serialize("document"))) {
+        if (record.typeName === "shape" && record.type === "data-source" && (record as DataSourceShape).props.remoteTableRef === selectedTable) {
+          editor.updateShape<DataSourceShape>({ id: record.id, type: "data-source", props: { error: "This uploaded table was deleted. Select another source or upload the file again." } });
+        }
+      }
+      setSelectedTable(null);
+    } catch (error) { setDetailsError(error instanceof Error ? error.message : String(error)); }
+    finally { setDeleting(false); }
+  };
+
   const visibleTables = useMemo(() => {
     const query = search.trim().toLowerCase();
     return query ? tables.filter((table) => table.toLowerCase().includes(query)) : tables;
@@ -634,6 +664,7 @@ function SourceTablesBrowser({
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div style={subheaderStyle}>
+        {source.builtin && selectedTable && <button type="button" disabled={deleting} onClick={() => void deleteUploadedTable()} style={iconButtonBorderedStyle} title="Delete uploaded table"><Trash2 size={15} /></button>}
         <button aria-label="Back to CLI sources" onClick={onBack} style={iconButtonBorderedStyle} type="button">
           <ChevronLeft size={17} />
         </button>

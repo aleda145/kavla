@@ -85,6 +85,12 @@ const CANVAS_STAGE_IDLE_MS = 2_000;
 
 function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const [isDocumentDirty, setIsDocumentDirty] = useState(false);
+  useEffect(() => {
+    const markUploadsDirty = () => { documentRevisionRef.current += 1; setIsDocumentDirty(true); };
+    window.addEventListener("kavla:uploads-changed", markUploadsDirty);
+    return () => window.removeEventListener("kavla:uploads-changed", markUploadsDirty);
+  }, []);
+
   const [isDocumentSaving, setIsDocumentSaving] = useState(false);
   const [documentFileSize, setDocumentFileSize] = useState<number | null>(session?.fileSize ?? null);
   const editorRef = useRef<Editor | null>(null);

@@ -1,11 +1,8 @@
 import { createShapeId, type Editor, useToasts } from "tldraw";
 import { RefreshCw, Search } from "lucide-react";
 import { connectShapes } from "../util/shapeConnections";
-import { downloadTable, type TableDownloadFormat, type TableDownloadSource } from "../util/downloadTable";
+import { type TableDownloadFormat } from "../util/downloadTable";
 import { TableDownloadButtons } from "@/components/TableDownloadButtons";
-import { DuckDBService } from "@/duckdb-service";
-import { ensureBundledSourceTable } from "../client/local/bundledTables";
-import { downloadSessionBlob, getSessionBlob } from "../client/local/localSession";
 import { useData } from "../client/useLocalServer";
 import { confirmLargeTableDownload, estimateTableDownloadBytesFromSchema } from "../util/largeTableDownload";
 import type { DataSourceShape } from "./data-source-types";
@@ -83,49 +80,7 @@ export function DataSourceActionBar({
       return;
     }
 
-    const duckDBService = DuckDBService.getInstance();
-    const source: TableDownloadSource = {
-      kind: "local",
-      filename,
-      loadOriginalFile: async () => {
-        const registeredFile = duckDBService.getRegisteredFile(shape.props.name);
-        if (registeredFile) return registeredFile;
-        const descriptor = getSessionBlob("source", shape.id);
-        if (!descriptor) throw new Error(`The .kavla document does not contain ${filename}.`);
-        return downloadSessionBlob(descriptor.id);
-      },
-      recoverTable: async () => {
-        const isAvailable = await ensureBundledSourceTable({
-          shapeId: shape.id,
-          tableName: shape.props.name,
-          filename,
-        });
-        if (!isAvailable) throw new Error(`The .kavla document does not contain ${filename}.`);
-      },
-    };
-
-    try {
-      await downloadTable({
-        format,
-        outputBaseName: shape.props.name,
-        tableName: shape.props.name,
-        source,
-        fileSize: shape.props.fileSize,
-        onConversionTooLarge: (description) => {
-          addToast({
-            title: "File too large",
-            description,
-            severity: "warning",
-          });
-        },
-      });
-    } catch (error) {
-      addToast({
-        title: "Download failed",
-        description: error instanceof Error ? error.message : String(error),
-        severity: "error",
-      });
-    }
+    addToast({ title: "Source unavailable", description: "Upload the missing source file again.", severity: "error" });
   };
 
   const handleQuery = () => {

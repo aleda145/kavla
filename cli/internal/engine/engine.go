@@ -74,7 +74,9 @@ func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig
 }
 
 func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string]kavlaconfig.SourceConfig, additionalDirectories []string) error {
-	sourceNames := make([]string, 0, len(sourceConfigs))
+	for name := range sourceConfigs { if strings.EqualFold(name, UploadedFilesSource) { return fmt.Errorf("source name uploaded_files is reserved for document uploads") } }
+ if _, err := e.db.ExecContext(ctx, "ATTACH ':memory:' AS uploaded_files"); err != nil { return err }
+ sourceNames := make([]string, 0, len(sourceConfigs))
 	for name := range sourceConfigs {
 		sourceNames = append(sourceNames, name)
 	}
@@ -257,6 +259,10 @@ func (e *Engine) Query(ctx context.Context, query string) (array.RecordReader, e
 	}
 	defer rows.Close()
 
+	return rowsToArrow(ctx, rows)
+}
+
+func rowsToArrow(ctx context.Context, rows *sql.Rows) (array.RecordReader, error) {
 	colTypes, err := rows.ColumnTypes()
 	if err != nil {
 		return nil, err
@@ -300,7 +306,13 @@ func (e *Engine) Query(ctx context.Context, query string) (array.RecordReader, e
 					v = t
 				case int:
 					v = int64(t)
-				case int32:
+				case uint8:
+                    v = int64(t)
+                case uint16:
+                    v = int64(t)
+                case uint32:
+                    v = int64(t)
+                case int32:
 					v = int64(t)
 				case int16:
 					v = int64(t)
@@ -312,6 +324,11 @@ func (e *Engine) Query(ctx context.Context, query string) (array.RecordReader, e
 					v = 0
 				}
 				b.Field(i).(*array.Int64Builder).Append(v)
+
+			case *arrow.BooleanType:
+                value, ok := val.(bool)
+                if !ok { return nil, fmt.Errorf("invalid boolean value in %s", fields[i].Name) }
+                b.Field(i).(*array.BooleanBuilder).Append(value)
 
 			case *arrow.Float64Type:
 				var v float64
@@ -353,6 +370,7 @@ func (e *Engine) Query(ctx context.Context, query string) (array.RecordReader, e
 	}
 
 	rec := b.NewRecord()
+ defer rec.Release()
 	return array.NewRecordReader(schema, []arrow.Record{rec})
 }
 
@@ -427,8 +445,10 @@ func (e *Engine) QueryResultPage(ctx context.Context, resultID string, offset, l
 func (e *Engine) ExportResult(ctx context.Context, resultID, format, outputPath string) error {
 	var copyOptions string
 	switch strings.ToLower(strings.TrimSpace(format)) {
-	case "csv":
-		copyOptions = "FORMAT CSV, HEADER true"
+	case "tsv":
+  copyOptions = "FORMAT CSV, HEADER true, DELIMITER '\t'"
+ case "csv":
+  copyOptions = "FORMAT CSV, HEADER true"
 	case "parquet":
 		copyOptions = "FORMAT PARQUET, COMPRESSION SNAPPY"
 	default:
@@ -456,6 +476,7 @@ func (e *Engine) DropResult(ctx context.Context, resultID string) error {
 }
 
 func (e *Engine) GetTables(sourceName string) ([]string, error) {
+	if sourceName == UploadedFilesSource { return e.uploadedTables(context.Background()) }
 	if err := e.ensureSourceAvailable(sourceName); err != nil {
 		return nil, err
 	}
@@ -496,9 +517,11 @@ func (e *Engine) ensureDeferredTables(ctx context.Context, query string) error {
 
 func getArrowType(dbType string) arrow.DataType {
 	switch dbType {
-	case "BIGINT", "INTEGER", "INT", "INT8", "INT4":
+	case "BIGINT", "INTEGER", "INT", "INT8", "INT4", "TINYINT", "SMALLINT", "UTINYINT", "USMALLINT", "UINTEGER":
 		return arrow.PrimitiveTypes.Int64
-	case "DOUBLE", "FLOAT", "FLOAT8":
+	case "BOOLEAN":
+  return arrow.FixedWidthTypes.Boolean
+ case "DOUBLE", "FLOAT", "FLOAT8":
 		return arrow.PrimitiveTypes.Float64
 	default:
 		return arrow.BinaryTypes.String

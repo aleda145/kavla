@@ -39,7 +39,6 @@ import {
 } from "./sql-identifiers";
 import { buildSqlSchemaIndex } from "./schema-index";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
-import { ensureLocalQueryView } from "./sqlDagDependencies";
 import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
 
 const spatialMark = Decoration.mark({
@@ -403,17 +402,12 @@ export const LiveCodeMirror = ({
       const dagWalk = walkSQLDag(editor, queryShape.props.text);
       if (!dagWalk.ok) continue;
 
-      if (!dagWalk.plan.executionState.isRemoteExecution) {
-        localLoaders.set(entry.tableName, () => ensureLocalQueryView(editor, queryShape));
-        continue;
-      }
-
-      const { executionState, mountedFileSources, orderedDependencies } = dagWalk.plan;
-      if (executionState.sourceName && executionState.sourceNativePreview && mountedFileSources.length === 0) {
+      const { executionState, orderedDependencies } = dagWalk.plan;
+      {
         remoteMap.set(entry.tableName, {
-          sourceName: executionState.sourceName,
-          sourceType: executionState.sourceType,
-          fullTableRef: `query:${queryShape.id}:${queryShape.props.text}`,
+          sourceName: executionState.sourceName ?? "uploaded_files",
+          sourceType: executionState.sourceNativePreview ? executionState.sourceType : "duckdb",
+          fullTableRef: `query:${queryShape.id}:${buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies)}`,
           tableSql: buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies),
           runRemoteQuery,
           cancelRemoteQuery,
@@ -624,7 +618,7 @@ export const LiveCodeMirror = ({
           }, 100);
         }
       }),
-      createSqlAutocomplete(tableNames, allColumns, upstreamTableNames),
+      createSqlAutocomplete(tableNames, allColumns, upstreamTableNames, remoteSourceMap),
       sql({
         dialect: DuckDBDialect,
         schema: schemaConfig,

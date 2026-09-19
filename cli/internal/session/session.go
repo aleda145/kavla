@@ -137,6 +137,7 @@ func (s *Session) SourceList() []map[string]interface{} {
 				"name":      status.Name,
 				"type":      status.Type,
 				"available": status.Available,
+                "builtin": status.Name == engine.UploadedFilesSource,
 			}
 			if status.Error != "" {
 				entry["error"] = status.Error
@@ -505,4 +506,38 @@ func (t *SessionTransport) Verbose(format string, args ...interface{}) {
 	if t.verbosef != nil {
 		t.verbosef(format, args...)
 	}
+}
+
+func (s *Session) ImportUploadedFile(ctx context.Context, name, filename, path string) error {
+ ctx, cancel := s.OperationContext(ctx)
+ defer cancel()
+ return s.engine.ImportUploadedFile(ctx, name, filename, path)
+}
+func (s *Session) DropUploadedFile(ctx context.Context, name string) error {
+ return s.engine.DropUploadedFile(ctx, name)
+}
+func (s *Session) Compute(ctx context.Context, query string) (array.RecordReader, error) {
+ ctx, cancel := s.OperationContext(ctx)
+ defer cancel()
+ return s.engine.Query(ctx, "SELECT * FROM ("+strings.TrimRight(strings.TrimSpace(query), ";")+")")
+}
+func (s *Session) ValidateQuery(ctx context.Context, query string) error {
+ ctx, cancel := s.OperationContext(ctx)
+ defer cancel()
+ return s.engine.ValidateQuery(ctx, query)
+}
+func (s *Session) QueryWidget(ctx context.Context, query, name string, columns []engine.WidgetColumn, rows [][]interface{}) (array.RecordReader, error) {
+ ctx, cancel := s.OperationContext(ctx)
+ defer cancel()
+ return s.engine.QueryWidget(ctx, query, name, columns, rows)
+}
+func (s *Session) Sources() map[string]kavlaconfig.SourceConfig { return s.sources }
+
+func (s *Session) EnableUploadedFiles() { s.engine.EnableUploadedFiles() }
+
+// OperationContext cancels auxiliary compute and file ingestion on session close.
+func (s *Session) OperationContext(parent context.Context) (context.Context, context.CancelFunc) {
+ ctx, cancel := context.WithCancel(parent)
+ stop := context.AfterFunc(s.ctx, cancel)
+ return ctx, func() { stop(); cancel() }
 }

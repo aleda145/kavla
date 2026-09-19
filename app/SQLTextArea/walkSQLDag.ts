@@ -1,32 +1,19 @@
 import type { Editor } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
-import { quoteDottedIdentifier } from "../src/duckdb/sql";
+import { quoteDottedIdentifier, quoteIdentifier, stripTrailingSemicolons } from "../src/duckdb/sql";
 import { getEngineAppearance, type ShapeEngineTab } from "../util/ShapeEngineTabs";
 import { getOrderedDependenciesForSQL, type SQLDependencyShape } from "./sqlDependencies";
 
 export type QueryExecutionState = {
-  isRemoteExecution: boolean;
   sourceName?: string;
   sourceType: string | null;
   sourceNativePreview: boolean;
   tabs: ShapeEngineTab[];
 };
 
-type MountedFileSource = {
-  sourceName: string;
-  blobId: string;
-  fileName: string;
-};
-
-type RemoteFileSourcePlan = {
-  mountedFileSources: MountedFileSource[];
-  validationMessage: string | null;
-};
-
 export type SQLDagExecutionPlan = {
   executionState: QueryExecutionState;
-  mountedFileSources: MountedFileSource[];
   nextUpstreamShapeIds: string[];
   orderedDependencies: SQLDependencyShape[];
 };
@@ -44,34 +31,9 @@ type SQLDagWalkResult =
       };
     };
 
-export function getMountedFileSourcesForRemoteExecution(
-  orderedDependencies: SQLDependencyShape[]
-): RemoteFileSourcePlan {
-  const mountedFileSources: MountedFileSource[] = [];
-  for (const dependency of orderedDependencies) {
-    if (dependency.type !== "data-source") {
-      continue;
-    }
-
-    if (getRemoteSourceMetadata(dependency)) {
-      continue;
-    }
-
-    if (!dependency.props.filename) {
-      return {
-        mountedFileSources: [],
-        validationMessage: `Source "${dependency.props.name}" is missing file metadata. Re-import it before joining CLI sources.`,
-      };
-    }
-
-    mountedFileSources.push({
-      sourceName: dependency.props.name,
-      blobId: `source:${dependency.id}`,
-      fileName: dependency.props.filename,
-    });
-  }
-
-  return { mountedFileSources, validationMessage: null };
+export function getMissingSourceMessage(orderedDependencies: SQLDependencyShape[]): string | null {
+  const missing = orderedDependencies.find(dependency => dependency.type === "data-source" && !getRemoteSourceMetadata(dependency));
+  return missing ? `Source "${missing.props.name}" is missing its uploaded table. Upload the file again.` : null;
 }
 
 export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]): QueryExecutionState {
@@ -84,7 +46,6 @@ export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]
 
   if (!remoteSources.length) {
     return {
-      isRemoteExecution: false,
       sourceType: null,
       sourceNativePreview: false,
       tabs: [
@@ -93,7 +54,7 @@ export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]
           type: "duckdb",
           active: true,
           layerZIndex: 0,
-          title: "Query runs in browser DuckDB",
+          title: "Query runs in backend DuckDB",
         },
       ],
     };
@@ -135,7 +96,6 @@ export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]
   if (sourceNativePreview) {
     const appearance = getEngineAppearance(sourceType);
     return {
-      isRemoteExecution: true,
       sourceName,
       sourceType,
       sourceNativePreview: true,
@@ -159,7 +119,6 @@ export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]
   );
 
   return {
-    isRemoteExecution: true,
     sourceName,
     sourceType,
     sourceNativePreview: false,
@@ -200,16 +159,14 @@ export function walkSQLDag(editor: Editor, sqlText: string): SQLDagWalkResult {
   const nextUpstreamShapeIds = Array.from(new Set(immediateUpstreamIds));
 
   const executionState = describeQueryExecution(orderedDependencies);
-  const remoteFileSourcePlan = executionState.isRemoteExecution
-    ? getMountedFileSourcesForRemoteExecution(orderedDependencies)
-    : { mountedFileSources: [], validationMessage: null };
+  const missingSourceMessage = getMissingSourceMessage(orderedDependencies);
 
-  if (remoteFileSourcePlan.validationMessage) {
+  if (missingSourceMessage) {
     return {
       ok: false,
       error: {
         title: "Local file unavailable",
-        message: remoteFileSourcePlan.validationMessage,
+        message: missingSourceMessage,
       },
     };
   }
@@ -218,7 +175,6 @@ export function walkSQLDag(editor: Editor, sqlText: string): SQLDagWalkResult {
     ok: true,
     plan: {
       executionState,
-      mountedFileSources: remoteFileSourcePlan.mountedFileSources,
       nextUpstreamShapeIds,
       orderedDependencies,
     },
@@ -226,26 +182,12 @@ export function walkSQLDag(editor: Editor, sqlText: string): SQLDagWalkResult {
 }
 
 export function buildRemoteSQLFromDag(sqlText: string, orderedDependencies: SQLDependencyShape[]): string {
-  const ctes = orderedDependencies
-    .filter((dependency) => dependency.type === "sql-text-area")
-    .map((dependency) => `"${dependency.props.name}" AS (${dependency.props.text})`);
-
-  let finalSQL = ctes.length > 0 ? `WITH ${ctes.join(",\n")} \n${sqlText}` : sqlText;
-
-  for (const dependency of orderedDependencies) {
-    if (dependency.type !== "data-source") {
-      continue;
-    }
-
-    const remoteSource = getRemoteSourceMetadata(dependency);
-    if (!remoteSource) {
-      continue;
-    }
-
-    const quotedTableName = quoteDottedIdentifier(remoteSource.remoteTableRef);
-    const shapeNamePattern = new RegExp(`\\b${dependency.props.name}\\b`, "g");
-    finalSQL = finalSQL.replace(shapeNamePattern, quotedTableName);
-  }
-
-  return finalSQL;
+  const ctes = orderedDependencies.map(dependency => {
+    if (dependency.type === "sql-text-area") return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(dependency.props.text)})`;
+    const source = getRemoteSourceMetadata(dependency);
+    if (!source) throw new Error(`Source "${dependency.props.name}" is unavailable.`);
+    return `${quoteIdentifier(dependency.props.name)} AS (SELECT * FROM ${quoteDottedIdentifier(source.remoteTableRef)})`;
+  });
+  const query = stripTrailingSemicolons(sqlText);
+  return ctes.length ? `WITH ${ctes.join(",\n")} SELECT * FROM (${query}) AS kavla_query` : query;
 }

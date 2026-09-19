@@ -1,3 +1,4 @@
+import { backendRevision } from "../client/backendCompute";
 import type { Editor } from "tldraw";
 import type { LocalServerContextType } from "../client/localServer/types";
 import { MissingQueryResultError } from "../client/localServer/types";
@@ -30,6 +31,7 @@ export function restoreRemoteQueryView(
   const pending = pendingRestorations.get(queryShape.id);
   if (pending) return pending;
 
+  const revision = backendRevision.get();
   const operation = (async () => {
     const currentShape = editor.getShape<SQLTextAreaShape>(queryShape.id);
     if (!currentShape) {
@@ -45,11 +47,8 @@ export function restoreRemoteQueryView(
     if (!dagWalk.ok) {
       throw new Error(dagWalk.error.message);
     }
-    if (!dagWalk.plan.executionState.isRemoteExecution) {
-      throw new Error("Only CLI-backed query views can be restored through the Kavla server.");
-    }
 
-    const { executionState, mountedFileSources, orderedDependencies } = dagWalk.plan;
+    const { executionState, orderedDependencies } = dagWalk.plan;
     const readsBigQuery = orderedDependencies.some(
       (dependency) =>
         dependency.type === "data-source" &&
@@ -67,9 +66,9 @@ export function restoreRemoteQueryView(
       shapeId: currentShape.id,
       queryName: currentShape.props.name,
       sourceNative: executionState.sourceNativePreview,
-      mountedFileSources,
       restore: true,
     });
+    if (backendRevision.get() !== revision) throw new MissingQueryResultError("The backend session changed. Reload this result.");
     restoredMetadata.set(currentShape.id, result);
     return result;
   })();
@@ -83,3 +82,10 @@ export function restoreRemoteQueryView(
   void operation.then(clearPending, clearPending);
   return operation;
 }
+
+export function clearRestoredQueryResults(): void {
+  pendingRestorations.clear();
+  restoredMetadata.clear();
+}
+
+if (typeof window !== "undefined") window.addEventListener("kavla:backend-reset", clearRestoredQueryResults);

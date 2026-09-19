@@ -1,3 +1,4 @@
+import { sessionFetch, setBackendDocument, resetBackendCaches } from "../backendCompute";
 import type { LensShape } from "../../Lens/lens-shape-types";
 import type { Editor, TLAssetPartial, TLCamera } from "tldraw";
 import { CameraRecordType, parseTldrawJsonFile } from "tldraw";
@@ -8,6 +9,7 @@ import { getAgentChat, updateAgentChat } from "../../AgentBlob/agent-chat-store"
 export type KavlaBlobKind = "source" | "asset";
 
 export interface KavlaBlobDescriptor {
+  tableName?: string;
   id: string;
   kind: KavlaBlobKind;
   shapeId: string | null;
@@ -89,7 +91,8 @@ export function getSessionBlobUrl(blobId: string): string {
 }
 
 export async function discoverLocalSession(): Promise<KavlaLocalSession | null> {
-  const response = await fetch("/api/session", {
+  setBackendDocument(null);
+  const response = await sessionFetch("/api/session", {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
   });
@@ -112,6 +115,8 @@ export async function discoverLocalSession(): Promise<KavlaLocalSession | null> 
     throw new Error("Local Kavla session returned an invalid document description");
   }
   activeSession = session;
+  setBackendDocument(session.documentId);
+  resetBackendCaches();
   updateDocumentTitle(session.documentName);
   return session;
 }
@@ -194,7 +199,7 @@ export function stageCanvas(editor: Editor, includeCurrentCamera = false): Promi
 
     const canvasJson = serializeLocalCanvasJson(editor, includeCurrentCamera);
     if (canvasJson === activeSession.canvasJson) return;
-    const response = await fetch("/api/session/document", {
+    const response = await sessionFetch("/api/session/document", {
       method: "PUT",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -212,7 +217,7 @@ export function stageCanvas(editor: Editor, includeCurrentCamera = false): Promi
 export async function saveLocalSession(): Promise<SaveLocalSessionResult | null> {
   if (!activeSession) return null;
 
-  const response = await fetch("/api/session/save", {
+  const response = await sessionFetch("/api/session/save", {
     method: "POST",
     credentials: "same-origin",
   });
@@ -232,7 +237,7 @@ export async function listLocalSessionDirectory(path?: string): Promise<KavlaDir
     throw new Error("Open Kavla through the CLI to choose a save location");
   }
   const params = path ? `?${new URLSearchParams({ path }).toString()}` : "";
-  const response = await fetch(`/api/session/directories${params}`, {
+  const response = await sessionFetch(`/api/session/directories${params}`, {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
   });
@@ -247,7 +252,7 @@ export async function saveLocalSessionAs(options: SaveLocalSessionOptions): Prom
   if (!activeSession) {
     throw new Error("Open Kavla through the CLI to save .kavla documents");
   }
-  const response = await fetch("/api/session/save-as", {
+  const response = await sessionFetch("/api/session/save-as", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
@@ -271,7 +276,7 @@ export async function loadLocalSessionPath(path: string): Promise<void> {
   if (!activeSession) {
     throw new Error("Open Kavla through the CLI to load .kavla documents");
   }
-  const response = await fetch("/api/session/load-path", {
+  const response = await sessionFetch("/api/session/load-path", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
@@ -290,7 +295,7 @@ export async function newLocalSession(
   if (!activeSession) {
     throw new Error("Open Kavla through the CLI to create .kavla documents");
   }
-  const response = await fetch("/api/session/new", {
+  const response = await sessionFetch("/api/session/new", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
@@ -320,7 +325,7 @@ export async function stageSessionBlob(options: {
     fileName: options.file.name,
     mimeType: options.file.type || "application/octet-stream",
   });
-  const response = await fetch(`/api/session/blobs/${encodeURIComponent(options.id)}?${params.toString()}`, {
+  const response = await sessionFetch(`/api/session/blobs/${encodeURIComponent(options.id)}?${params.toString()}`, {
     method: "PUT",
     credentials: "same-origin",
     body: options.file,
@@ -345,7 +350,7 @@ export async function downloadSessionBlob(blobId: string): Promise<File> {
     throw new Error(`Bundle is missing blob ${blobId}`);
   }
 
-  const response = await fetch(getSessionBlobUrl(blobId), {
+  const response = await sessionFetch(getSessionBlobUrl(blobId), {
     credentials: "same-origin",
   });
   if (!response.ok) {
@@ -359,9 +364,19 @@ export async function downloadSessionBlob(blobId: string): Promise<File> {
 
 export async function closeLocalSession(): Promise<void> {
   if (!activeSession) return;
-  await fetch("/api/session/close", {
+  await sessionFetch("/api/session/close", {
     method: "POST",
     credentials: "same-origin",
     keepalive: true,
   });
+}
+
+export function rememberUploadedBlob(blob: KavlaBlobDescriptor): void {
+  if (!activeSession) throw new Error("The Kavla document is unavailable.");
+  activeSession.blobs = [...activeSession.blobs.filter(entry => entry.id !== blob.id), blob];
+  window.dispatchEvent(new Event("kavla:uploads-changed"));
+}
+export function forgetUploadedBlob(id: string): void {
+  if (activeSession) activeSession.blobs = activeSession.blobs.filter(entry => entry.id !== id);
+  window.dispatchEvent(new Event("kavla:uploads-changed"));
 }

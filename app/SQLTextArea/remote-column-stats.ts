@@ -1,3 +1,5 @@
+import { backendRevision } from "../client/backendCompute";
+import { getActiveLocalSession } from "../client/local/localSession";
 import { buildColumnStatsQuery, parseColumnStatsRows } from "../src/duckdb/column-stats-sql";
 import type { ColumnStats } from "../src/duckdb/column-stats-types";
 import { quoteDottedIdentifier, quoteIdentifier } from "../src/duckdb/sql";
@@ -49,7 +51,7 @@ const remoteStatsCache = new Map<string, ColumnStats>();
 const remoteStatsInFlight = new Map<string, Promise<ColumnStats>>();
 
 function getRemoteStatsCacheKey(sourceName: string, fullTableRef: string, columnName: string) {
-  return `${sourceName}:${fullTableRef}:${columnName}`;
+  return `${getActiveLocalSession()?.documentId}:${backendRevision.get()}:${sourceName}:${fullTableRef}:${columnName}`;
 }
 
 export function getExistingRemoteColumnStats(
@@ -141,4 +143,14 @@ async function getRemoteColumnStats(
   });
   const rows = await runRemoteAndParse(runRemoteQuery, sourceName, sourceType, sql, requestShapeId);
   return parseColumnStatsRows(analysisType, rows);
+}
+
+export function clearColumnStatsCache(): void {
+  remoteStatsCache.clear();
+  remoteStatsInFlight.clear();
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("kavla:backend-reset", clearColumnStatsCache);
+  window.addEventListener("kavla:uploads-changed", clearColumnStatsCache);
 }

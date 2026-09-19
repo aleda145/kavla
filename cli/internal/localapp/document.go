@@ -20,7 +20,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const FormatVersion = 1
+const FormatVersion = 2
 
 var blobIDPattern = regexp.MustCompile(`^[A-Za-z0-9:_-]{1,200}$`)
 var sha256Pattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -33,6 +33,7 @@ const (
 )
 
 type BlobDescriptor struct {
+ TableName string `json:"tableName,omitempty"`
 	ID       string   `json:"id"`
 	Kind     BlobKind `json:"kind"`
 	ShapeID  string   `json:"shapeId,omitempty"`
@@ -230,6 +231,7 @@ func (d *Document) DeleteBlobsForShapes(shapeIDs []string) error {
 	}
 	removed := make(map[string]BlobDescriptor)
 	for id, descriptor := range d.blobs {
+        if descriptor.TableName != "" { continue }
 		if _, ok := shapes[descriptor.ShapeID]; !ok {
 			continue
 		}
@@ -430,6 +432,7 @@ func (d *Document) saveNewLocked(path string) error {
 }
 
 func (d *Document) writeArchiveLocked(path string, replace bool) error {
+ d.manifest.FormatVersion = FormatVersion
 	if len(d.canvasJSON) == 0 {
 		return fmt.Errorf("cannot save a Kavla document without canvas state")
 	}
@@ -595,7 +598,7 @@ func (d *Document) loadArchive() error {
 	if err := json.Unmarshal(manifestJSON, &d.manifest); err != nil {
 		return fmt.Errorf("parse manifest: %w", err)
 	}
-	if d.manifest.FormatVersion != FormatVersion {
+	if d.manifest.FormatVersion != 1 && d.manifest.FormatVersion != FormatVersion {
 		return fmt.Errorf("unsupported .kavla format version %d", d.manifest.FormatVersion)
 	}
 	if canvasJSON, err = readZipEntry(entries["canvas.json"], 256<<20); err != nil {
@@ -605,8 +608,14 @@ func (d *Document) loadArchive() error {
 		return fmt.Errorf("canvas.json is not valid JSON")
 	}
 	d.canvasJSON = canvasJSON
+	seenTables := make(map[string]bool)
 	seenBlobIDs := make(map[string]struct{}, len(d.manifest.Blobs))
 	for _, descriptor := range d.manifest.Blobs {
+        if descriptor.TableName != "" {
+            name := strings.ToLower(descriptor.TableName)
+            if descriptor.Kind != BlobKindSource || !uploadTableName.MatchString(descriptor.TableName) || seenTables[name] { return fmt.Errorf("invalid or duplicate uploaded table %q", descriptor.TableName) }
+            seenTables[name] = true
+        }
 		if !blobIDPattern.MatchString(descriptor.ID) {
 			return fmt.Errorf("manifest contains invalid blob id")
 		}
@@ -670,6 +679,7 @@ func (d *Document) pruneUnreferencedBlobsLocked() error {
 
 	removed := make(map[string]BlobDescriptor)
 	for id, descriptor := range d.blobs {
+        if descriptor.TableName != "" { continue }
 		if descriptor.Kind != BlobKindSource && descriptor.Kind != BlobKindAsset {
 			removed[id] = descriptor
 			delete(d.blobs, id)

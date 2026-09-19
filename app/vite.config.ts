@@ -23,7 +23,7 @@ export default defineConfig(() => {
       assetsInlineLimit: 0,
     },
     optimizeDeps: {
-      exclude: ["@duckdb/duckdb-wasm", "@polyglot-sql/sdk"],
+      exclude: ["@polyglot-sql/sdk"],
     },
   };
 });

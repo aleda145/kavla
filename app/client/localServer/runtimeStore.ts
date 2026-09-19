@@ -68,6 +68,7 @@ export const useCliOutput = () => {
 };
 
 export interface CliSource {
+  builtin?: boolean;
   name: string;
   type: string;
   available?: boolean;
@@ -85,6 +86,7 @@ const normalizeCliSource = (source: unknown): CliSource | null => {
   const candidate = source as Record<string, unknown>;
   if (typeof candidate.name !== "string" || typeof candidate.type !== "string") return null;
   return {
+    builtin: candidate.builtin === true,
     name: candidate.name,
     type: candidate.type,
     available: typeof candidate.available === "boolean" ? candidate.available : true,

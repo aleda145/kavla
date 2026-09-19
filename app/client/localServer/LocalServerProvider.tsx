@@ -1,3 +1,5 @@
+import { withBackendActivity, sessionFetch, resetBackendCaches } from "../backendCompute";
+import { loadQueryResultRows } from "../loadQueryResultRows";
 import { notifyAgentAuth } from "./agentAuth";
 import { notifyAgentRuns, agentClientId, getAgentRuns, isAgentRunActive, cancelAgentRun } from "./agentRuns";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
@@ -44,7 +46,8 @@ async function responseError(response: Response): Promise<Error> {
 }
 
 async function postJSON<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(path, {
+ return withBackendActivity(async () => {
+  const response = await sessionFetch(path, {
     method: "POST",
     credentials: "same-origin",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -54,6 +57,7 @@ async function postJSON<T>(path: string, body: unknown, signal?: AbortSignal): P
   if (!response.ok) throw await responseError(response);
   if (response.status === 204 || response.status === 202) return undefined as T;
   return (await response.json()) as T;
+ });
 }
 
 export function LocalServerProvider({ children }: { children: ReactNode }) {
@@ -93,6 +97,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
             break;
           }
           case "sources":
+            resetBackendCaches();
             notifyCliSources(event.data as unknown[]);
             break;
           case "output":
@@ -189,7 +194,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const getSourceTables = useCallback<LocalServerContextType["getSourceTables"]>(async ({ sourceName }) => {
-    const response = await fetch(`/api/cli/sources/${encodeURIComponent(sourceName)}/tables`, {
+    const response = await sessionFetch(`/api/cli/sources/${encodeURIComponent(sourceName)}/tables`, {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
     });
@@ -216,7 +221,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
   );
   const prepareQueryResultDownload = useCallback<LocalServerContextType["prepareQueryResultDownload"]>(
     async ({ shapeId, ...payload }) => {
-      const response = await fetch(`/api/session/queries/${encodeURIComponent(shapeId)}/export`, {
+      const response = await sessionFetch(`/api/session/queries/${encodeURIComponent(shapeId)}/export`, {
         method: "POST",
         credentials: "same-origin",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -232,7 +237,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
   const getQueryResultPage = useCallback<LocalServerContextType["getQueryResultPage"]>(
     async ({ shapeId, offset, limit, signal }) => {
       const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
-      const response = await fetch(`/api/session/queries/${encodeURIComponent(shapeId)}/rows?${query.toString()}`, {
+      const response = await sessionFetch(`/api/session/queries/${encodeURIComponent(shapeId)}/rows?${query.toString()}`, {
         credentials: "same-origin",
         headers: { Accept: "application/vnd.apache.arrow.stream" },
         signal,
@@ -246,7 +251,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
   );
 
   const runRemoteQuery = useCallback(
-    async (payload: RunRemoteQueryPayload) => {
+    async (payload: RunRemoteQueryPayload) => withBackendActivity(async () => {
       const executionEngine = payload.sourceNative ? payload.sourceType?.trim() || undefined : undefined;
       if (executionEngine && !payload.sourceName) throw new Error("sourceName is required for source-native preview");
       const sql = executionEngine ? transpileRemoteSQL(payload.sql, payload.sourceName!, executionEngine) : payload.sql;
@@ -264,15 +269,17 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
           { ...payload, sql, ...(executionEngine ? { executionEngine } : {}) },
           controller.signal
         );
-        const sample = await getQueryResultPage({ shapeId: payload.shapeId, offset: 0, limit: 5 });
+        const sampleRows = payload.transient
+          ? await loadQueryResultRows(getQueryResultPage, payload.shapeId, null, controller.signal)
+          : (await getQueryResultPage({ shapeId: payload.shapeId, offset: 0, limit: 5, signal: controller.signal })).rows;
         return {
           rowCount: Number(result.rowCount ?? 0),
           schema: result.schema,
-          sampleRows: sample.rows,
+          sampleRows,
         };
       } finally {
         if (payload.transient) {
-          await fetch(`/api/session/queries/${encodeURIComponent(payload.shapeId)}/result`, {
+          await sessionFetch(`/api/session/queries/${encodeURIComponent(payload.shapeId)}/result`, {
             method: "DELETE",
             credentials: "same-origin",
           }).catch(() => undefined);
@@ -280,14 +287,14 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
         if (queryControllers.current.get(payload.shapeId) === controller)
           queryControllers.current.delete(payload.shapeId);
       }
-    },
+    }),
     [getQueryResultPage]
   );
 
   const cancelRemoteQuery = useCallback((shapeId: string) => {
     queryControllers.current.get(shapeId)?.abort();
     queryControllers.current.delete(shapeId);
-    void fetch(`/api/session/queries/${encodeURIComponent(shapeId)}`, {
+    void sessionFetch(`/api/session/queries/${encodeURIComponent(shapeId)}`, {
       method: "DELETE",
       credentials: "same-origin",
     }).catch(() => undefined);

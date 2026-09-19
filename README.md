@@ -6,6 +6,8 @@ For a better understanding on what you can do, check out [kavla.dev](https://kav
 
 It's built with tldraw and duckdb. It can connect to a few databases, see list below.
 
+All SQL compute runs in the shipped backend. Upload or drop CSV, Parquet, JSON, or NDJSON files to add tables to the document’s built-in `uploaded_files` database and place their sources on the canvas. Uploaded files travel with the `.kavla` document; deleting a source shape keeps its table available in Sources. Older documents are migrated when opened and saved in the new format on save.
+
 ## Running
 
 See the release page on github or go to https://kavla.dev/download

@@ -1,32 +1,9 @@
 import type { Editor, TLShapeId } from "tldraw";
-import { DuckDBService } from "@/duckdb-service";
+import { backendRequest, withBackendActivity } from "../client/backendCompute";
 import { getUniqueName } from "../util/getUniqueName";
 import { toValidSqlName } from "../util/sql";
 import type { ColumnMetadata, DataSourceShape } from "./data-source-types";
-import { stageSessionBlob } from "../client/local/localSession";
-
-export const MAX_LOCAL_DATA_SOURCE_BYTES = 1024 * 1024 * 1024;
-
-function formatBytes(bytes: number, decimals = 2) {
-  if (!bytes) return "0 Bytes";
-
-  const unit = 1024;
-  const precision = decimals < 0 ? 0 : decimals;
-  const units = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
-  const unitIndex = Math.floor(Math.log(bytes) / Math.log(unit));
-
-  return `${parseFloat((bytes / Math.pow(unit, unitIndex)).toFixed(precision))} ${units[unitIndex]}`;
-}
-
-export function getLocalDataSourceSizeError(fileSize: number): string | null {
-  if (fileSize <= MAX_LOCAL_DATA_SOURCE_BYTES) {
-    return null;
-  }
-
-  return `File is too large (${formatBytes(
-    fileSize
-  )}). The current limit for client-side processing is ${formatBytes(MAX_LOCAL_DATA_SOURCE_BYTES)}.`;
-}
+import { rememberUploadedBlob, type KavlaBlobDescriptor } from "../client/local/localSession";
 
 export function calculateDataSourceHeight(metadata: ColumnMetadata[] | null, rowCount: number | null): number {
   const HEADER_HEIGHT = 42;
@@ -91,31 +68,16 @@ export async function ingestLocalDataSourceFile(
   shapeId: TLShapeId,
   file: File
 ): Promise<LocalDataSourceProps> {
-  const sizeError = getLocalDataSourceSizeError(file.size);
-  if (sizeError) {
-    throw new Error(sizeError);
-  }
-
-  const duckDBService = DuckDBService.getInstance();
-  await duckDBService.init();
-
-  await stageSessionBlob({
-    id: `source:${shapeId}`,
-    kind: "source",
-    shapeId,
-    file,
+  const result = await withBackendActivity(async () => {
+    const response = await backendRequest(`/api/session/uploads?${new URLSearchParams({ fileName: file.name })}`, {
+      method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file,
+    });
+    return await response.json() as { tableName: string; tableRef: string; blob: KavlaBlobDescriptor; schema: ColumnMetadata[]; rowCount: number };
   });
-
-  const baseName = file.name.split(".")[0];
-  const name = getUniqueName(editor, toValidSqlName(baseName), shapeId);
-  await duckDBService.registerFile(name, file);
-
-  const { schema, count } = await duckDBService.getFileMetadata(
-    `LOCAL_DATA_SOURCE_${shapeId}_${Date.now()}`,
-    name,
-    file.name
-  );
-  const metadata = schema as ColumnMetadata[];
+  rememberUploadedBlob(result.blob);
+  const name = getUniqueName(editor, toValidSqlName(result.tableName), shapeId);
+  const metadata = result.schema;
+  const count = result.rowCount;
 
   return {
     columnStats: null,
@@ -126,10 +88,10 @@ export async function ingestLocalDataSourceFile(
     isRunning: false,
     metadata,
     name,
-    remoteTableRef: null,
+    remoteTableRef: result.tableRef,
     rowCount: count,
-    sourceName: null,
-    sourceType: null,
+    sourceName: "uploaded_files",
+    sourceType: "duckdb",
     w: calculateDataSourceWidth(metadata, file.name),
   };
 }

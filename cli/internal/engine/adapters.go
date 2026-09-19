@@ -167,6 +167,7 @@ func (e *Engine) sourceStatsSQL(tableRef string) (string, error) {
 }
 
 func (e *Engine) exportTableSQL(tableRef string) (string, error) {
+	if sourceNameFromTableRef(tableRef) == UploadedFilesSource { return "SELECT * FROM "+tableRef, nil }
 	for _, adapter := range e.adapters {
 		exportSQL, ok, err := adapter.ExportTableSQL(tableRef)
 		if err != nil {

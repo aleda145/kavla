@@ -10,7 +10,6 @@ import type { LensViewMode } from "./lens-view-mode";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { useQueryResultRows } from "../client/useQueryResultRows";
 import { useData } from "../client/useLocalServer";
-import { ensureLocalQueryView } from "../SQLTextArea/sqlDagDependencies";
 import { restoreRemoteQueryView } from "../SQLTextArea/restoreRemoteQueryView";
 import { validateDuckDBSyntax } from "../SQLTextArea/editor-validation";
 import { quoteIdentifier } from "../src/duckdb/sql";
@@ -35,16 +34,11 @@ export class LensUtil extends ShapeUtil<LensShape> {
       const value = shape.props.sourceShapeId ? editor.getShape(shape.props.sourceShapeId as TLShapeId) : undefined;
       return value?.type === "sql-text-area" ? value as SQLTextAreaShape : undefined;
     }, [editor, shape.props.sourceShapeId]);
-    const ensureSourceTable = useCallback(async () => {
-      if (!source) throw new Error("The Lens source is unavailable.");
-      await ensureLocalQueryView(editor, source);
-    }, [editor, source]);
     const restoreServerResult = useCallback(async () => {
       if (!source) throw new Error("The Lens source is unavailable.");
       await restoreRemoteQueryView(editor, source, runRemoteQuery);
     }, [editor, source, runRemoteQuery]);
-    const isRemote = source?.props.lastRunStats?.runnerName === "CLI";
-    const rows = useQueryResultRows({ sourceShapeId: source?.id || null, sourceTableName: source?.props.name || null, schema: source?.props.outputSchema, revision: source?.props.lastRunStats, normalizeRow: normalizeChartRow, serverResultShapeId: isRemote ? source!.id : null, ensureSourceTable, restoreServerResult });
+    const rows = useQueryResultRows({ sourceShapeId: source?.id || null, sourceTableName: source?.props.name || null, schema: source?.props.outputSchema, revision: source?.props.lastRunStats, normalizeRow: normalizeChartRow, serverResultShapeId: source?.id ?? null, restoreServerResult });
     const widgetKey = `${shape.id}:${shape.props.generatedAt}:${shape.props.code}:${shape.props.dataSql}`;
     const update = (props: Partial<LensShape["props"]>) => editor.updateShape<LensShape>({ id: shape.id, type: "lens-shape", props });
     const reportError = (error: string) => {

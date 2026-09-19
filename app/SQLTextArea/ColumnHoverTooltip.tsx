@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Play, Square } from "lucide-react";
 
-import { DuckDBService } from "../src/duckdb-service";
 import { getColumnAnalysisSteps, getColumnAnalysisType } from "../src/duckdb/column-stats-sql";
 import type { ColumnStats } from "../src/duckdb/column-stats-types";
 import { getColumnTypeColor } from "../util/column-colors";
@@ -147,7 +146,7 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
       setActiveRemoteRequestId(null);
       Promise.resolve()
         .then(() => prepareLocalTable?.())
-        .then(() => DuckDBService.getInstance().getColumnStats(tableName, columnName, type))
+        .then((): ColumnStats => ({ type: "other", error: "The source is unavailable. Load its backend table first." }))
         .then((data) => {
           if (mounted) {
             setStats(data);

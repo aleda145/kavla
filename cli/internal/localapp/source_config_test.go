@@ -71,11 +71,11 @@ func TestCLISourceConfigurationCreatesRenamesAndDeletesSource(t *testing.T) {
 	createResponse := httptest.NewRecorder()
 	handler.ServeHTTP(createResponse, sourceRequest(http.MethodPost, "/api/cli/sources", createBody))
 	created := decodeCLISourcesResponse(t, createResponse)
-	if len(created.Definitions) != 4 || len(created.Sources) != 1 {
+	if len(created.Definitions) != 4 || len(created.Sources) != 2 {
 		t.Fatalf("unexpected source configuration response: %+v", created)
 	}
-	if created.Sources[0].Name != "local_files" || !created.Sources[0].Available {
-		t.Fatalf("new source was not activated: %+v", created.Sources[0])
+	if created.Sources[1].Name != "local_files" || !created.Sources[1].Available {
+		t.Fatalf("new source was not activated: %+v", created.Sources[1])
 	}
 	config, err := kavlaconfig.LoadConfig()
 	if err != nil {
@@ -89,14 +89,14 @@ func TestCLISourceConfigurationCreatesRenamesAndDeletesSource(t *testing.T) {
 	updateResponse := httptest.NewRecorder()
 	handler.ServeHTTP(updateResponse, sourceRequest(http.MethodPut, "/api/cli/sources/local_files", updateBody))
 	updated := decodeCLISourcesResponse(t, updateResponse)
-	if len(updated.Sources) != 1 || updated.Sources[0].Name != "renamed_files" || updated.Sources[0].Connection != secondDirectory {
+	if len(updated.Sources) != 2 || updated.Sources[1].Name != "renamed_files" || updated.Sources[1].Connection != secondDirectory {
 		t.Fatalf("source was not renamed and updated: %+v", updated.Sources)
 	}
 
 	deleteResponse := httptest.NewRecorder()
 	handler.ServeHTTP(deleteResponse, sourceRequest(http.MethodDelete, "/api/cli/sources/renamed_files", nil))
 	deleted := decodeCLISourcesResponse(t, deleteResponse)
-	if len(deleted.Sources) != 0 {
+	if len(deleted.Sources) != 1 || !deleted.Sources[0].Builtin {
 		t.Fatalf("source was not deleted: %+v", deleted.Sources)
 	}
 	config, err = kavlaconfig.LoadConfig()

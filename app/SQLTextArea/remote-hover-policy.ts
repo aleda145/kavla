@@ -58,7 +58,7 @@ export function getRemoteHoverPolicy(
   }
 
   const policies = readStoredRemoteHoverPolicies();
-  return policies[key] ?? "ask";
+  return policies[key] ?? (sourceName === "uploaded_files" ? "auto" : "ask");
 }
 
 export function setRemoteHoverPolicy(

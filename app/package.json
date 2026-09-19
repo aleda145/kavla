@@ -19,7 +19,6 @@
     "@codemirror/lint": "^6.9.7",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.9",
-    "@duckdb/duckdb-wasm": "1.32.0",
     "@lezer/highlight": "^1.2.3",
     "@polyglot-sql/sdk": "^0.9.2",
     "@tailwindcss/vite": "^4.3.3",

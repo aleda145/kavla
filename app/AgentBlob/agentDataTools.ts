@@ -2,12 +2,10 @@ import type { Editor, TLShapeId } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import type { AgentToolEnvironment } from "../client/localServer/agentRuns";
-import { DuckDBService } from "../src/duckdb-service";
 import { quoteIdentifier } from "../src/duckdb/sql";
 import { buildColumnStatsQuery, parseColumnStatsRows } from "../src/duckdb/column-stats-sql";
 import type { ColumnStats } from "../src/duckdb/column-stats-types";
 import { walkSQLDag, buildRemoteSQLFromDag } from "../SQLTextArea/walkSQLDag";
-import { loadSQLDagDependencies, ensureLocalQueryView } from "../SQLTextArea/sqlDagDependencies";
 import { loadQueryResultRows } from "../client/loadQueryResultRows";
 
 export function resolveAgentDataShape(editor: Editor, shapeId: string): DataSourceShape | SQLTextAreaShape {
@@ -25,19 +23,7 @@ export async function getAgentDataPreview(editor: Editor, shapeId: string, data:
   const shape = resolveAgentDataShape(editor, shapeId);
   if (shape.type !== "sql-text-area") throw new Error("Create a visible query to preview this source.");
   if (shape.props.isDirty || shape.props.stale || shape.props.error || !shape.props.lastRunStats) throw new Error("Run the source query first.");
-  if (shape.props.lastRunStats.runnerName === "CLI") return loadQueryResultRows(data.getQueryResultPage, shape.id, limit, signal);
-  await ensureLocalQueryView(editor, shape);
-  signal?.throwIfAborted();
-  const connection = await DuckDBService.getInstance().getDb()!.connect();
-  const cancel = () => { void connection.cancelSent(); };
-  signal?.addEventListener("abort", cancel, { once: true });
-  try {
-    signal?.throwIfAborted();
-    const queryLimit = limit === null ? "" : ` LIMIT ${Math.max(1, Math.min(10001, Math.floor(limit)))}`;
-    const rows = (await connection.query(`SELECT * FROM ${quoteIdentifier(shape.props.name)}${queryLimit}`)).toArray().map((row) => row.toJSON() as Record<string, unknown>);
-    signal?.throwIfAborted();
-    return rows;
-  } finally { signal?.removeEventListener("abort", cancel); await connection.close(); }
+  return loadQueryResultRows(data.getQueryResultPage, shape.id, limit, signal);
 }
 
 export async function computeAgentProfiles(editor: Editor, args: Record<string, unknown>, env: AgentToolEnvironment): Promise<Record<string, unknown>> {
@@ -53,8 +39,7 @@ export async function computeAgentProfiles(editor: Editor, args: Record<string, 
   });
   const plan = walkSQLDag(editor, `SELECT * FROM ${quoteIdentifier(shape.props.name)}`);
   if (!plan.ok) throw new Error(plan.error.message);
-  const { orderedDependencies, executionState, mountedFileSources } = plan.plan;
-  await loadSQLDagDependencies(orderedDependencies, { mode: "execution", isRemoteExecution: executionState.isRemoteExecution });
+  const { orderedDependencies, executionState } = plan.plan;
   const profiles: Record<string, ColumnStats> = {};
   for (const column of selected) {
     env.signal.throwIfAborted();
@@ -62,7 +47,7 @@ export async function computeAgentProfiles(editor: Editor, args: Record<string, 
     const col = quoteIdentifier(column.name);
     const { sql, analysisType } = buildColumnStatsQuery({ quotedTable: table, quotedColumn: col, columnType: column.type, sourceType: executionState.sourceNativePreview ? executionState.sourceType : null });
     let rows: Record<string, unknown>[];
-    if (executionState.isRemoteExecution) {
+    {
       const requestId = `agent-profile:${crypto.randomUUID()}`;
       const cancel = () => env.data.cancelRemoteQuery(requestId);
       env.signal.addEventListener("abort", cancel, { once: true });
@@ -71,20 +56,12 @@ export async function computeAgentProfiles(editor: Editor, args: Record<string, 
         const sourceType = executionState.sourceNativePreview ? executionState.sourceType : null;
         const aggregate = sourceType === "postgres" ? "json_agg(kavla_profile)" : sourceType === "bigquery" ? "TO_JSON_STRING(ARRAY_AGG(kavla_profile))" : "to_json(list(kavla_profile))";
         const packedSQL = `SELECT ${aggregate} AS profile_rows FROM (${sql}) AS kavla_profile`;
-        const response = await env.data.runRemoteQuery({ sql: buildRemoteSQLFromDag(packedSQL, orderedDependencies), sourceName: executionState.sourceName, sourceType: executionState.sourceType, sourceNative: executionState.sourceNativePreview, mountedFileSources, shapeId: requestId, transient: true });
+        const response = await env.data.runRemoteQuery({ sql: buildRemoteSQLFromDag(packedSQL, orderedDependencies), sourceName: executionState.sourceName, sourceType: executionState.sourceType, sourceNative: executionState.sourceNativePreview, shapeId: requestId, transient: true });
         const packed = response.sampleRows[0]?.profile_rows;
         const decoded: unknown = typeof packed === "string" ? JSON.parse(packed) : packed;
         if (!Array.isArray(decoded)) throw new Error("The server returned an invalid column profile.");
         rows = decoded as Record<string, unknown>[];
       } finally { env.signal.removeEventListener("abort", cancel); }
-    } else {
-      const connection = await DuckDBService.getInstance().getDb()!.connect();
-      const cancel = () => { void connection.cancelSent(); };
-      env.signal.addEventListener("abort", cancel, { once: true });
-      try {
-        rows = [];
-        for await (const batch of await connection.send(sql)) rows.push(...batch.toArray().map((row) => row.toJSON() as Record<string, unknown>));
-      } finally { env.signal.removeEventListener("abort", cancel); await connection.close(); }
     }
     env.signal.throwIfAborted();
     const profile = JSON.parse(JSON.stringify(parseColumnStatsRows(analysisType, rows), (_key, value: unknown) => typeof value === "bigint" ? value.toString() : value)) as ColumnStats;

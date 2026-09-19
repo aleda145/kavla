@@ -38,19 +38,13 @@ Shape code lives under `app/`.
 
 ### Compute
 
-There are two ways to run queries.
+All SQL compute runs in the shipped CLI backend. The browser decodes Arrow results and renders the canvas.
 
-#### duckdb WASM
-
-- We are using duckDB in the browser to handle data transformations for added files
-- it's available in app/src/duckdb-service.ts
-
-#### CLI
-
-- The CLI can have many different type of sources
-- See `cli/internal/sources` for available ones
-- the CLI duckdb acts as a router. Any source is passed through the duckdb
-- This enables different sources to be successfully joined together
+- The CLI DuckDB session routes configured sources and supports federated joins.
+- Single-source Postgres and BigQuery queries can execute natively through the backend.
+- Each document has a built-in `uploaded_files` DuckDB catalog. Uploaded originals are bundled in the `.kavla` archive and imported into native tables when its session starts.
+- Upload tables belong to the document, independently of canvas source shapes.
+- Version 2 archives record upload table names; version 1 archives remain readable and migrate on save.
 
 ## Commands
 

@@ -9,12 +9,6 @@ export class MissingQueryResultError extends Error {
   }
 }
 
-export interface MountedFileSourcePayload {
-  sourceName: string;
-  blobId: string;
-  fileName: string;
-}
-
 export interface RunRemoteQueryPayload {
   sql: string;
   sourceName?: string;
@@ -22,7 +16,6 @@ export interface RunRemoteQueryPayload {
   shapeId: string;
   queryName?: string;
   sourceNative?: boolean;
-  mountedFileSources?: MountedFileSourcePayload[];
   transient?: boolean;
   restore?: boolean;
 }
@@ -69,7 +62,7 @@ export interface LocalServerContextType {
   }) => Promise<{ downloadUrl: string; fileName: string }>;
   prepareQueryResultDownload: (payload: {
     shapeId: string;
-    format: "csv" | "parquet";
+    format: "csv" | "parquet" | "tsv";
     fileName: string;
   }) => Promise<{ downloadUrl: string; fileName: string }>;
   runRemoteQuery: (payload: RunRemoteQueryPayload) => Promise<{

@@ -187,6 +187,7 @@ func resolveProvidedConnection(definition sources.Definition, raw string) (strin
 }
 
 func validateSourceName(name string, existing map[string]kavlaconfig.SourceConfig) error {
+ if strings.EqualFold(strings.TrimSpace(name), "uploaded_files") { return fmt.Errorf("uploaded_files is reserved for document uploads") }
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
 		return fmt.Errorf("name is required")

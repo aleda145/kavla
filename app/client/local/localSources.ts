@@ -1,3 +1,4 @@
+import { sessionFetch } from "../backendCompute";
 export type CliSourceConnectionKind = "path_file" | "path_directory" | "text";
 
 export interface CliSourceDefinition {
@@ -9,6 +10,7 @@ export interface CliSourceDefinition {
 }
 
 export interface CliConfiguredSource {
+  builtin?: boolean;
   name: string;
   type: string;
   connection: string;
@@ -47,7 +49,7 @@ async function readResponseError(response: Response): Promise<Error> {
 }
 
 export async function loadCliSources(): Promise<CliSourcesConfiguration> {
-  const response = await fetch("/api/cli/sources", {
+  const response = await sessionFetch("/api/cli/sources", {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
   });
@@ -56,7 +58,7 @@ export async function loadCliSources(): Promise<CliSourcesConfiguration> {
 }
 
 export async function createCliSource(input: CliSourceInput): Promise<CliSourcesConfiguration> {
-  const response = await fetch("/api/cli/sources", {
+  const response = await sessionFetch("/api/cli/sources", {
     method: "POST",
     credentials: "same-origin",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -67,7 +69,7 @@ export async function createCliSource(input: CliSourceInput): Promise<CliSources
 }
 
 export async function updateCliSource(originalName: string, input: CliSourceInput): Promise<CliSourcesConfiguration> {
-  const response = await fetch(`/api/cli/sources/${encodeURIComponent(originalName)}`, {
+  const response = await sessionFetch(`/api/cli/sources/${encodeURIComponent(originalName)}`, {
     method: "PUT",
     credentials: "same-origin",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -78,7 +80,7 @@ export async function updateCliSource(originalName: string, input: CliSourceInpu
 }
 
 export async function deleteCliSource(name: string): Promise<CliSourcesConfiguration> {
-  const response = await fetch(`/api/cli/sources/${encodeURIComponent(name)}`, {
+  const response = await sessionFetch(`/api/cli/sources/${encodeURIComponent(name)}`, {
     method: "DELETE",
     credentials: "same-origin",
     headers: { Accept: "application/json" },
@@ -89,7 +91,7 @@ export async function deleteCliSource(name: string): Promise<CliSourcesConfigura
 
 export async function listCliSourcePath(path?: string): Promise<CliSourcePathListing> {
   const query = path ? `?${new URLSearchParams({ path }).toString()}` : "";
-  const response = await fetch(`/api/cli/source-paths${query}`, {
+  const response = await sessionFetch(`/api/cli/source-paths${query}`, {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
   });

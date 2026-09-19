@@ -25,7 +25,6 @@ import { ChartBody } from "./ChartBody";
 import { ChartFooter } from "./ChartFooter";
 import { ChartHeader } from "./ChartHeader";
 import { buildChartOption, normalizeChartRow } from "./chartOptions";
-import { ensureLocalQueryView } from "../SQLTextArea/sqlDagDependencies";
 import { restoreRemoteQueryView } from "../SQLTextArea/restoreRemoteQueryView";
 import { useData } from "../client/useLocalServer";
 
@@ -128,13 +127,7 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
     const sourceResultStats = useValue("chart source result", () => getSourceShape()?.props.lastRunStats ?? null, [
       getSourceShape,
     ]);
-    const isCLIResult = sourceResultStats?.runnerName === "CLI";
     const { runRemoteQuery } = useData();
-    const ensureSourceTable = useCallback(async () => {
-      const sourceShape = getSourceShape();
-      if (!sourceShape) throw new Error("The query shape is unavailable.");
-      await ensureLocalQueryView(this.editor, sourceShape);
-    }, [getSourceShape]);
     const restoreServerResult = useCallback(async () => {
       const sourceShape = getSourceShape();
       if (!sourceShape) throw new Error("The query shape is unavailable.");
@@ -155,9 +148,8 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
       revision: sourceResultStats,
       limit: resolvedLimit,
       normalizeRow: normalizeChartRow,
-      serverResultShapeId: isCLIResult && sourceShapeId ? (sourceShapeId as TLShapeId) : null,
-      ensureSourceTable: isCLIResult ? undefined : ensureSourceTable,
-      restoreServerResult: isCLIResult ? restoreServerResult : undefined,
+      serverResultShapeId: sourceShapeId ? (sourceShapeId as TLShapeId) : null,
+      restoreServerResult,
     });
     const showWarning = resolvedLimit >= 10000 && isTruncated;
 

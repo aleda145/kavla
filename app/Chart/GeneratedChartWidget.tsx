@@ -2,9 +2,7 @@ import { LensRuntimeUnavailableError } from "../Lens/lens-errors";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import * as ECharts from "echarts";
-import { tableFromArrays } from "apache-arrow";
-import { DuckDBService } from "@/duckdb-service";
-import { quoteIdentifier } from "../src/duckdb/sql";
+import { queryBackendRows } from "../client/backendCompute";
 import { getLensVizRuntime } from "../Lens/viz/runtime";
 import type { LensVizRuntime } from "../Lens/viz/runtime";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -630,16 +628,6 @@ function createArrowColumnValues(values: unknown[]) {
   });
 }
 
-function createArrowTableFromRows(rows: Record<string, unknown>[], columns: string[]) {
-  const normalizedRows = rows.map(normalizeSqlRow);
-  const arrowColumns = getRunSqlColumns(normalizedRows, columns).reduce<Record<string, unknown[]>>((acc, column) => {
-    acc[column] = createArrowColumnValues(normalizedRows.map((row) => row[column] ?? null));
-    return acc;
-  }, {});
-
-  return tableFromArrays(arrowColumns);
-}
-
 function createRunSql(rows: Record<string, unknown>[], columns: string[], sourceName?: string | null) {
   return async (sql: string) => {
     const trimmedSql = sql.trim();
@@ -647,36 +635,19 @@ function createRunSql(rows: Record<string, unknown>[], columns: string[], source
       throw new Error("runSql requires a SQL query.");
     }
 
-    const duckDBService = DuckDBService.getInstance();
-    await duckDBService.init();
-    const db = duckDBService.getDb();
-    if (!db) {
-      throw new Error("DuckDB not initialized.");
-    }
-
-    const tempTableName = `lens_widget_${Date.now()}_${crypto.randomUUID().replace(/-/g, "_")}`;
-    const sourceTableName = sourceName?.trim() || "lens_data";
-    const table = createArrowTableFromRows(rows, columns);
-
-    const connection = await db.connect();
-    try {
-      await connection.insertArrowTable(table, { name: tempTableName });
-      await connection.query(
-        `CREATE OR REPLACE TEMP VIEW ${quoteIdentifier(sourceTableName)} AS SELECT * FROM ${quoteIdentifier(
-          tempTableName
-        )}`
-      );
-      const result = await connection.query(trimmedSql);
-      return result.toArray().map((row: any) => normalizeSqlRow(row.toJSON()));
-    } finally {
-      try {
-        await connection.query(`DROP VIEW IF EXISTS ${quoteIdentifier(sourceTableName)}`);
-        await connection.query(`DROP TABLE IF EXISTS ${quoteIdentifier(tempTableName)}`);
-      } catch {
-        // Best-effort cleanup only.
-      }
-      await connection.close();
-    }
+    const normalizedRows = rows.map(normalizeSqlRow);
+    const names = getRunSqlColumns(normalizedRows, columns);
+    const values = names.map(name => createArrowColumnValues(normalizedRows.map(row => row[name] ?? null)));
+    const fields = names.map((name, index) => {
+      const value = values[index].find(value => value !== null && value !== undefined);
+      return { name, type: typeof value === "number" ? "DOUBLE" : typeof value === "boolean" ? "BOOLEAN" : "VARCHAR" };
+    });
+    return (await queryBackendRows("/api/session/widget-query", {
+      sql: trimmedSql,
+      tableName: sourceName?.trim() || "lens_data",
+      columns: fields,
+      rows: normalizedRows.map((_row, index) => values.map(column => column[index])),
+    })).map(normalizeSqlRow);
   };
 }
 

@@ -1,3 +1,4 @@
+import { backendRevision, backendRequest } from "../client/backendCompute";
 import {
   HTMLContainer,
   Rectangle2d,
@@ -17,20 +18,15 @@ import { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { useTable } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import throttle from "lodash.throttle";
-import { DuckDBService } from "@/duckdb-service";
 import { useTldrawScrollArea } from "../DataSource/useTldrawScrollArea";
-import { downloadTable, type TableDownloadFormat, type TableDownloadSource } from "../util/downloadTable";
+import { type TableDownloadFormat } from "../util/downloadTable";
 import { formatSQLResultCellValue, SQLResultAreaBody, type SQLResultFocusedCell } from "./SQLResultAreaBody";
 import { SQLResultAreaActionBar } from "./SQLResultAreaActionBar";
 import { SQLResultAreaFooter } from "./SQLResultAreaFooter";
 import { SQLResultAreaHeader } from "./SQLResultAreaHeader";
 import { useData } from "../client/useLocalServer";
 import { MissingQueryResultError } from "../client/localServer/types";
-import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
-import { describeQueryExecution } from "../SQLTextArea/walkSQLDag";
 import { SQL_RESULT_TABLE_FEATURES, type SQLResultRow } from "./sql-result-table-features";
-import { quoteIdentifier } from "../src/duckdb/sql";
-import { ensureLocalQueryView } from "../SQLTextArea/sqlDagDependencies";
 import { getRestoredRemoteQueryMetadata, restoreRemoteQueryView } from "../SQLTextArea/restoreRemoteQueryView";
 import { getBriefErrorMessage } from "../util/error-message";
 import { confirmLargeTableDownload, estimateTableDownloadBytesFromRows } from "../util/largeTableDownload";
@@ -83,11 +79,8 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
       () => this.editor.getShape(sourceShapeId as TLShapeId) as SQLTextAreaShape | undefined,
       [sourceShapeId]
     );
-    const isCLIResult = sourceShape
-      ? describeQueryExecution(getOrderedDependenciesForSQL(this.editor, sourceShape.props.text).orderedDependencies)
-          .isRemoteExecution
-      : false;
 
+    const serverRevision = useValue("backend revision", () => backendRevision.get(), []);
     const scrollArea = useTldrawScrollArea();
     const parentRef = useRef<HTMLDivElement>(null);
 
@@ -118,9 +111,7 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
       }
 
       try {
-        if (isCLIResult) {
-          const restoredMetadata = getRestoredRemoteQueryMetadata(sourceShape.id);
-          const outputSchema = restoredMetadata?.schema ?? sourceShape.props.outputSchema ?? [];
+        {
           const pageRequest = {
             shapeId: sourceShape.id,
             offset: pageIndex * TABLE_PAGE_SIZE,
@@ -134,6 +125,8 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
             await restoreRemoteQueryView(this.editor, sourceShape, runRemoteQuery);
             page = await getQueryResultPage(pageRequest);
           }
+          const restoredMetadata = getRestoredRemoteQueryMetadata(sourceShape.id);
+          const outputSchema = restoredMetadata?.schema ?? sourceShape.props.outputSchema ?? [];
           setColumns(
             outputSchema.map((column) => ({
               accessorKey: column.name,
@@ -147,60 +140,6 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
           return;
         }
 
-        const duckDBService = DuckDBService.getInstance();
-        await duckDBService.init();
-        if (!duckDBService.isTableLoaded(sourceShape.props.name)) {
-          await ensureLocalQueryView(this.editor, sourceShape);
-        }
-
-        if (duckDBService.isTableLoaded(sourceShape.props.name)) {
-          const db = await duckDBService.getDb();
-          if (!db) return;
-          const conn = await db.connect();
-          try {
-            const outputSchema = sourceShape.props.outputSchema;
-            const knownRowCount = sourceShape.props.lastRunStats?.rowCount;
-            const dataRes = await conn.query(
-              `SELECT * FROM ${quoteIdentifier(sourceShape.props.name)} LIMIT ${TABLE_PAGE_SIZE} OFFSET ${
-                pageIndex * TABLE_PAGE_SIZE
-              }`
-            );
-            const schemaRes = outputSchema
-              ? null
-              : await conn.query(`DESCRIBE SELECT * FROM ${quoteIdentifier(sourceShape.props.name)}`);
-            const countRes =
-              typeof knownRowCount === "number"
-                ? null
-                : await conn.query(`SELECT COUNT(*) as count FROM ${quoteIdentifier(sourceShape.props.name)}`);
-
-            const schema =
-              outputSchema ??
-              schemaRes!.toArray().map((r: any) => {
-                const row = r.toJSON();
-                return { name: row.column_name, type: row.column_type };
-              });
-            const rows = dataRes.toArray().map((r: any) => r.toJSON());
-            const count =
-              typeof knownRowCount === "number" ? knownRowCount : Number(countRes!.toArray()[0].toJSON().count);
-
-            setColumns(
-              schema.map((s: any) => ({
-                accessorKey: s.name,
-                header: s.name,
-                meta: { type: s.type },
-                cell: (info: any) => String(formatSQLResultCellValue(info.getValue(), s.type) ?? ""),
-              }))
-            );
-            setPageData(rows);
-            setTotalRows(count);
-          } finally {
-            await conn.close();
-          }
-        } else {
-          setPageData([]);
-          setColumns([]);
-          setTotalRows(0);
-        }
       } catch (e: any) {
         if (e instanceof MissingQueryResultError) {
           setPageData([]);
@@ -219,9 +158,9 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
       sourceShape?.props.lastRunStats?.runnerName,
       sourceShape?.id,
       pageIndex,
+      serverRevision,
       getQueryResultPage,
       runRemoteQuery,
-      isCLIResult,
     ]);
 
     useEffect(() => {
@@ -466,28 +405,22 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
     }, [scrollTop, scrollLeft, rowVirtualizer.getTotalSize(), columnVirtualizer.getTotalSize()]);
 
     const handleCopyTSV = async () => {
+      if (!sourceShape) return;
       try {
-        const columnIds = columns.map((column: any) => column.accessorKey || column.header).filter(Boolean);
-        const header = columnIds.join("\t");
-        const body = pageData
-          .map((row) =>
-            columnIds
-              .map((columnId) => {
-                const value = row[columnId];
-                if (value === null || value === undefined) return "";
-                if (typeof value === "object") return JSON.stringify(value);
-                return String(value);
-              })
-              .join("\t")
-          )
-          .join("\n");
-        const tsvContent = body ? `${header}\n${body}` : header;
-
-        await navigator.clipboard.writeText(tsvContent);
+        const prepare = () => prepareQueryResultDownload({ shapeId: sourceShape.id, format: "tsv", fileName: sourceShape.props.name });
+        let download;
+        try { download = await prepare(); }
+        catch (error) {
+          if (!(error instanceof MissingQueryResultError)) throw error;
+          await restoreRemoteQueryView(this.editor, sourceShape, runRemoteQuery);
+          download = await prepare();
+        }
+        const response = await backendRequest(download.downloadUrl);
+        await navigator.clipboard.writeText(await response.text());
         setIsCopied(true);
         setTimeout(() => setIsCopied(false), 2000);
-      } catch (e) {
-        console.error("Copy failed", e);
+      } catch (error) {
+        addToast({ title: "Copy failed", description: error instanceof Error ? error.message : String(error), severity: "error" });
       }
     };
 
@@ -502,7 +435,7 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
         return;
       }
 
-      if (isCLIResult) {
+      {
         const prepareDownload = () =>
           prepareQueryResultDownload({
             shapeId: sourceShape.id,
@@ -531,39 +464,7 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
         return;
       }
 
-      const downloadSource: TableDownloadSource = {
-        kind: "local",
-        filename: `${sourceShape.props.name}.query`,
-        loadOriginalFile: async () => {
-          throw new Error("Query results are not stored in the .kavla file.");
-        },
-        recoverTable: async () => {
-          await ensureLocalQueryView(this.editor, sourceShape);
-        },
-      };
 
-      try {
-        await downloadTable({
-          format,
-          outputBaseName,
-          tableName: sourceShape?.props.name || outputBaseName,
-          source: downloadSource,
-          onConversionTooLarge: (description) => {
-            addToast({
-              title: "File Too Large",
-              description,
-              icon: "cross-2",
-            });
-          },
-        });
-      } catch (error) {
-        console.error(`${format === "csv" ? "CSV" : "Parquet"} download failed`, error);
-        addToast({
-          title: "Download failed",
-          description: error instanceof Error ? error.message : String(error),
-          severity: "error",
-        });
-      }
     };
 
     const virtualRows = rowVirtualizer.getVirtualItems();

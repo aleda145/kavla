@@ -1,7 +1,7 @@
 import { autocompletion, CompletionContext, CompletionSource } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
-import { DuckDBService } from "../src/duckdb-service";
-import { quoteIdentifier, quoteSqlString } from "../src/duckdb/sql";
+import { getCachedRemoteColumnStats, type RemoteSourceInfo } from "./remote-column-stats";
+import { quoteIdentifier, quoteSqlString, quoteDottedIdentifier } from "../src/duckdb/sql";
 import {
   createSqlNameLookup,
   findMentionedTables,
@@ -22,7 +22,8 @@ function getStringLiteralCompletionText(value: string, typedQuote: string): stri
 export const createSqlAutocomplete = (
   uniqueTableNames: Set<string>,
   allColumns: SqlColumnDefinition[],
-  upstreamTableNames: string[] = []
+  upstreamTableNames: string[] = [],
+  sourceMap: Map<string, RemoteSourceInfo> = new Map()
 ) => {
   const tableNames = createSqlNameLookup(uniqueTableNames);
 
@@ -53,7 +54,9 @@ export const createSqlAutocomplete = (
 
           if (col) {
             try {
-              const stats = await DuckDBService.getInstance().getColumnStats(col.tableName, col.name, col.type);
+              const source = sourceMap.get(col.tableName);
+              if (!source) return null;
+              const stats = await getCachedRemoteColumnStats(source.runRemoteQuery, source.sourceName, source.sourceType, source.fullTableRef, col.name, col.type, `autocomplete:${crypto.randomUUID()}`, source.tableSql);
               const distinctCount = stats?.distinctCount ?? 0;
 
               if (stats && distinctCount > 0 && distinctCount <= 10) {
@@ -64,28 +67,14 @@ export const createSqlAutocomplete = (
                 } else if (stats.type === "numeric" || stats.type === "temporal") {
                   // Numeric and temporal profiles contain buckets, not exact
                   // values, so fetch values only for low-cardinality columns.
-                  const db = DuckDBService.getInstance().getDb();
-                  if (db) {
-                    const conn = await db.connect();
-                    try {
-                      const quotedColumn = quoteIdentifier(col.name);
-                      const quotedTable = quoteIdentifier(col.tableName);
-                      const topRes = await conn.query(
-                        `SELECT ${quotedColumn} as val, COUNT(*) as cnt FROM ${quotedTable} WHERE ${quotedColumn} IS NOT NULL GROUP BY ${quotedColumn} ORDER BY cnt DESC LIMIT 10`
-                      );
-                      optionsData = topRes.toArray().map((r: any) => {
-                        const row = r.toJSON();
-                        return {
-                          value: String(row.val),
-                          count: Number(row.cnt),
-                        };
-                      });
-                    } catch (e) {
-                      console.error("Autocomplete exact numeric query error:", e);
-                    } finally {
-                      await conn.close();
-                    }
-                  }
+                  const quotedColumn = quoteIdentifier(col.name);
+                  const quotedTable = source.tableSql ? `(${source.tableSql})` : quoteDottedIdentifier(source.fullTableRef);
+                  const result = await source.runRemoteQuery({
+                    sql: `SELECT ${quotedColumn} AS val, COUNT(*) AS cnt FROM ${quotedTable} WHERE ${quotedColumn} IS NOT NULL GROUP BY ${quotedColumn} ORDER BY cnt DESC LIMIT 10`,
+                    sourceName: source.sourceName, sourceType: source.sourceType, sourceNative: true,
+                    shapeId: `autocomplete:${crypto.randomUUID()}`, transient: true,
+                  });
+                  optionsData = result.sampleRows.map(row => ({ value: String(row.val), count: Number(row.cnt) }));
                 }
 
                 if (optionsData.length > 0) {

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Pin, Terminal } from "lucide-react";
 import { siDuckdb, siGithub } from "simple-icons";
 import { createShapeId, useEditor, useValue } from "tldraw";
-import { isDuckDBComputing } from "../../src/duckdb-service";
+import { isBackendComputing } from "../backendCompute";
 import { getCliTerminalDisplay } from "../cliTerminalDisplay";
 import { useCliOutput, useCliStatus } from "../localServer/runtimeStore";
 
@@ -44,7 +44,7 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
   const cliConnected = useCliStatus();
   const cliOutput = useCliOutput();
   const cliTerminalDisplay = getCliTerminalDisplay(cliConnected, cliOutput);
-  const isComputingRaw = useValue("is DuckDB computing", () => isDuckDBComputing.get(), []);
+  const isComputingRaw = useValue("is DuckDB computing", () => isBackendComputing.get(), []);
   const [isComputing, setIsComputing] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalPosition, setTerminalPosition] = useState({ left: 0, top: 0 });

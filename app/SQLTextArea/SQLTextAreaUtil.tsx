@@ -16,7 +16,7 @@ import { connectShapes, disconnectShapes, setShapeUpstreamConnections } from "..
 import { getUniqueName } from "../util/getUniqueName";
 import { useData } from "../client/useLocalServer";
 import { useEffect, useState } from "react";
-import { DuckDBService } from "@/duckdb-service";
+import { validateBackendQuery } from "../client/backendCompute";
 import { ShapeEngineTabs } from "../util/ShapeEngineTabs";
 import {
   type EditorValidationIssue,
@@ -35,12 +35,11 @@ import {
 import { SQLTextAreaBody } from "./SQLTextAreaBody";
 import { SQLTextAreaFooter } from "./SQLTextAreaFooter";
 import { SQLTextAreaHeader } from "./SQLTextAreaHeader";
-import { loadSQLDagDependencies } from "./sqlDagDependencies";
 import { clearRestoredRemoteQueryMetadata } from "./restoreRemoteQueryView";
 import {
   buildRemoteSQLFromDag,
   describeQueryExecution,
-  getMountedFileSourcesForRemoteExecution,
+  getMissingSourceMessage,
   walkSQLDag,
 } from "./walkSQLDag";
 import { getAutoExpandedSQLShapeSize } from "./sqlShapeSize";
@@ -204,24 +203,13 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         }
 
         const { orderedDependencies } = getOrderedDependencies(sql);
-        const validationExecutionState = describeQueryExecution(orderedDependencies);
-
-        if (validationExecutionState.isRemoteExecution) {
-          const remoteFileSourcePlan = getMountedFileSourcesForRemoteExecution(orderedDependencies);
-          return remoteFileSourcePlan.validationMessage
-            ? issueFromMessage(remoteFileSourcePlan.validationMessage)
-            : null;
-        }
-
-        await loadSQLDagDependencies(orderedDependencies, { mode: "validation" });
-
-        const duckDBService = DuckDBService.getInstance();
-        const executionError = await duckDBService.validateQuery(sql);
-        if (!executionError) {
-          return null;
-        }
-
-        return issueFromMessage(executionError);
+        const execution = describeQueryExecution(orderedDependencies);
+        const missingSource = getMissingSourceMessage(orderedDependencies);
+        if (missingSource) return issueFromMessage(missingSource);
+        // Native remote queries retain syntax-only validation; preparing them can contact a paid source.
+        if (execution.sourceNativePreview && execution.sourceType !== "duckdb") return null;
+        await validateBackendQuery(buildRemoteSQLFromDag(sql, orderedDependencies));
+        return null;
       } catch (e: unknown) {
         console.error("Validation error", e);
         return issueFromUnknownError(e);
@@ -243,11 +231,10 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       }
       const {
         executionState: currentQueryExecutionState,
-        mountedFileSources,
         nextUpstreamShapeIds,
         orderedDependencies,
       } = dagWalk.plan;
-      const runnerName = currentQueryExecutionState.isRemoteExecution ? "CLI" : "Local";
+      const runnerName = "CLI";
       setShapeUpstreamConnections(
         this.editor,
         shape.id,
@@ -265,19 +252,12 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       }
 
       try {
-        const duckDBService = DuckDBService.getInstance();
-        const isRemoteExecution = currentQueryExecutionState.isRemoteExecution;
-        await loadSQLDagDependencies(orderedDependencies, {
-          mode: "execution",
-          isRemoteExecution: currentQueryExecutionState.isRemoteExecution,
-        });
-
         let rowCount: number;
         let schema: { name: string; type: string }[];
         let sampleRows: Record<string, unknown>[] = [];
-        setIsRemoteRunning(isRemoteExecution);
+        setIsRemoteRunning(true);
 
-        if (isRemoteExecution) {
+        {
           const { sourceName, sourceType, sourceNativePreview } = currentQueryExecutionState;
           const finalSQL = buildRemoteSQLFromDag(sqlText, orderedDependencies);
 
@@ -288,16 +268,10 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
             shapeId: shape.id,
             queryName: shape.props.name,
             sourceNative: sourceNativePreview,
-            mountedFileSources,
           });
           rowCount = result.rowCount;
           schema = result.schema;
           sampleRows = result.sampleRows;
-        } else {
-          const res = await duckDBService.runQueryView(sqlText, shape.props.name);
-          rowCount = res.rowCount;
-          schema = res.schema;
-          sampleRows = res.sampleRows;
         }
 
         const executionTime = Date.now() - startTime;

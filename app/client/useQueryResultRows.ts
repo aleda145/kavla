@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import type { TLShapeId } from "tldraw";
-import { DuckDBService } from "@/duckdb-service";
-import { quoteIdentifier } from "../src/duckdb/sql";
+import { useValue, type TLShapeId } from "tldraw";
+import { backendRevision } from "./backendCompute";
 import { useData } from "./useLocalServer";
 import { MissingQueryResultError } from "./localServer/types";
 import { getRestoredRemoteQueryMetadata } from "../SQLTextArea/restoreRemoteQueryView";
@@ -24,7 +23,6 @@ interface UseQueryResultRowsOptions {
   limit?: number | null;
   normalizeRow?: (row: Record<string, unknown>) => Record<string, unknown>;
   serverResultShapeId?: TLShapeId | null;
-  ensureSourceTable?: () => Promise<void>;
   restoreServerResult?: () => Promise<void>;
 }
 
@@ -47,9 +45,9 @@ export function useQueryResultRows({
   limit = null,
   normalizeRow = identityRow,
   serverResultShapeId = null,
-  ensureSourceTable,
   restoreServerResult,
 }: UseQueryResultRowsOptions): QueryResultRows {
+  const serverRevision = useValue("backend revision", () => backendRevision.get(), []);
   const [result, setResult] = useState<QueryResultRows>(EMPTY_RESULT);
   const { getQueryResultPage } = useData();
 
@@ -67,12 +65,12 @@ export function useQueryResultRows({
     });
 
     void (async () => {
-      const duckDBService = DuckDBService.getInstance();
 
       try {
-        if (serverResultShapeId) {
+        {
+          const resultShapeId = serverResultShapeId ?? sourceShapeId;
           const rowLimit = typeof limit === "number" ? Math.max(1, Math.floor(limit)) : null;
-          const loadRows = () => loadQueryResultRows(getQueryResultPage, serverResultShapeId, rowLimit === null ? null : rowLimit + 1, controller.signal);
+          const loadRows = () => loadQueryResultRows(getQueryResultPage, resultShapeId, rowLimit === null ? null : rowLimit + 1, controller.signal);
           let loadedRows;
           try {
             loadedRows = await loadRows();
@@ -84,7 +82,7 @@ export function useQueryResultRows({
           }
           const rows = loadedRows.map(normalizeRow);
           const isTruncated = rowLimit !== null && rows.length > rowLimit;
-          const resolvedSchema = getRestoredRemoteQueryMetadata(serverResultShapeId)?.schema ?? schema ?? [];
+          const resolvedSchema = getRestoredRemoteQueryMetadata(resultShapeId)?.schema ?? schema ?? [];
           if (!cancelled) {
             setResult({
               columns: resolvedSchema.map((column) => column.name),
@@ -98,50 +96,6 @@ export function useQueryResultRows({
           return;
         }
 
-        await duckDBService.init();
-        if (!duckDBService.isTableLoaded(sourceTableName)) {
-          if (!ensureSourceTable) {
-            if (!cancelled) setResult(EMPTY_RESULT);
-            return;
-          }
-          await ensureSourceTable();
-        }
-
-        const db = duckDBService.getDb();
-        if (!db) {
-          throw new Error("DuckDB is not initialized.");
-        }
-
-        const connection = await db.connect();
-        try {
-          const quotedTableName = quoteIdentifier(sourceTableName);
-          const resolvedSchema =
-            schema && schema.length > 0
-              ? schema
-              : (await connection.query(`DESCRIBE SELECT * FROM ${quotedTableName}`)).toArray().map((row: any) => {
-                  const value = row.toJSON();
-                  return { name: String(value.column_name), type: String(value.column_type) };
-                });
-          const rowLimit = typeof limit === "number" ? Math.max(1, Math.floor(limit)) : null;
-          const queryLimit = rowLimit === null ? "" : ` LIMIT ${rowLimit + 1}`;
-          const rows = (await connection.query(`SELECT * FROM ${quotedTableName}${queryLimit}`))
-            .toArray()
-            .map((row: any) => normalizeRow(row.toJSON() as Record<string, unknown>));
-          const isTruncated = rowLimit !== null && rows.length > rowLimit;
-
-          if (!cancelled) {
-            setResult({
-              columns: resolvedSchema.map((column) => column.name),
-              columnTypes: Object.fromEntries(resolvedSchema.map((column) => [column.name, column.type])),
-              data: rowLimit === null ? rows : rows.slice(0, rowLimit),
-              error: null,
-              isLoading: false,
-              isTruncated,
-            });
-          }
-        } finally {
-          await connection.close();
-        }
       } catch (error) {
         if (!cancelled) {
           setResult({
@@ -157,6 +111,7 @@ export function useQueryResultRows({
       controller.abort();
     };
   }, [
+    serverRevision,
     limit,
     normalizeRow,
     getQueryResultPage,
@@ -165,8 +120,7 @@ export function useQueryResultRows({
     sourceShapeId,
     sourceTableName,
     serverResultShapeId,
-    ensureSourceTable,
-    restoreServerResult,
+      restoreServerResult,
   ]);
 
   return result;

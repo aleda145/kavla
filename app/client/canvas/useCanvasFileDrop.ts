@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from "react";
 import { createShapeId, type Editor, type TLUiToastsContextType } from "tldraw";
 import type { DataSourceShape } from "../../DataSource/data-source-types";
-import { getLocalDataSourceSizeError, ingestLocalDataSourceFile } from "../../DataSource/ingestLocalDataSourceFile";
+import { ingestLocalDataSourceFile } from "../../DataSource/ingestLocalDataSourceFile";
 import { toValidSqlName } from "../../util/sql";
 
 export function useCanvasFileDrop(
@@ -15,34 +15,27 @@ export function useCanvasFileDrop(
         return;
       }
 
-      const file = event.dataTransfer.files[0];
-      const ext = file.name.split(".").pop()?.toLowerCase();
-
-      if (ext === "csv" || ext === "parquet" || ext === "json") {
-        event.preventDefault();
-        event.stopPropagation();
-        event.stopImmediatePropagation();
-
-        const point = editor.screenToPage({ x: event.clientX, y: event.clientY });
-
-        const sizeError = getLocalDataSourceSizeError(file.size);
-        if (sizeError) {
-          addToast({
-            title: "File too large",
-            description: sizeError,
-            severity: "error",
-          });
-          return;
-        }
-
+      const files = Array.from(event.dataTransfer.files).filter(file => /\.(csv|parquet|json|ndjson)$/i.test(file.name));
+      if (!files.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const point = editor.screenToPage({ x: event.clientX, y: event.clientY });
+      const otherFiles = Array.from(event.dataTransfer.files).filter(file => !files.includes(file));
+      if (otherFiles.length) {
+        void editor.putExternalContent({ type: "files", files: otherFiles, point }).catch(error => {
+          addToast({ title: "Could not add canvas files", description: error instanceof Error ? error.message : String(error), severity: "error" });
+        });
+      }
+      for (const [index, file] of files.entries()) {
         const shapeId = createShapeId();
         const baseName = file.name.split(".")[0];
 
         editor.createShape<DataSourceShape>({
           id: shapeId,
           type: "data-source",
-          x: point.x,
-          y: point.y,
+          x: point.x + index * 40,
+          y: point.y + index * 40,
           props: {
             filename: `Processing ${file.name}...`,
             name: toValidSqlName(baseName),
