@@ -126,6 +126,10 @@ func (s *Server) handleAgentAuth(w http.ResponseWriter, r *http.Request) {
 	s.agentMu.Lock()
 	s.agentAuthChanging = false
 	s.agentMu.Unlock()
+	if err := s.publishSharedAgentConfig(); err != nil {
+		writeAPIError(w, 500, err)
+		return
+	}
 	settings := s.currentAgentAuth()
 	s.broadcastAgentRuntimeEvent(cliRuntimeEvent{name: "auth", data: settings})
 	w.Header().Set("Content-Type", "application/json")

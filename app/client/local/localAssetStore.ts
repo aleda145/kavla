@@ -1,3 +1,4 @@
+import { sessionFetch, withBackendActivity } from "../backendCompute";
 import type { TLAssetStore } from "tldraw";
 import { getActiveLocalSession, getSessionBlobUrl, stageSessionBlob } from "./localSession";
 
@@ -21,14 +22,16 @@ export const localAssetStore: TLAssetStore = {
       return { src: await blobToDataUrl(file) };
     }
 
-    const blobId = assetBlobId(asset.id);
-    await stageSessionBlob({
-      id: blobId,
-      kind: "asset",
-      shapeId: asset.id,
-      file,
+    return withBackendActivity(async () => {
+      const blobId = assetBlobId(asset.id);
+      await stageSessionBlob({
+        id: blobId,
+        kind: "asset",
+        shapeId: asset.id,
+        file,
+      });
+      return { src: getSessionBlobUrl(blobId) };
     });
-    return { src: getSessionBlobUrl(blobId) };
   },
 
   resolve(asset) {
@@ -46,7 +49,7 @@ export const localAssetStore: TLAssetStore = {
 
     await Promise.all(
       assetIds.map(async (assetId) => {
-        const response = await fetch(`/api/session/blobs/${encodeURIComponent(assetBlobId(assetId))}`, {
+        const response = await sessionFetch(`/api/session/blobs/${encodeURIComponent(assetBlobId(assetId))}`, {
           method: "DELETE",
           credentials: "same-origin",
         });

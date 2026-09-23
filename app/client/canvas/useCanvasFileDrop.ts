@@ -11,7 +11,7 @@ export function useCanvasFileDrop(
   useEffect(() => {
     const handleDrop = async (event: DragEvent) => {
       const editor = editorRef.current;
-      if (!editor || !event.dataTransfer?.files?.length) {
+      if (!editor || editor.getInstanceState().isReadonly || !event.dataTransfer?.files?.length) {
         return;
       }
 

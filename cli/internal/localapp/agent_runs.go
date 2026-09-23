@@ -90,7 +90,11 @@ func (s *Server) agentJournalPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	id := sha256.Sum256([]byte(s.document.Manifest().DocumentID))
+	path, err := canonicalDocumentPath(s.document.Path())
+	if err != nil {
+		return "", err
+	}
+	id := sha256.Sum256([]byte(s.document.Manifest().DocumentID + "\x00" + path))
 	return filepath.Join(cache, "kavla", "agent", fmt.Sprintf("%x.json", id)), nil
 }
 
@@ -103,6 +107,17 @@ func (s *Server) loadAgentRuns() error {
 	}
 	var runs []*agentRunState
 	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		// Read the old ID-only journal once, but never write shared history for
+		// two copies of a portable .kavla archive.
+		legacyID := sha256.Sum256([]byte(s.document.Manifest().DocumentID))
+		data, err = os.ReadFile(filepath.Join(filepath.Dir(path), fmt.Sprintf("%x.json", legacyID)))
+		if err == nil {
+			if err := atomicWriteFile(path, data, 0600); err != nil {
+				return err
+			}
+		}
+	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}

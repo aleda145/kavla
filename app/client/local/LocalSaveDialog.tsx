@@ -85,8 +85,6 @@ export function LocalSaveDialog({ documentName, mode, onClose, onLoad, onSave }:
   const confirmSelection = async (overwrite: boolean) => {
     if (mode === "load") {
       if (!selectedDocumentPath || !onLoad) return;
-      const confirmed = window.confirm("Load this document? Unsaved changes in the current canvas will be replaced.");
-      if (!confirmed) return;
       setSaving(true);
       setError(null);
       try {
