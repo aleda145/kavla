@@ -18,3 +18,4 @@ repos:
         entry: npx prettier --write --config ./.prettierrc.json
         language: system
         files: ^app/.*\.(js|jsx|ts|tsx|json|css|scss|html)$
+        require_serial: true
