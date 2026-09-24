@@ -73,8 +73,29 @@ Or connect directly:
 kavla connect <room_id>
 ```
 
+## Building
+
+Install go, yarn and node. Then run `make build`
+
+## Contributions & Community
+
+Contributions welcome! Reach out on the discord if there's something specific you've been thinking of!
+
+[discord](https://discord.gg/aeBGuDdhtP)
+
+## Talk to me
+
+I'm Alex:
+
+- Email me [alex@kavla.dev](mailto:alex@kavla.dev)
+- visit my website at [dahl.dev](https://dahl.dev)
+- Connect with me on [Linkedin](https://www.linkedin.com/in/dahlalexander)
+- [twitter](https://x.com/alexdahl145)
+
 ## Licensing
 
 Kavla's original source code is licensed under the [Apache License 2.0](./LICENSE).
 
 Third-party components remain under their own terms. See [Third-party software and licenses](./THIRD_PARTY_LICENSES.md), including the separately licensed tldraw SDK and the bundled [tldraw 3.15.4 license](./TLDRAW_LICENSE.md).
+
+(tldraw changed their license for version >4 and it disallows hosting outside a dev environment without a license (I'm poor))
