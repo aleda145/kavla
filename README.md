@@ -2,23 +2,15 @@
 
 ![Kavla demo](./kavla.webp)
 
-Kavla is an infinite canvas for exploratory analysis. It's all about embracing the analytical mess. Paste a picture, draw some shapes, write some SQL, make a chart. Compared to a notebook, in Kavla you can easily branch your analysis and keep the dead ends around.
+Kavla is an infinite canvas for exploratory analysis. It's all about embracing the analytical mess. Paste a picture, draw some shapes, write some SQL, make a chart. Compared to a notebook, in Kavla you can easily branch your analysis. Just move the dead ends to another side of the canvas.
 
-For a better understanding on what you can do, check out [kavla.dev](https://kavla.dev). There you can also try the web version.
+Try it in your browser at [kavla.dev](https://kavla.dev), or [download directly](https://kavla.dev/download).
 
-It's built with tldraw and duckdb. It can connect to a few databases, see list below.
+## Desktop App (Linux only)
 
-All SQL compute runs in the shipped backend. Upload or drop CSV, Parquet, JSON, or NDJSON files to add tables to the document’s built-in `uploaded_files` database and place their sources on the canvas. Uploaded files travel with the `.kavla` document; deleting a source shape keeps its table available in Sources. Older documents are migrated when opened and saved in the new format on save.
+Make it executable and then launch it!
 
-## Running
-
-See the release page on github or go to https://kavla.dev/download
-
-### Desktop App
-
-Simply install the desktop app as you would normally on your system. Double click works on debian! (I dont have a Mac so I don't know if that works. Please let me know in an issue!)
-
-### CLI
+## CLI
 
 Download the CLI from the release page, then run:
 
@@ -26,9 +18,11 @@ Download the CLI from the release page, then run:
 kavla run
 ```
 
-This will start a web server that serves the application on http://localhost:40743/.
+This will start a web server that serves the application on http://localhost:40743/
 
-### Docker
+Use the flag `--host 0.0.0.0` to allow others to connect
+
+## Docker
 
 ```sh
  docker run --rm -p 40743:40743 -v kavla-data:/data aleda145/kavla:latest
@@ -47,11 +41,11 @@ There is no access control for the web server. Don't put it online without adequ
 | BigQuery  | `bigquery`  | Google Cloud project ID (experimental)               |
 | Postgres  | `postgres`  | Postgres URI                                         |
 
-## Collaboration
+If there's a source you want, please raise an issue!
 
-If you are interested in live multiplayer and sharing canvases with your team, check out the offering on [kavla.dev](https://kavla.dev)
+## Real Time Collaboration
 
-After signing up you can use the same CLI to interact with kavla.dev canvases:
+The CLI can also connect to canvases on [Kavla Cloud](https://kavla.dev/cloud) so you can share your analysis, both privately and publically.
 
 ### Login
 
