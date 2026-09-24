@@ -12,6 +12,7 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
   const modelSelection = useAgentModels();
   const { retryAgent } = useData();
   const ready = status.state === "ready";
+  const needsSetup = status.state === "missing" || status.state === "auth_required";
   const runs = useAgentRuns();
   const [runError, setRunError] = useState<string | null>(null);
   const auth = useAgentAuth();
@@ -177,7 +178,13 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
           <div
             style={{
               alignItems: "center",
-              background: ready ? "#dcfce7" : status.state === "checking" ? "#fef9c3" : "#fee2e2",
+              background: ready
+                ? "#dcfce7"
+                : needsSetup
+                  ? "#ffedd5"
+                  : status.state === "checking"
+                    ? "#fef9c3"
+                    : "#fee2e2",
               border: "2px solid #000",
               borderRadius: 8,
               display: "flex",
@@ -190,13 +197,15 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
             ) : ready ? (
               <CheckCircle2 color="#15803d" size={22} strokeWidth={3} />
             ) : (
-              <Sparkles color="#991b1b" size={22} strokeWidth={3} />
+              <Sparkles color={needsSetup ? "#9a3412" : "#991b1b"} size={22} strokeWidth={3} />
             )}
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 900 }}>
-                {auth.mode === "apiKey" ? "API provider" : "Codex CLI"}
+                {needsSetup ? "Set up an agent" : auth.mode === "apiKey" ? "API provider" : "Codex CLI"}
               </div>
-              <div style={{ fontSize: 11, lineHeight: 1.4, marginTop: 2 }}>{ready ? "Connected" : status.message}</div>
+              <div style={{ fontSize: 11, lineHeight: 1.4, marginTop: 2 }}>
+                {ready ? "Connected" : needsSetup ? "Choose a connection method below to get started." : status.message}
+              </div>
             </div>
           </div>
 
@@ -384,6 +393,9 @@ export function LocalAgentDialog({ onClose, onOpenChat }: { onClose: () => void;
               <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>
                 Switching clears saved API credentials.
               </div>
+            ) : null}
+            {authMode === "codex" && needsSetup ? (
+              <div style={{ fontSize: 10, lineHeight: 1.4, color: "#57534e" }}>{status.message}</div>
             ) : null}
             <label style={{ fontSize: 11, fontWeight: 800, display: "flex", flexDirection: "column", gap: 5 }}>
               Tool calls per request

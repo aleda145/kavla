@@ -17,6 +17,7 @@ import {
   useAgentRuns,
 } from "../client/localServer/agentRuns";
 import { getActiveLocalSession, stageCanvas } from "../client/local/localSession";
+import { LocalAgentDialog } from "../client/local/LocalAgentDialog";
 import { randomUUID } from "../util/randomUUID";
 import "./agent-chat.css";
 
@@ -25,6 +26,13 @@ const CHAT_WIDTH = 340;
 const CHAT_HEIGHT = 330;
 const TOOLBAR_GAP = 6;
 const CHAT_GAP = 12;
+const CAT_RESPONSES = ["Meow", "Maaoo", "Mrrrp", "Mew", "Purrrrr"] as const;
+const CAT_INTRO_ENTRY: AgentChatEntry = {
+  id: "cat-intro",
+  role: "assistant",
+  text: "A cute cat is filling in until you set up an agent (but she's not the best analyst).",
+  createdAt: 0,
+};
 
 function stopOverlayEvent(event: SyntheticEvent) {
   event.stopPropagation();
@@ -162,6 +170,10 @@ function AgentChatOverlay() {
   const dataSocket = useData();
   const agentStatus = useAgentStatus();
   const agentModels = useAgentModels();
+  const isCat = agentStatus.state === "missing" || agentStatus.state === "auth_required";
+  const [catEntries, setCatEntries] = useState<AgentChatEntry[]>([CAT_INTRO_ENTRY]);
+  const lastCatResponseIndex = useRef(-1);
+  const [showAgentSettings, setShowAgentSettings] = useState(false);
   const [prompt, setPrompt] = useState("");
   const runs = useAgentRuns();
   const [isSending, setIsSending] = useState(false);
@@ -198,7 +210,7 @@ function AgentChatOverlay() {
   const mentionStart = mentionMatch ? cursor - mentionMatch[1].length - 1 : -1;
   const mentionKey = `${mentionStart}:${cursor}:${prompt}`;
   const completedMention = mentionRanges.some((range) => range.from === mentionStart && range.to < cursor);
-  const showMentions = Boolean(mentionMatch && !completedMention && dismissedMention !== mentionKey);
+  const showMentions = !isCat && Boolean(mentionMatch && !completedMention && dismissedMention !== mentionKey);
   const mentionSuggestions = showMentions
     ? canvasBadges.filter((badge) => badge.name.toLowerCase().includes(mentionMatch![1].toLowerCase())).slice(0, 8)
     : [];
@@ -217,9 +229,9 @@ function AgentChatOverlay() {
   );
 
   useEffect(() => {
-    if (!isFollowing || !activeBounds) return;
+    if (isCat || !isFollowing || !activeBounds) return;
     editor.zoomToBounds(activeBounds, { targetZoom: editor.getZoomLevel(), inset: 80, animation: { duration: 220 } });
-  }, [editor, isFollowing, activeBounds]);
+  }, [editor, isCat, isFollowing, activeBounds]);
 
   useEffect(() => {
     const pauseFollowing = (event: Event) => {
@@ -271,7 +283,8 @@ function AgentChatOverlay() {
   };
   const ready = agentStatus.state === "ready";
   const isOpen = agent?.props.isOpen ?? false;
-  const isRunning = isSending || runs.some(isAgentRunActive) || (agent?.props.isRunning ?? false);
+  const isRunning = !isCat && (isSending || runs.some(isAgentRunActive) || (agent?.props.isRunning ?? false));
+  const entries = isCat ? catEntries : (agent?.props.entries ?? []);
 
   useLayoutEffect(() => {
     const update = () => setLayout(getDockLayout());
@@ -290,7 +303,7 @@ function AgentChatOverlay() {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [agent?.props.entries, agent?.props.streamingText, agent?.props.activity]);
+  }, [entries, agent?.props.streamingText, agent?.props.activity, isOpen]);
 
   const zoomToShape = (shapeId: string) => {
     const id = shapeId as TLShapeId;
@@ -302,7 +315,26 @@ function AgentChatOverlay() {
 
   const send = async () => {
     const text = prompt.trim();
-    if (!text || isRunning || !ready) return;
+    if (!text || isRunning) return;
+    if (isCat) {
+      let responseIndex = Math.floor(
+        Math.random() * (CAT_RESPONSES.length - (lastCatResponseIndex.current < 0 ? 0 : 1))
+      );
+      if (lastCatResponseIndex.current >= 0 && responseIndex >= lastCatResponseIndex.current) responseIndex += 1;
+      lastCatResponseIndex.current = responseIndex;
+      const createdAt = Date.now();
+      setCatEntries((entries) => [
+        ...entries,
+        { id: randomUUID(), role: "user", text, createdAt, contextShapeIds: contextBadges.map((badge) => badge.id) },
+        { id: randomUUID(), role: "assistant", text: CAT_RESPONSES[responseIndex], createdAt },
+      ]);
+      setPrompt("");
+      setCursor(0);
+      setChosenMentions([]);
+      setDismissedMention(null);
+      return;
+    }
+    if (!ready) return;
     setIsSending(true);
     createOrFocusAgentChat(editor);
     const currentAgent = getAgentChat(editor);
@@ -392,7 +424,15 @@ function AgentChatOverlay() {
     }
   };
 
-  const visualStatus = !ready ? "Unavailable" : isRunning ? "Thinking" : "Ready";
+  const visualStatus = isCat
+    ? "Cat"
+    : agentStatus.state === "checking"
+      ? "Connecting"
+      : !ready
+        ? "Unavailable"
+        : isRunning
+          ? "Thinking"
+          : "Ready";
 
   return (
     <div
@@ -410,7 +450,7 @@ function AgentChatOverlay() {
       `}</style>
       {isOpen && agent ? (
         <aside
-          aria-label="Kavla Agent chat"
+          aria-label={isCat ? "Kavla cat chat" : "Kavla Agent chat"}
           className="kavla-agent-chat"
           tabIndex={-1}
           onClick={stopOverlayEvent}
@@ -442,7 +482,7 @@ function AgentChatOverlay() {
           <div
             style={{
               alignItems: "center",
-              background: "#ede9fe",
+              background: isCat ? "#ffedd5" : "#ede9fe",
               borderBottom: "3px solid #000",
               borderRadius: "9px 9px 0 0",
               display: "flex",
@@ -451,11 +491,31 @@ function AgentChatOverlay() {
               padding: "6px 8px",
             }}
           >
-            <strong style={{ fontSize: 11, fontWeight: 900, textTransform: "uppercase" }}>Analyst</strong>
+            <strong
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 11,
+                fontWeight: 900,
+                textTransform: "uppercase",
+              }}
+            >
+              {isCat ? (
+                <>
+                  <span style={{ textDecoration: "line-through", opacity: 0.55 }}>Analyst</span>
+                  <span>Cat</span>
+                  <img src="/cat.svg" alt="Cat" style={{ width: 24, height: 24, objectFit: "contain" }} />
+                </>
+              ) : (
+                "Analyst"
+              )}
+            </strong>
             <div style={{ alignItems: "center", display: "flex", gap: 6, marginLeft: "auto" }}>
               <button
                 aria-label="Follow analyst"
-                aria-pressed={isFollowing}
+                aria-pressed={!isCat && isFollowing}
+                disabled={isCat}
                 onClick={() => setIsFollowing((value) => !value)}
                 title="Follow active work. Moving around the canvas pauses following."
                 type="button"
@@ -463,7 +523,8 @@ function AgentChatOverlay() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  background: isFollowing ? "#fef08a" : "#fff",
+                  background: !isCat && isFollowing ? "#fef08a" : "#fff",
+                  opacity: isCat ? 0.45 : 1,
                   color: "#000",
                   border: "2px solid #000",
                   borderRadius: 5,
@@ -481,13 +542,15 @@ function AgentChatOverlay() {
                 aria-label="Clear chat"
                 disabled={isRunning}
                 onClick={() =>
-                  updateAgentChat(editor, {
-                    entries: [],
-                    threadId: null,
-                    streamingText: "",
-                    activity: null,
-                    historyClearedAt: Date.now(),
-                  })
+                  isCat
+                    ? setCatEntries([CAT_INTRO_ENTRY])
+                    : updateAgentChat(editor, {
+                        entries: [],
+                        threadId: null,
+                        streamingText: "",
+                        activity: null,
+                        historyClearedAt: Date.now(),
+                      })
                 }
                 style={{
                   alignItems: "center",
@@ -509,7 +572,7 @@ function AgentChatOverlay() {
               </button>
               <div
                 style={{
-                  background: ready ? "#fff" : "#fee2e2",
+                  background: ready || isCat ? "#fff" : agentStatus.state === "checking" ? "#fef9c3" : "#fee2e2",
                   border: "2px solid #000",
                   borderRadius: 5,
                   fontSize: 9,
@@ -543,12 +606,12 @@ function AgentChatOverlay() {
             </div>
           </div>
 
-          {!ready ? (
+          {!ready && !isCat ? (
             <div
               style={{
-                background: "#fee2e2",
+                background: agentStatus.state === "checking" ? "#fef9c3" : "#fee2e2",
                 borderBottom: "2px solid #000",
-                color: "#7f1d1d",
+                color: agentStatus.state === "checking" ? "#713f12" : "#7f1d1d",
                 fontSize: 10,
                 lineHeight: 1.35,
                 padding: "6px 8px",
@@ -586,12 +649,12 @@ function AgentChatOverlay() {
               userSelect: "text",
             }}
           >
-            {agent.props.entries.length === 0 ? (
+            {entries.length === 0 ? (
               <div style={{ color: "#57534e", fontSize: 12, lineHeight: 1.45, padding: 4 }}>
                 Select shapes or type @ to mention them, then ask the Agent to explore, create, or edit your analysis.
               </div>
             ) : null}
-            {agent.props.entries.map((entry) => {
+            {entries.map((entry) => {
               if (entry.role === "event" && entry.toolCallId) return null;
               const isUser = entry.role === "user";
               const isError = entry.role === "error";
@@ -641,10 +704,25 @@ function AgentChatOverlay() {
                   ) : (
                     <AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} />
                   )}
+                  {isCat && entry.id === CAT_INTRO_ENTRY.id ? (
+                    <p style={{ margin: "8px 0 0" }}>
+                      <a
+                        href="#agent-settings"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setShowAgentSettings(true);
+                        }}
+                        className="text-black underline underline-offset-2 hover:text-blue-700"
+                      >
+                        Set up an agent
+                      </a>
+                      {" to work on your analysis!"}
+                    </p>
+                  ) : null}
                 </div>
               );
             })}
-            {agent.props.streamingText ? (
+            {!isCat && agent.props.streamingText ? (
               <div
                 style={{
                   alignSelf: "flex-start",
@@ -849,13 +927,13 @@ function AgentChatOverlay() {
                 onScroll={(event) => {
                   if (highlightsRef.current) highlightsRef.current.scrollTop = event.currentTarget.scrollTop;
                 }}
-                aria-label="Ask the Kavla Agent"
+                aria-label={isCat ? "Message the cat" : "Ask the Kavla Agent"}
                 aria-autocomplete="list"
                 aria-controls={showMentions ? "agent-mention-list" : undefined}
                 aria-activedescendant={
                   showMentions && mentionSuggestions.length ? `agent-mention-${activeMentionIndex}` : undefined
                 }
-                disabled={!ready || isRunning}
+                disabled={(!ready && !isCat) || isRunning}
                 onChange={(event) => {
                   setPrompt(event.currentTarget.value);
                   setCursor(event.currentTarget.selectionStart);
@@ -864,7 +942,9 @@ function AgentChatOverlay() {
                 }}
                 onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
                 onKeyDown={onPromptKeyDown}
-                placeholder={contextBadges.length ? "Ask about this" : "Ask about this canvas"}
+                placeholder={
+                  isCat ? "Say something to the cat" : contextBadges.length ? "Ask about this" : "Ask about this canvas"
+                }
                 style={{
                   background: "transparent",
                   border: 0,
@@ -908,7 +988,7 @@ function AgentChatOverlay() {
               ) : (
                 <button
                   aria-label="Send"
-                  disabled={!ready || !prompt.trim()}
+                  disabled={(!ready && !isCat) || !prompt.trim()}
                   onClick={send}
                   style={{
                     alignItems: "center",
@@ -916,11 +996,11 @@ function AgentChatOverlay() {
                     border: "2px solid #000",
                     borderRadius: 5,
                     bottom: 7,
-                    cursor: ready && prompt.trim() ? "pointer" : "default",
+                    cursor: (ready || isCat) && prompt.trim() ? "pointer" : "default",
                     display: "flex",
                     height: 28,
                     justifyContent: "center",
-                    opacity: ready && prompt.trim() ? 1 : 0.5,
+                    opacity: (ready || isCat) && prompt.trim() ? 1 : 0.5,
                     padding: 0,
                     position: "absolute",
                     right: 6,
@@ -934,6 +1014,15 @@ function AgentChatOverlay() {
             </div>
           </div>
         </aside>
+      ) : null}
+      {showAgentSettings ? (
+        <LocalAgentDialog
+          onClose={() => setShowAgentSettings(false)}
+          onOpenChat={() => {
+            createOrFocusAgentChat(editor);
+            setShowAgentSettings(false);
+          }}
+        />
       ) : null}
     </div>
   );
