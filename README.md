@@ -1,5 +1,7 @@
 # Kavla
 
+![Kavla demo](./kavla.webp)
+
 Kavla is an infinite canvas for exploratory analysis. It's all about embracing the analytical mess. Paste a picture, draw some shapes, write some SQL, make a chart. Compared to a notebook, in Kavla you can easily branch your analysis and keep the dead ends around.
 
 For a better understanding on what you can do, check out [kavla.dev](https://kavla.dev). There you can also try the web version.
