@@ -32,6 +32,14 @@ Or see [compose.yaml](./compose.yaml)
 
 There is no access control for the web server. Don't put it online without adequate security!
 
+## Agents
+
+Codex CLI and OpenAI compatible endpoints are supported.
+
+I recommend using an endpoint. The codex CLI will work but it pollutes the context quite a bit.
+
+I've had good success with Kimi 2.7. If you try something else and you're happy with it please me know in the [discord](https://discord.gg/aeBGuDdhtP)
+
 ## Supported Sources
 
 | Source    | Type        | Connection                                           |
