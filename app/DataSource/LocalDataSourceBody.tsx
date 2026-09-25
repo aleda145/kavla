@@ -108,15 +108,17 @@ export function LocalDataSourceBody({
             {showDemoData ? (
               <DemoDatasetBrowser onBack={resetPicker} onSelect={(file) => void onDemoFileSelect(file)} />
             ) : selectedSource ? (
-              <RemoteTablesList
-                isLoading={loadingTables}
-                onBack={() => setSelectedSource(null)}
-                onTableSelect={selectRemoteTable}
-                selectedRemoteSource={selectedSource}
-                remoteTables={tables}
-                sourceError={tableError}
-                cliSources={cliSources}
-              />
+              <div className="flex min-h-0 flex-1 flex-col px-3">
+                <RemoteTablesList
+                  isLoading={loadingTables}
+                  onBack={() => setSelectedSource(null)}
+                  onTableSelect={selectRemoteTable}
+                  selectedRemoteSource={selectedSource}
+                  remoteTables={tables}
+                  sourceError={tableError}
+                  cliSources={cliSources}
+                />
+              </div>
             ) : (
               <DataSourcePicker
                 sources={cliSources}
