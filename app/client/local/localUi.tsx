@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import {
   CenteredTopPanelContainer,
   DefaultKeyboardShortcutsDialog,
@@ -117,6 +117,14 @@ function LocalDocumentControls({
   const [showSources, setShowSources] = useState(false);
   const [showAgentStatus, setShowAgentStatus] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const openSources = () => {
+      if (documentsAvailable) setShowSources(true);
+    };
+    window.addEventListener("kavla:open-sources", openSources);
+    return () => window.removeEventListener("kavla:open-sources", openSources);
+  }, [documentsAvailable]);
 
   const save = async () => {
     setSaving(true);

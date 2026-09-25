@@ -51,7 +51,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
   getDefaultProps(): DataSourceShape["props"] {
     return {
       w: DATA_SOURCE_PICKER_WIDTH,
-      h: calculateDataSourcePickerHeight(getCliSourcesSnapshot().length),
+      h: calculateDataSourcePickerHeight(getCliSourcesSnapshot()),
       color: "black",
       text: "Source",
       error: null,

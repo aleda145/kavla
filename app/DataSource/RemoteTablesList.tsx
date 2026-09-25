@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, Database } from "lucide-react";
+import { Check, Copy, Database, File } from "lucide-react";
 import type { CliSource } from "../client/useLocalServer";
 import { CliSourceIcon, getCliSourceAppearance } from "./CliSourcesList";
 import { SourceListView } from "./SourceListView";
@@ -144,7 +144,7 @@ export function RemoteTablesList({
       }
       headerCountText={isLoading ? "Loading..." : sourceError ? "Unavailable" : `${remoteTables?.length ?? 0} tables`}
       headerIcon={headerIcon}
-      headerLabel={selectedRemoteSource}
+      headerLabel={selectedRemoteSource === "uploaded_files" ? "Files" : selectedRemoteSource}
       headerBackgroundColor={selectedCliAppearance?.backgroundColor ?? "#f3f4f6"}
       isLoading={isLoading}
       keyForItem={(table) => table}
@@ -155,7 +155,7 @@ export function RemoteTablesList({
           onClick={() => onTableSelect(table)}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <Database size={10} />
+          {selectedRemoteSource === "uploaded_files" ? <File size={10} /> : <Database size={10} />}
           {table}
         </div>
       )}

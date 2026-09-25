@@ -9,7 +9,7 @@ export class SourceTextAreaTool extends BaseBoxShapeTool {
 
   override onPointerDown() {
     const { currentPagePoint } = this.editor.inputs;
-    const height = calculateDataSourcePickerHeight(getCliSourcesSnapshot().length);
+    const height = calculateDataSourcePickerHeight(getCliSourcesSnapshot());
     this.editor.createShape({
       type: this.shapeType,
       x: currentPagePoint.x - DATA_SOURCE_PICKER_WIDTH / 2,

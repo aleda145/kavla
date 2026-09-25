@@ -48,7 +48,13 @@ type LocalSourcesDialogProps = {
 
 const emptyDraft: CliSourceInput = { name: "", type: "duckdb", connection: "" };
 
-function CliSourceLogoBadge({ source, unavailable = false }: { source: { type: string }; unavailable?: boolean }) {
+function CliSourceLogoBadge({
+  source,
+  unavailable = false,
+}: {
+  source: { type: string; name?: string };
+  unavailable?: boolean;
+}) {
   const appearance = getCliSourceAppearance(source);
   return (
     <span
@@ -466,7 +472,9 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
                         <span
                           style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, textAlign: "left" }}
                         >
-                          <strong style={{ fontSize: 13 }}>{source.name}</strong>
+                          <strong style={{ fontSize: 13 }}>
+                            {source.name === "uploaded_files" ? "Files" : source.name}
+                          </strong>
                           <span
                             style={{
                               color: "#475569",
@@ -699,7 +707,7 @@ function SourceTablesBrowser({
         </button>
         <CliSourceLogoBadge source={source} />
         <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-          <strong>{source.name}</strong>
+          <strong>{source.name === "uploaded_files" ? "Files" : source.name}</strong>
           <span style={{ color: "#64748b", fontSize: 10 }}>
             {source.type} ·{" "}
             {loadingTables ? "Loading tables…" : `${tables.length} tables/views · ${namespaceCount} namespaces`}
