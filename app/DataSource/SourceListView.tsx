@@ -7,6 +7,7 @@ import { useTldrawScrollArea } from "./useTldrawScrollArea";
 type SourceListViewProps<T> = {
   items: T[];
   emptyState: ReactNode;
+  footer?: ReactNode;
   headerCountText: string;
   headerIcon: ReactNode;
   headerLabel: string;
@@ -20,6 +21,7 @@ type SourceListViewProps<T> = {
 export function SourceListView<T>({
   items,
   emptyState,
+  footer,
   headerCountText,
   headerIcon,
   headerLabel,
@@ -170,7 +172,7 @@ export function SourceListView<T>({
               gap: 4,
               overflowY: "auto",
               overflowX: "hidden",
-              borderBottom: "2px solid black",
+              borderBottom: footer ? undefined : "2px solid black",
               paddingBottom: 6,
             }}
           >
@@ -180,6 +182,8 @@ export function SourceListView<T>({
             {items.length === 0 ? emptyState : null}
           </div>
         )}
+
+        {footer && <div style={{ flexShrink: 0, borderBottom: "2px solid black", paddingBottom: 6 }}>{footer}</div>}
 
         <div style={{ display: "flex", justifyContent: "flex-start", paddingTop: 4 }}>
           <button

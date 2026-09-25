@@ -18,6 +18,7 @@ import {
 } from "./ingestLocalDataSourceFile";
 import { getEngineAppearance, ShapeEngineTabs, type ShapeEngineTab } from "../util/ShapeEngineTabs";
 import { calculateDataSourcePickerHeight, DATA_SOURCE_PICKER_WIDTH } from "./CliSourcesList";
+import type { DemoFileRecord } from "./DemoDatasetBrowser";
 
 type SourceChangeOptions = {
   filename: string;
@@ -305,6 +306,29 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
       }
     };
 
+    const handleDemoFileSelect = async (file: DemoFileRecord) => {
+      beginSourceChange({ filename: `Downloading ${file.name}...`, fileSize: file.size });
+
+      try {
+        const response = await fetch(file.publicUrl);
+        if (!response.ok) {
+          throw new Error(`Download failed (${response.status} ${response.statusText})`);
+        }
+        const blob = await response.blob();
+        await handleFileSelected(new File([blob], file.name, { type: blob.type }));
+      } catch (error) {
+        this.editor.updateShape<DataSourceShape>({
+          id: shape.id,
+          type: "data-source",
+          props: {
+            error: `Demo download failed: ${error instanceof Error ? error.message : String(error)}`,
+            filename: file.name,
+            isRunning: false,
+          },
+        });
+      }
+    };
+
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       if (!e.target.files?.[0]) return;
       const file = e.target.files[0];
@@ -398,6 +422,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
             onClearSelectedColumns={() => setSelectedColumns(new Set())}
             onColumnClick={handleColumnClick}
             onLocalFilePickerOpen={openLocalFilePicker}
+            onDemoFileSelect={handleDemoFileSelect}
             onRemoteTableSelect={handleRemoteTableSelect}
             remoteSourceInfo={remoteSourceInfo}
             remoteTableDisplayName={remoteTableDisplayName}

@@ -1,5 +1,5 @@
 import React from "react";
-import { Database, File, Folder, Upload, X } from "lucide-react";
+import { Database, File, Folder, Search, Upload, X } from "lucide-react";
 import { siDuckdb, siGooglebigquery, siPostgresql } from "simple-icons";
 import type { CliSource } from "../client/useLocalServer";
 import { TldrawScrollAreaIndicator } from "./TldrawScrollAreaIndicator";
@@ -17,8 +17,9 @@ export const DATA_SOURCE_PICKER_WIDTH = 380;
 export function calculateDataSourcePickerHeight(sources: readonly CliSource[]): number {
   const sourceCount = sources.filter((source) => source.name !== "uploaded_files").length;
   const sourceRowCount = Math.max(1, Math.ceil(sourceCount / SOURCE_PICKER_COLUMNS));
-  const cardsHeight = (1 + sourceRowCount) * SOURCE_CARD_HEIGHT;
-  const gapsHeight = Math.max(0, sourceRowCount - 1) * SOURCE_ROW_GAP;
+  const fileRowCount = sources.some((source) => source.name === "uploaded_files") ? 2 : 1;
+  const cardsHeight = (fileRowCount + sourceRowCount) * SOURCE_CARD_HEIGHT;
+  const gapsHeight = (fileRowCount - 1 + sourceRowCount - 1) * SOURCE_ROW_GAP;
   const dividerHeight = 34;
   return Math.max(200, SOURCE_PICKER_CHROME_HEIGHT + cardsHeight + gapsHeight + dividerHeight);
 }
@@ -26,6 +27,7 @@ export function calculateDataSourcePickerHeight(sources: readonly CliSource[]): 
 type DataSourcePickerProps = {
   sources: CliSource[];
   onFileClick: () => void;
+  onDemoClick: () => void;
   onSourceClick: (sourceName: string) => void;
 };
 
@@ -91,7 +93,12 @@ export function CliSourceIcon({ source, size = 18 }: { source: { type: string; n
   return <IconComponent aria-hidden="true" size={size} />;
 }
 
-export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({ sources, onFileClick, onSourceClick }) => {
+export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
+  sources,
+  onFileClick,
+  onDemoClick,
+  onSourceClick,
+}) => {
   const scrollArea = useTldrawScrollArea();
   const uploadedSources = sources.filter((source) => source.name === "uploaded_files");
   const sortedSources = sources
@@ -224,6 +231,28 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({ sources, onF
               <span>Pick a file</span>
             </button>
             {uploadedSources.map(renderSourceButton)}
+            <button
+              type="button"
+              className={`${buttonBaseClass} bg-white hover:bg-yellow-50`}
+              style={{
+                touchAction: "none",
+                boxSizing: "border-box",
+                flex: "1 1 132px",
+                minWidth: 0,
+                maxWidth: "160px",
+                width: "100%",
+                height: 46,
+                padding: "8px 12px",
+              }}
+              onClick={onDemoClick}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                if (event.pointerType === "touch") onDemoClick();
+              }}
+            >
+              <Search aria-hidden="true" size={18} />
+              <span>Demo data</span>
+            </button>
           </div>
           <div
             role="group"

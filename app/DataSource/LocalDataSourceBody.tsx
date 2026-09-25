@@ -6,6 +6,7 @@ import { SchemaTable } from "./ColumnProfileTable";
 import { DataSourcePicker } from "./CliSourcesList";
 import { DataSourceActionBar } from "./DataSourceActionBar";
 import { RemoteTablesList } from "./RemoteTablesList";
+import { DemoDatasetBrowser, type DemoFileRecord } from "./DemoDatasetBrowser";
 import type { RemoteSourceMetadata } from "./remote-source-metadata";
 import type { DataSourceShape } from "./data-source-types";
 import type { useTldrawScrollArea } from "./useTldrawScrollArea";
@@ -28,6 +29,7 @@ interface LocalDataSourceBodyProps {
   onClearSelectedColumns: () => void;
   onColumnClick: (columnName: string, shiftKey: boolean) => void;
   onLocalFilePickerOpen: () => void;
+  onDemoFileSelect: (file: DemoFileRecord) => Promise<void>;
   onRemoteTableSelect: (sourceName: string, table: string) => void;
   remoteSourceInfo: RemoteSourceMetadata | null;
   remoteTableDisplayName: string | null;
@@ -44,6 +46,7 @@ export function LocalDataSourceBody({
   onClearSelectedColumns,
   onColumnClick,
   onLocalFilePickerOpen,
+  onDemoFileSelect,
   onRemoteTableSelect,
   remoteSourceInfo,
   remoteTableDisplayName,
@@ -53,6 +56,7 @@ export function LocalDataSourceBody({
   shape,
 }: LocalDataSourceBodyProps) {
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
+  const [showDemoData, setShowDemoData] = useState(false);
   const [tables, setTables] = useState<string[] | null>(null);
   const [tableError, setTableError] = useState<string | null>(null);
   const [loadingTables, setLoadingTables] = useState(false);
@@ -62,6 +66,7 @@ export function LocalDataSourceBody({
   const showSourcePicker = isSelectingSource || !hasSource;
 
   const resetPicker = () => {
+    setShowDemoData(false);
     setSelectedSource(null);
     setTables(null);
     setTableError(null);
@@ -100,7 +105,9 @@ export function LocalDataSourceBody({
       <div style={{ flex: 1, display: "flex", minWidth: 0, flexDirection: "column", overflow: "hidden", fontSize: 13 }}>
         {showSourcePicker ? (
           <div className="flex min-h-0 flex-1 flex-col">
-            {selectedSource ? (
+            {showDemoData ? (
+              <DemoDatasetBrowser onBack={resetPicker} onSelect={(file) => void onDemoFileSelect(file)} />
+            ) : selectedSource ? (
               <RemoteTablesList
                 isLoading={loadingTables}
                 onBack={() => setSelectedSource(null)}
@@ -114,6 +121,7 @@ export function LocalDataSourceBody({
               <DataSourcePicker
                 sources={cliSources}
                 onFileClick={onLocalFilePickerOpen}
+                onDemoClick={() => setShowDemoData(true)}
                 onSourceClick={(sourceName) => void openSource(sourceName)}
               />
             )}
