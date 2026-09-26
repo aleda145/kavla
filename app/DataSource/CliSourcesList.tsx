@@ -21,7 +21,7 @@ export function calculateDataSourcePickerHeight(sources: readonly CliSource[]): 
   const cardsHeight = (fileRowCount + sourceRowCount) * SOURCE_CARD_HEIGHT;
   const gapsHeight = (fileRowCount - 1 + sourceRowCount - 1) * SOURCE_ROW_GAP;
   const dividerHeight = 34;
-  return Math.max(200, SOURCE_PICKER_CHROME_HEIGHT + cardsHeight + gapsHeight + dividerHeight);
+  return Math.max(300, SOURCE_PICKER_CHROME_HEIGHT + cardsHeight + gapsHeight + dividerHeight);
 }
 
 type DataSourcePickerProps = {

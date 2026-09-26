@@ -172,7 +172,7 @@ export function SourceListView<T>({
               gap: 4,
               overflowY: "auto",
               overflowX: "hidden",
-              borderBottom: footer ? undefined : "2px solid black",
+              borderBottom: "2px solid black",
               paddingBottom: 6,
             }}
           >
@@ -183,10 +183,9 @@ export function SourceListView<T>({
           </div>
         )}
 
-        {footer && <div style={{ flexShrink: 0, borderBottom: "2px solid black", paddingBottom: 6 }}>{footer}</div>}
-
-        <div style={{ display: "flex", justifyContent: "flex-start", paddingTop: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0, paddingTop: 4 }}>
           <button
+            style={{ flexShrink: 0 }}
             onClick={onBack}
             onPointerDown={(e) => {
               e.stopPropagation();
@@ -196,6 +195,7 @@ export function SourceListView<T>({
           >
             &lt; Back
           </button>
+          {footer && <div style={{ flex: 1, minWidth: 0 }}>{footer}</div>}
         </div>
       </div>
       <TldrawScrollAreaIndicator indicator={scrollArea.indicator} />
