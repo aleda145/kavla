@@ -16,7 +16,7 @@ export const DATA_SOURCE_PICKER_WIDTH = 380;
 
 export function calculateDataSourcePickerHeight(sources: readonly CliSource[]): number {
   const sourceCount = sources.filter((source) => source.name !== "uploaded_files").length;
-  const sourceRowCount = Math.max(1, Math.ceil(sourceCount / SOURCE_PICKER_COLUMNS));
+  const sourceRowCount = Math.ceil((sourceCount + 1) / SOURCE_PICKER_COLUMNS);
   const fileRowCount = sources.some((source) => source.name === "uploaded_files") ? 2 : 1;
   const cardsHeight = (fileRowCount + sourceRowCount) * SOURCE_CARD_HEIGHT;
   const gapsHeight = (fileRowCount - 1 + sourceRowCount - 1) * SOURCE_ROW_GAP;
@@ -268,24 +268,30 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
               borderTop: "2px solid #000",
             }}
           >
-            {sortedSources.length > 0 ? (
-              sortedSources.map(renderSourceButton)
-            ) : (
-              <button
-                type="button"
-                className={`${buttonBaseClass} bg-white hover:bg-gray-100`}
-                style={{ height: 46, touchAction: "none" }}
-                onClick={openSources}
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  if (event.pointerType === "touch") openSources();
-                }}
-                title="Open source settings to connect your first data source"
-              >
-                <Database aria-hidden="true" size={18} />
-                <span>Add a source</span>
-              </button>
-            )}
+            {sortedSources.map(renderSourceButton)}
+            <button
+              type="button"
+              className={`${buttonBaseClass} bg-blue-100 hover:bg-blue-200`}
+              style={{
+                touchAction: "none",
+                boxSizing: "border-box",
+                flex: "1 1 132px",
+                minWidth: 0,
+                maxWidth: "160px",
+                width: "100%",
+                height: 46,
+                padding: "8px 12px",
+              }}
+              onClick={openSources}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                if (event.pointerType === "touch") openSources();
+              }}
+              title="Open source settings to connect a data source"
+            >
+              <Database aria-hidden="true" size={18} />
+              <span>Add a source</span>
+            </button>
           </div>
         </div>
       </div>
