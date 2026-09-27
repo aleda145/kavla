@@ -1,5 +1,6 @@
 import type { Editor, TLArrowBinding, TLShapeId } from "tldraw";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
+import type { SQLResultTableShape } from "../SQLResultArea/sql-result-table-types";
 
 export type AgentPlacement = "right" | "left" | "below" | "above" | "summary";
 
@@ -326,11 +327,12 @@ export function reflowAgentQuery(editor: Editor, shapeId: TLShapeId) {
     editor.updateShape({ id: shapeId, type: query.type, x: origin.x, y: origin.y });
   }
   const resultId = query.props.linkedTableId as TLShapeId | null;
-  const result = resultId ? editor.getShape(resultId) : null;
+  const result = resultId ? editor.getShape<SQLResultTableShape>(resultId) : null;
   const resultBounds = resultId ? editor.getShapePageBounds(resultId) : null;
   if (
     result?.type === "sql-result-table" &&
     !result.isLocked &&
+    !result.props.isManuallyResized &&
     resultBounds &&
     hasLayoutCollision(editor, result.id)
   ) {
@@ -349,8 +351,10 @@ export function reflowAgentQuery(editor: Editor, shapeId: TLShapeId) {
 export function registerAgentQueryReflow(editor: Editor) {
   return editor.sideEffects.registerAfterChangeHandler("shape", (previous, next) => {
     if (previous.type === "sql-result-table" && next.type === "sql-result-table") {
-      const before = previous.props as { w: number; h: number };
-      const after = next.props as { w: number; h: number; sourceShapeId: string };
+      const before = (previous as SQLResultTableShape).props;
+      const after = (next as SQLResultTableShape).props;
+      // Manual resizing owns the layout, including intentional overlaps.
+      if (after.isManuallyResized || !after.sourceShapeId) return;
       if (after.w <= before.w && after.h <= before.h) return;
       editor.run(() => reflowAgentQuery(editor, after.sourceShapeId as TLShapeId), { history: "ignore" });
       return;

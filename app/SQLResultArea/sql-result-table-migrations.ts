@@ -4,6 +4,7 @@ const versions = createShapePropsMigrationIds("sql-result-table", {
   RemoveAutoArrowIds: 1,
   AddColumnSizing: 2,
   RemoveDuplicateSourceState: 3,
+  AddIsManuallyResized: 4,
 });
 
 export const SQLResultTableMigrations = createShapePropsMigrationSequence({
@@ -33,6 +34,15 @@ export const SQLResultTableMigrations = createShapePropsMigrationSequence({
       },
       down(props) {
         props.name = "result";
+      },
+    },
+    {
+      id: versions.AddIsManuallyResized,
+      up(props) {
+        props.isManuallyResized = false;
+      },
+      down(props) {
+        delete props.isManuallyResized;
       },
     },
   ],

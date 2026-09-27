@@ -53,6 +53,7 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
       sourceShapeId: null,
       w: 400,
       h: 300,
+      isManuallyResized: false,
       columnSizing: {},
     };
   }
@@ -552,6 +553,13 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
   }
 
   override onResize(shape: SQLResultTableShape, info: TLResizeInfo<SQLResultTableShape>) {
-    return resizeBox(shape, info);
+    const resized = resizeBox(shape, info);
+    return {
+      ...resized,
+      props: {
+        ...resized.props,
+        isManuallyResized: true,
+      },
+    };
   }
 }

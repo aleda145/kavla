@@ -5,6 +5,7 @@ export const SQLResultTableProps: RecordProps<SQLResultTableShape> = {
   sourceShapeId: T.string.nullable(),
   w: T.number,
   h: T.number,
+  isManuallyResized: T.boolean.optional(),
   scrollTop: T.number.optional(),
   scrollLeft: T.number.optional(),
   columnSizing: T.dict(T.string, T.number),
