@@ -10,6 +10,7 @@ import {
 } from "../canvasConnection";
 import { waitForBackendOperations, hasPendingBackendOperations } from "../backendCompute";
 import { LocalSaveDialog } from "./LocalSaveDialog";
+import { LocalHistoryDialog } from "./LocalHistoryDialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getAssetUrlsByImport } from "@tldraw/assets/imports.vite";
 import {
@@ -21,6 +22,7 @@ import {
   getIndexAbove,
   Editor,
   getUserPreferences,
+  parseTldrawJsonFile,
   setUserPreferences,
   Tldraw,
   TLUiAssetUrlOverrides,
@@ -47,6 +49,9 @@ import { LocalServerProvider, useData } from "../useLocalServer";
 import { localUiOverrides, useLocalComponents } from "./localUi";
 import {
   closeLocalSession,
+  createCanvasSnapshot,
+  readCanvasSnapshot,
+  restoreLocalSnapshot,
   clearLocalSession,
   finishEditorTransfer,
   discoverLocalSession,
@@ -103,6 +108,7 @@ function createEmptyCanvasJson(): string {
 }
 
 const CANVAS_STAGE_IDLE_MS = 2_000;
+const CANVAS_SNAPSHOT_INTERVAL_MS = 300_000;
 type PendingEditorTransfer = { id: string; cancelled: boolean };
 
 function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
@@ -111,9 +117,13 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const [isTransferring, setIsTransferring] = useState(false);
   const transferRef = useRef<PendingEditorTransfer | null>(null);
   const [isDocumentDirty, setIsDocumentDirty] = useState(false);
+  const documentDirtyRef = useRef(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   useEffect(() => {
     const markUploadsDirty = () => {
       documentRevisionRef.current += 1;
+      documentDirtyRef.current = true;
       setIsDocumentDirty(true);
     };
     window.addEventListener("kavla:uploads-changed", markUploadsDirty);
@@ -128,6 +138,8 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const shapeSideEffectCleanupRef = useRef<(() => void)[]>([]);
   const saveTimerRef = useRef<number | null>(null);
   const loadedRef = useRef(false);
+  const loadedStoreRef = useRef<Editor["store"] | null>(null);
+  const snapshotPendingRef = useRef(false);
   const loadingDocumentRef = useRef(false);
   const navigationCommittedRef = useRef(false);
   const documentRevisionRef = useRef(0);
@@ -140,6 +152,9 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
     async (includeCurrentCamera = false) => {
       const editor = editorRef.current;
       if (!editor || !session) return;
+      if (!loadedRef.current || loadedStoreRef.current !== editor.store) {
+        throw new Error("The canvas did not finish loading. Open History to recover an earlier snapshot.");
+      }
       await stageCanvas(editor, includeCurrentCamera);
     },
     [session]
@@ -158,10 +173,12 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
     const revisionBeingSaved = documentRevisionRef.current;
     setIsDocumentSaving(true);
     try {
+      await waitForBackendOperations();
       await stageCurrentCanvas(true);
       const savedDocument = await saveLocalSession();
       setDocumentFileSize(savedDocument?.fileSize ?? null);
       if (documentRevisionRef.current === revisionBeingSaved) {
+        documentDirtyRef.current = false;
         setIsDocumentDirty(false);
       }
       addToast({ title: "Saved", description: session.documentName, severity: "success" });
@@ -194,8 +211,125 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const prepareNavigation = useCallback(async () => {
     await prepareCanvasForSave();
     await saveLocalSession();
+    documentDirtyRef.current = false;
     setIsDocumentDirty(false);
   }, [prepareCanvasForSave]);
+
+  const restoreSnapshot = useCallback(
+    async (snapshotId: string) => {
+      const editor = editorRef.current;
+      if (!editor || loadingDocumentRef.current || getCanvasConnection().status !== "ready") {
+        throw new Error("Wait for the canvas to reconnect or finish saving before restoring.");
+      }
+      const canvasJson = await readCanvasSnapshot(snapshotId);
+      const parsed = parseTldrawJsonFile({ json: canvasJson, schema: editor.store.schema });
+      if (!parsed.ok) throw new Error(`Could not load snapshot: ${parsed.error.type}`);
+      let restoreRequested = false;
+      const loadRestoredSession = (restored: KavlaLocalSession) => {
+        if (!restored.canvasJson) throw new Error("The saved document has no canvas state.");
+        loadedRef.current = false;
+        loadCanvasJson(editor, restored.canvasJson);
+        editor.updateInstanceState({ isReadonly: true });
+        loadedStoreRef.current = editor.store;
+        loadedRef.current = true;
+        setLoadError(null);
+        setDocumentFileSize(restored.fileSize);
+        documentDirtyRef.current = false;
+        setIsDocumentDirty(false);
+        documentRevisionRef.current += 1;
+      };
+      try {
+        if (loadedRef.current) {
+          await prepareCanvasForSave();
+        } else {
+          // A failed initial load must never replace the backend's original
+          // canvas with the empty editor while trying to recover it.
+          loadingDocumentRef.current = true;
+          setIsNavigating(true);
+          editor.updateInstanceState({ isReadonly: true });
+          await Promise.all(
+            getAgentRuns()
+              .filter(isAgentRunActive)
+              .map((run) => cancelAgentRun(run.id))
+          );
+          await waitForBackendOperations();
+        }
+        // The backend preserves the current archive, restores uploads into a
+        // fresh query session, and saves before publishing the restored state.
+        loadedRef.current = false;
+        restoreRequested = true;
+        loadRestoredSession(await restoreLocalSnapshot(snapshotId));
+        setShowHistory(false);
+        addToast({ title: "Snapshot restored", severity: "success" });
+      } catch (error) {
+        if (restoreRequested) {
+          // A lost response may follow a committed restore. Always reload the
+          // backend state before allowing this editor to write again.
+          try {
+            const restored = await discoverLocalSession();
+            if (!restored) throw new Error("The document is unavailable.");
+            loadRestoredSession(restored);
+          } catch (reloadError) {
+            loadedRef.current = false;
+            setLoadError(reloadError instanceof Error ? reloadError.message : String(reloadError));
+          }
+        }
+        throw error;
+      } finally {
+        loadingDocumentRef.current = false;
+        setIsNavigating(false);
+        editor.updateInstanceState({ isReadonly: !loadedRef.current || getCanvasConnection().status !== "ready" });
+      }
+    },
+    [addToast, prepareCanvasForSave]
+  );
+
+  useEffect(() => {
+    const openHistory = () => setShowHistory(true);
+    window.addEventListener("kavla:open-history", openHistory);
+    return () => window.removeEventListener("kavla:open-history", openHistory);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (
+        !documentDirtyRef.current ||
+        !loadedRef.current ||
+        loadingDocumentRef.current ||
+        snapshotPendingRef.current ||
+        getCanvasConnection().status !== "ready"
+      )
+        return;
+      snapshotPendingRef.current = true;
+      const revisionBeingSaved = documentRevisionRef.current;
+      setIsDocumentSaving(true);
+      void (async () => {
+        try {
+          // A fixed interval also captures continuous editing, which can keep
+          // postponing the ordinary idle staging timer.
+          await waitForBackendOperations();
+          if (loadingDocumentRef.current || !loadedRef.current || !documentDirtyRef.current) return;
+          await stageCurrentCanvas(true);
+          const saved = await createCanvasSnapshot("automatic");
+          setDocumentFileSize(saved.fileSize);
+          if (documentRevisionRef.current === revisionBeingSaved) {
+            documentDirtyRef.current = false;
+            setIsDocumentDirty(false);
+          }
+        } catch (error) {
+          addToast({
+            title: "History snapshot failed",
+            description: error instanceof Error ? error.message : String(error),
+            severity: "error",
+          });
+        } finally {
+          snapshotPendingRef.current = false;
+          setIsDocumentSaving(false);
+        }
+      })();
+    }, CANVAS_SNAPSHOT_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [addToast, stageCurrentCanvas]);
 
   useEffect(() => {
     const resume = (request: PendingEditorTransfer) => {
@@ -235,7 +369,10 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
           await prepareCanvasForSave();
           if (request.cancelled) return;
           await finishEditorTransfer(request.id);
-          if (!request.cancelled) setIsDocumentDirty(false);
+          if (!request.cancelled) {
+            documentDirtyRef.current = false;
+            setIsDocumentDirty(false);
+          }
           // Stay frozen until the server confirms transfer or cancellation.
         } catch (error) {
           if (request.cancelled) return;
@@ -303,7 +440,9 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   }, [connection.status]);
 
   useEffect(() => {
-    editorRef.current?.updateInstanceState({ isReadonly: isNavigating || connection.status !== "ready" });
+    editorRef.current?.updateInstanceState({
+      isReadonly: !loadedRef.current || isNavigating || connection.status !== "ready",
+    });
     if (connection.status === "ready" && loadedRef.current && !isNavigating) {
       void stageCurrentCanvas().catch((error: unknown) => {
         addToast({
@@ -337,7 +476,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
 
   useEffect(() => {
     const handlePageHide = () => {
-      if (loadingDocumentRef.current) return;
+      if (loadingDocumentRef.current || !loadedRef.current) return;
       void stageCurrentCanvas()
         .catch((error) => console.error("Could not stage Kavla canvas before closing", error))
         .then(() => closeLocalSession())
@@ -352,19 +491,25 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
     async (editor: Editor) => {
       editorRef.current = editor;
       editor.updateInstanceState({
-        isReadonly: getCanvasConnection().status !== "ready" || loadingDocumentRef.current,
+        isReadonly: true,
       });
       rightDragCleanupRef.current?.();
       rightDragCleanupRef.current = enableRightClickDragPan(editor);
       editor.registerExternalAssetHandler("url", getBookmarkAsset);
 
-      if (session && !loadedRef.current) {
-        loadedRef.current = true;
-        if (session.canvasJson) {
-          loadCanvasJson(editor, session.canvasJson);
-        }
+      if (session && loadedStoreRef.current !== editor.store) {
+        loadedRef.current = false;
         const isNewDocument = !session.canvasJson;
         try {
+          if (session.canvasJson) loadCanvasJson(editor, session.canvasJson);
+          loadedStoreRef.current = editor.store;
+          loadedRef.current = true;
+          setLoadError(null);
+        } catch (error) {
+          setLoadError(error instanceof Error ? error.message : String(error));
+        }
+        try {
+          if (!loadedRef.current) throw new Error("Canvas loading failed. Use History to recover a snapshot.");
           await stageCurrentCanvas();
           if (isNewDocument) {
             const savedDocument = await saveLocalSession();
@@ -378,13 +523,19 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
           });
         }
       }
+      if (editor.isDisposed || editorRef.current !== editor) return;
+      editor.updateInstanceState({
+        isReadonly: !loadedRef.current || getCanvasConnection().status !== "ready" || loadingDocumentRef.current,
+      });
 
       for (const cleanup of shapeSideEffectCleanupRef.current) cleanup();
       shapeSideEffectCleanupRef.current = [
         editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
+          if (loadingDocumentRef.current || !loadedRef.current) return;
           handleLocalShapeDeleted(editor, shape, deleteShapes);
         }),
         editor.sideEffects.registerBeforeCreateHandler("shape", (shape) => {
+          if (loadingDocumentRef.current || !loadedRef.current) return shape;
           let nextShape = shape;
           if ("name" in nextShape.props && typeof nextShape.props.name === "string") {
             nextShape = {
@@ -418,8 +569,9 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
 
       storeCleanupRef.current?.();
       const queueCanvasStage = () => {
-        if (!session) return;
+        if (!session || !loadedRef.current || loadingDocumentRef.current) return;
         documentRevisionRef.current += 1;
+        documentDirtyRef.current = true;
         setIsDocumentDirty(true);
         if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
         saveTimerRef.current = window.setTimeout(() => {
@@ -464,6 +616,27 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         onSaveDocument={saveCurrentSession}
         session={session}
       />
+      {loadError && !showHistory && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#f8f7f4]/95 p-8">
+          <div className="max-w-xl rounded-xl border-4 border-black bg-yellow-100 p-6">
+            <h1 className="font-black">Could not load canvas</h1>
+            <p className="my-3 text-sm">{loadError}</p>
+            <button
+              className="rounded border-2 border-black bg-white px-3 py-2 font-bold"
+              onClick={() => setShowHistory(true)}
+            >
+              Open History
+            </button>
+          </div>
+        </div>
+      )}
+      {showHistory && editorRef.current && (
+        <LocalHistoryDialog
+          documentName={session?.documentName ?? "Canvas"}
+          onClose={() => setShowHistory(false)}
+          onRestore={restoreSnapshot}
+        />
+      )}
       {isTransferring && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#f8f7f4]/95 p-8">
           <div className="rounded-xl border-4 border-black bg-blue-100 p-6 font-bold">

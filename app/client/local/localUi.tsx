@@ -37,7 +37,17 @@ import {
   useValue,
 } from "tldraw";
 import { useCliStatus } from "../localServer/runtimeStore";
-import { Asterisk, Database, FilePlus2, FileTerminal, FolderOpen, Loader2, Save, Sparkles } from "lucide-react";
+import {
+  Asterisk,
+  Database,
+  FilePlus2,
+  FileTerminal,
+  FolderOpen,
+  History,
+  Loader2,
+  Save,
+  Sparkles,
+} from "lucide-react";
 import { AgentLayer } from "../../AgentBlob/AgentOverlay";
 import { createOrFocusAgentChat, getAgentChat, updateAgentChat } from "../../AgentBlob/agent-chat-store";
 import { LocalRoomInfoPanel } from "./LocalRoomInfoPanel";
@@ -176,11 +186,13 @@ function LocalDocumentControls({
           .kavla-document-control[data-action="new"] { background: #fef3c7; }
           .kavla-document-control[data-action="save"] { background: #fce7f3; }
           .kavla-document-control[data-action="load"] { background: #dcfce7; }
+          .kavla-document-control[data-action="history"] { background: var(--color-orange-100, #ffedd5); }
           .kavla-document-control[data-action="sources"] { background: #dbeafe; }
           .kavla-document-control[data-action="agent"] { background: #ede9fe; }
           .kavla-document-control[data-action="new"]:hover { background: #fde68a; }
           .kavla-document-control[data-action="save"]:hover { background: #fbcfe8; }
           .kavla-document-control[data-action="load"]:hover { background: #bbf7d0; }
+          .kavla-document-control[data-action="history"]:hover { background: var(--color-orange-200, #fed7aa); }
           .kavla-document-control[data-action="sources"]:hover { background: #bfdbfe; }
           .kavla-document-control[data-action="agent"]:hover { background: #ddd6fe; }
           .kavla-document-control:active { transform: translateY(1px); }
@@ -225,6 +237,19 @@ function LocalDocumentControls({
       >
         <FolderOpen size={14} />
         Load
+      </button>
+      <button
+        aria-label="Canvas history"
+        className="kavla-document-control"
+        data-action="history"
+        disabled={!documentsAvailable}
+        onClick={() => window.dispatchEvent(new Event("kavla:open-history"))}
+        onPointerDown={(event) => event.stopPropagation()}
+        title="Browse and restore canvas snapshots"
+        type="button"
+      >
+        <History size={14} />
+        History
       </button>
       <button
         aria-label="Configure Kavla sources"

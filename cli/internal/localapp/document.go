@@ -62,6 +62,10 @@ type Document struct {
 }
 
 func OpenDocument(path string) (*Document, error) {
+	return openDocument(path, true)
+}
+
+func openDocument(path string, recordHistory bool) (*Document, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve document path: %w", err)
@@ -88,6 +92,11 @@ func OpenDocument(path string) (*Document, error) {
 		}
 		if err := document.initializeWorkingCopy(); err != nil {
 			return nil, err
+		}
+		if recordHistory {
+			if err := document.Snapshot("opened"); err != nil {
+				return nil, err
+			}
 		}
 		opened = true
 		return document, nil
@@ -434,6 +443,10 @@ func (d *Document) saveNewLocked(path string) error {
 }
 
 func (d *Document) writeArchiveLocked(path string, replace bool) error {
+	return d.writeArchiveWithHistoryLocked(path, replace, "save")
+}
+
+func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reason string) error {
 	d.manifest.FormatVersion = FormatVersion
 	if len(d.canvasJSON) == 0 {
 		return fmt.Errorf("cannot save a Kavla document without canvas state")
@@ -490,14 +503,22 @@ func (d *Document) writeArchiveLocked(path string, replace bool) error {
 	if err := os.Chmod(tempName, 0600); err != nil {
 		return fmt.Errorf("secure Kavla archive: %w", err)
 	}
+	// Keep the complete archive recoverable before replacing the live file.
+	// Snapshot failures stop the save so we never silently discard history.
+	if err := d.keepArchiveSnapshotLocked(tempName, reason); err != nil {
+		return fmt.Errorf("save document history: %w", err)
+	}
 	if replace {
 		if err := os.Rename(tempName, path); err != nil {
 			return fmt.Errorf("replace Kavla archive: %w", err)
 		}
-		return nil
-	}
-	if err := os.Link(tempName, path); err != nil {
+	} else if err := os.Link(tempName, path); err != nil {
 		return fmt.Errorf("create Kavla archive without overwrite: %w", err)
+	}
+	// The save has committed. A cleanup failure must not report a failed save
+	// or leave a restore's live session behind the archive on disk.
+	if err := d.pruneSnapshotsLocked(); err != nil {
+		log.Printf("Kavla saved %s but could not trim history: %v", path, err)
 	}
 	return nil
 }
@@ -506,7 +527,7 @@ func (d *Document) writeArchiveLocked(path string, replace bool) error {
 // the active working copy. The active document path is intentionally kept:
 // loading is an import into the document that the CLI was started with.
 func (d *Document) ReplaceFromArchive(archivePath string) error {
-	imported, err := OpenDocument(archivePath)
+	imported, err := openDocument(archivePath, false)
 	if err != nil {
 		return fmt.Errorf("open loaded Kavla document: %w", err)
 	}

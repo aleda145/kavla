@@ -143,6 +143,10 @@ func restoreDocumentUploads(ctx context.Context, document *Document, target *ses
 // Build the replacement session before publishing a new document. An invalid
 // uploaded file leaves the current canvas and its query session usable.
 func (s *Server) switchDocument(ctx context.Context, document *Document) error {
+	return s.switchDocumentBeforePublish(ctx, document, nil)
+}
+
+func (s *Server) switchDocumentBeforePublish(ctx context.Context, document *Document, beforePublish func() error) error {
 	previous := s.queries
 	var next *session.Session
 	if previous != nil {
@@ -156,6 +160,14 @@ func (s *Server) switchDocument(ctx context.Context, document *Document) error {
 		}
 		if err := restoreDocumentUploads(ctx, document, next); err != nil {
 			_ = next.Close()
+			return err
+		}
+	}
+	if beforePublish != nil {
+		if err := beforePublish(); err != nil {
+			if next != nil {
+				_ = next.Close()
+			}
 			return err
 		}
 	}
@@ -333,6 +345,7 @@ func (s *Server) documentRequests(next http.Handler) http.Handler {
 			return
 		}
 		exclusive := r.Method != http.MethodGet && (strings.HasPrefix(r.URL.Path, "/api/session/uploads") || strings.HasPrefix(r.URL.Path, "/api/cli/sources") || strings.HasPrefix(r.URL.Path, "/api/session/blobs") || r.URL.Path == "/api/session/document" || r.URL.Path == "/api/session/save" || r.URL.Path == "/api/session/transfer" || r.URL.Path == "/api/session/save-as" || r.URL.Path == "/api/session/close" || r.URL.Path == "/api/session/load-path" || r.URL.Path == "/api/session/new")
+		exclusive = exclusive || (r.Method != http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/session/snapshots"))
 		if exclusive {
 			s.documentGate.Lock()
 			defer s.documentGate.Unlock()
