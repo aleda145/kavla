@@ -142,6 +142,7 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 	if err := write("cli", cliRuntimeEvent{name: "snapshot", data: map[string]interface{}{
 		"sources": sources,
 		"output":  s.cliOutputHistory(),
+		"version": s.currentVersionInfo(),
 	}}); err != nil {
 		return
 	}

@@ -67,6 +67,8 @@ type Server struct {
 	document     *Document
 	assets       fs.FS
 	verbose      bool
+	versionMu    sync.RWMutex
+	versionInfo  versionInfo
 
 	listener         net.Listener
 	http             *http.Server
@@ -1481,6 +1483,7 @@ func (s *Server) handleCLIEvents(w http.ResponseWriter, r *http.Request) {
 	if err := writeSSEEvent(w, cliRuntimeEvent{name: "snapshot", data: map[string]interface{}{
 		"sources": sources,
 		"output":  s.cliOutputHistory(),
+		"version": s.currentVersionInfo(),
 	}}); err != nil {
 		return
 	}

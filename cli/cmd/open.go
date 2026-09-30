@@ -58,6 +58,7 @@ func runDocument(documentPath string, skipBrowser bool, action, host string, por
 		return err
 	}
 	documentOwnedByServer = true
+	server.SetVersion(Version)
 	launchURL, err := server.Start(host, port, fallbackFromDefaultPort)
 	if err != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -75,6 +76,7 @@ func runDocument(documentPath string, skipBrowser bool, action, host string, por
 
 	fmt.Printf("%s %s\n", action, document.Path())
 	fmt.Printf("Kavla is ready at %s\n", launchURL)
+	server.CheckForUpdates()
 	if !skipBrowser {
 		return runDesktop(server, launchURL, document.Manifest().DocumentName, rememberDocument)
 	}

@@ -41,6 +41,7 @@ import { Asterisk, Database, FilePlus2, FileTerminal, FolderOpen, Loader2, Save,
 import { AgentLayer } from "../../AgentBlob/AgentOverlay";
 import { createOrFocusAgentChat, getAgentChat, updateAgentChat } from "../../AgentBlob/agent-chat-store";
 import { LocalRoomInfoPanel } from "./LocalRoomInfoPanel";
+import { KavlaVersionBadge } from "./KavlaVersion";
 import { LocalAgentDialog } from "./LocalAgentDialog";
 import { LocalSaveDialog } from "./LocalSaveDialog";
 import { LocalSourcesDialog } from "./LocalSourcesDialog";
@@ -538,7 +539,12 @@ export function useLocalComponents({
       MainMenu: CustomMainMenu,
       PageMenu: null,
       TopPanel: LocalConnectionStatus,
-      InFrontOfTheCanvas: AgentLayer,
+      InFrontOfTheCanvas: () => (
+        <>
+          <AgentLayer />
+          <KavlaVersionBadge />
+        </>
+      ),
     }),
     [
       documentName,
