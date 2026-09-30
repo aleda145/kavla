@@ -19,6 +19,7 @@ import (
 )
 
 const (
+	ReleasesURL       = "https://github.com/aleda145/kavla/releases"
 	latestManifestURL = "https://github.com/aleda145/kavla/releases/latest/download/kavla_latest.json"
 	cacheWindow       = 24 * time.Hour
 )
@@ -46,6 +47,7 @@ type Asset struct {
 type State struct {
 	LastCheckedAt       time.Time `json:"last_checked_at"`
 	LastSeenVersion     string    `json:"last_seen_version,omitempty"`
+	NotesURL            string    `json:"notes_url,omitempty"`
 	LastNotifiedVersion string    `json:"last_notified_version,omitempty"`
 }
 
@@ -105,7 +107,7 @@ func (u *Updater) Check(ctx context.Context, currentVersion string) (CheckResult
 	}
 
 	now := u.now()
-	if !state.LastCheckedAt.IsZero() && now.Sub(state.LastCheckedAt) < u.cacheWindow {
+	if !state.LastCheckedAt.IsZero() && now.Sub(state.LastCheckedAt) < u.cacheWindow && IsManagedVersion(state.LastSeenVersion) {
 		return u.cachedResult(current, state)
 	}
 
@@ -122,6 +124,7 @@ func (u *Updater) Check(ctx context.Context, currentVersion string) (CheckResult
 	expired := state.LastCheckedAt.IsZero() || now.Sub(state.LastCheckedAt) >= u.cacheWindow
 	state.LastCheckedAt = now
 	state.LastSeenVersion = latest
+	state.NotesURL = manifest.NotesURL
 
 	result := CheckResult{
 		CurrentVersion:  current,
@@ -163,7 +166,7 @@ func (u *Updater) Update(ctx context.Context, currentVersion string) (UpdateResu
 		NotesURL:        manifest.NotesURL,
 	}
 	if semver.Compare(latest, current) <= 0 {
-		if err := u.recordSeenVersion(latest, false); err != nil {
+		if err := u.recordSeenVersion(latest, manifest.NotesURL, false); err != nil {
 			return UpdateResult{}, err
 		}
 		return result, nil
@@ -189,7 +192,7 @@ func (u *Updater) Update(ctx context.Context, currentVersion string) (UpdateResu
 	}
 
 	result.Updated = true
-	if err := u.recordSeenVersion(latest, true); err != nil {
+	if err := u.recordSeenVersion(latest, manifest.NotesURL, true); err != nil {
 		return UpdateResult{}, err
 	}
 
@@ -205,6 +208,7 @@ func (u *Updater) cachedResult(current string, state State) (CheckResult, error)
 	result := CheckResult{
 		CurrentVersion:  current,
 		LatestVersion:   latest,
+		NotesURL:        state.NotesURL,
 		UpdateAvailable: semver.Compare(latest, current) > 0,
 	}
 	if result.UpdateAvailable && state.LastNotifiedVersion != latest {
@@ -218,13 +222,14 @@ func (u *Updater) cachedResult(current string, state State) (CheckResult, error)
 	return result, nil
 }
 
-func (u *Updater) recordSeenVersion(version string, markNotified bool) error {
+func (u *Updater) recordSeenVersion(version, notesURL string, markNotified bool) error {
 	state, err := u.loadState()
 	if err != nil {
 		return err
 	}
 	state.LastCheckedAt = u.now()
 	state.LastSeenVersion = version
+	state.NotesURL = notesURL
 	if markNotified {
 		state.LastNotifiedVersion = version
 	}

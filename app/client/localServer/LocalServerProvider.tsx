@@ -23,9 +23,11 @@ import {
   notifyCliOutputLine,
   notifyCliSources,
   notifyCliStatus,
+  notifyKavlaVersion,
   transpileRemoteSQL,
   updateCliSourceStatus,
   type CliOutputLine,
+  type KavlaVersionInfo,
 } from "./runtimeStore";
 import { MissingQueryResultError, type LocalServerContextType, type RunRemoteQueryPayload } from "./types";
 
@@ -88,10 +90,15 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       if (event.stream === "cli") {
         switch (event.name) {
           case "snapshot": {
-            const snapshot = event.data as { sources?: unknown[]; output?: CliOutputLine[] };
+            const snapshot = event.data as {
+              sources?: unknown[];
+              output?: CliOutputLine[];
+              version?: KavlaVersionInfo;
+            };
             notifyCliSources(snapshot.sources ?? []);
             notifyCliOutputHistory(snapshot.output ?? []);
             notifyCliStatus(true);
+            notifyKavlaVersion(snapshot.version ?? null);
             break;
           }
           case "sources":
@@ -100,6 +107,9 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
             break;
           case "output":
             notifyCliOutputLine(event.data as CliOutputLine);
+            break;
+          case "version":
+            notifyKavlaVersion(event.data as KavlaVersionInfo);
             break;
         }
       } else if (event.stream === "agent") {

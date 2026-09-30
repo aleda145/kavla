@@ -45,7 +45,7 @@ func maybeNotifyAboutUpdate(command *cobra.Command) {
 		return
 	}
 	if result.ShouldNotify {
-		fmt.Fprintf(os.Stderr, "A new Kavla version is available: %s (current: %s). Run: kavla update\n", result.LatestVersion, result.CurrentVersion)
+		fmt.Fprintf(os.Stderr, "A new Kavla version is available: %s (current: %s). View releases to update manually: %s\n", result.LatestVersion, result.CurrentVersion, updater.ReleasesURL)
 	}
 }
 
@@ -57,7 +57,7 @@ func shouldCheckForUpdates(command *cobra.Command) bool {
 		return false
 	}
 	name := strings.TrimSpace(command.Name())
-	return name != "help" && name != "version" && name != "update" && name != "upgrade" && !strings.HasPrefix(name, "__complete")
+	return name != "help" && name != "version" && name != "update" && name != "upgrade" && name != "run" && name != "open" && !strings.HasPrefix(name, "__complete")
 }
 
 func init() {

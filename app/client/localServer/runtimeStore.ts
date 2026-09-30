@@ -1,6 +1,32 @@
 import { Dialect, transpile } from "@polyglot-sql/sdk";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { UnsubscribeFn } from "./types";
+
+export interface KavlaVersionInfo {
+  currentVersion: string;
+  latestVersion?: string;
+  releaseURL: string;
+  status: "checking" | "current" | "update" | "error" | "disabled" | "development";
+}
+
+let currentVersionInfo: KavlaVersionInfo | null = null;
+const versionSubscribers = new Set<() => void>();
+const subscribeVersion = (callback: () => void) => {
+  versionSubscribers.add(callback);
+  return () => {
+    versionSubscribers.delete(callback);
+  };
+};
+const getVersionSnapshot = () => currentVersionInfo;
+
+export function notifyKavlaVersion(info: KavlaVersionInfo | null) {
+  currentVersionInfo = info;
+  versionSubscribers.forEach((callback) => callback());
+}
+
+export function useKavlaVersion() {
+  return useSyncExternalStore(subscribeVersion, getVersionSnapshot);
+}
 
 type CliStatusSubscriber = (connected: boolean) => void;
 const cliStatusSubscribers = new Set<CliStatusSubscriber>();
