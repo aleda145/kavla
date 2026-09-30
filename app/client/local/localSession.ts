@@ -57,6 +57,55 @@ export type SaveLocalSessionResult = {
 
 export class KavlaSaveConflictError extends Error {}
 
+export type CanvasSnapshot = {
+  id: string;
+  createdAt: string;
+  reason: "opened" | "automatic" | "save" | "before-restore";
+  size: number;
+  shapeCount: number;
+};
+
+export type CanvasHistory = { snapshots: CanvasSnapshot[]; limit: number };
+
+export async function listCanvasSnapshots(): Promise<CanvasHistory> {
+  const response = await sessionFetch("/api/session/snapshots");
+  if (!response.ok) throw new Error((await sessionErrorMessage(response)) || "Could not load canvas history");
+  return response.json() as Promise<CanvasHistory>;
+}
+
+export async function setCanvasHistoryLimit(limit: number): Promise<CanvasHistory> {
+  const response = await sessionFetch("/api/session/snapshots/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ limit }),
+  });
+  if (!response.ok) throw new Error((await sessionErrorMessage(response)) || "Could not update history limit");
+  return response.json() as Promise<CanvasHistory>;
+}
+
+export async function restoreLocalSnapshot(id: string): Promise<KavlaLocalSession> {
+  const response = await sessionFetch(`/api/session/snapshots/${encodeURIComponent(id)}/restore`, { method: "POST" });
+  if (!response.ok) throw new Error((await sessionErrorMessage(response)) || "Could not restore saved document");
+  return acceptLocalSession((await response.json()) as KavlaLocalSession);
+}
+
+export async function readCanvasSnapshot(id: string): Promise<string> {
+  const response = await sessionFetch(`/api/session/snapshots/${encodeURIComponent(id)}`);
+  if (!response.ok) throw new Error((await sessionErrorMessage(response)) || "Could not load canvas snapshot");
+  return response.text();
+}
+
+export async function createCanvasSnapshot(reason: "automatic" | "before-restore"): Promise<SaveLocalSessionResult> {
+  const response = await sessionFetch(`/api/session/snapshots?reason=${reason}`, { method: "POST" });
+  if (!response.ok) throw new Error((await sessionErrorMessage(response)) || "Could not save canvas snapshot");
+  const result = (await response.json()) as SaveLocalSessionResult;
+  if (activeSession) {
+    activeSession.documentName = result.documentName;
+    activeSession.fileSize = result.fileSize;
+  }
+  return result;
+}
+
 async function sessionErrorMessage(response: Response): Promise<string> {
   const text = await response.text();
   if (response.headers.get("Content-Type")?.includes("application/json")) {
@@ -120,7 +169,10 @@ export async function discoverLocalSession(): Promise<KavlaLocalSession | null> 
     throw new Error(`Local Kavla session failed with status ${response.status}`);
   }
 
-  const session = (await response.json()) as KavlaLocalSession;
+  return acceptLocalSession((await response.json()) as KavlaLocalSession);
+}
+
+function acceptLocalSession(session: KavlaLocalSession): KavlaLocalSession {
   if (
     !session.documentId ||
     !session.documentName ||
@@ -129,11 +181,11 @@ export async function discoverLocalSession(): Promise<KavlaLocalSession | null> 
   ) {
     throw new Error("Local Kavla session returned an invalid document description");
   }
-  activeSession = session;
+  activeSession = activeSession?.documentId === session.documentId ? Object.assign(activeSession, session) : session;
   setBackendDocument(session.documentId);
   resetBackendCaches();
   updateDocumentTitle(session.documentName);
-  return session;
+  return activeSession;
 }
 
 export function loadCanvasJson(editor: Editor, canvasJson: string): void {
