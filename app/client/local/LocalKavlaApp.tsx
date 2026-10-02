@@ -225,6 +225,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
       const parsed = parseTldrawJsonFile({ json: canvasJson, schema: editor.store.schema });
       if (!parsed.ok) throw new Error(`Could not load snapshot: ${parsed.error.type}`);
       let restoreRequested = false;
+      setIsDocumentSaving(true);
       const loadRestoredSession = (restored: KavlaLocalSession) => {
         if (!restored.canvasJson) throw new Error("The saved document has no canvas state.");
         loadedRef.current = false;
@@ -260,7 +261,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         restoreRequested = true;
         loadRestoredSession(await restoreLocalSnapshot(snapshotId));
         setShowHistory(false);
-        addToast({ title: "Snapshot restored", severity: "success" });
+        addToast({ title: "Save restored", severity: "success" });
       } catch (error) {
         if (restoreRequested) {
           // A lost response may follow a committed restore. Always reload the
@@ -276,8 +277,24 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         }
         throw error;
       } finally {
+        if (restoreRequested && loadedRef.current) {
+          // Let shapes finish their initial render while the canvas remains
+          // read-only, so restore-time updates do not appear as user edits.
+          await new Promise<void>((resolve) => {
+            const timeout = window.setTimeout(resolve, 100);
+            window.requestAnimationFrame(() =>
+              window.requestAnimationFrame(() => {
+                window.clearTimeout(timeout);
+                resolve();
+              })
+            );
+          });
+          documentDirtyRef.current = false;
+          setIsDocumentDirty(false);
+        }
         loadingDocumentRef.current = false;
         setIsNavigating(false);
+        setIsDocumentSaving(false);
         editor.updateInstanceState({ isReadonly: !loadedRef.current || getCanvasConnection().status !== "ready" });
       }
     },

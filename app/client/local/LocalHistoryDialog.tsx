@@ -235,7 +235,7 @@ export function LocalHistoryDialog({
             className="disabled:opacity-40"
           >
             {restoring ? <Loader2 className="animate-spin" size={14} /> : <RotateCcw size={14} />}
-            {restoring ? "Restoring…" : "Restore snapshot"}
+            {restoring ? "Restoring…" : "Restore"}
           </button>
         </div>
       </div>
