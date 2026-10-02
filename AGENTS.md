@@ -61,3 +61,4 @@ Never remove commented out code. It's there for a reason.
 - We favor simplicity over complexity. Keep things grug. Repeated code is OK. We try not to abstract code unless necessary
 - Large files around 1000 LOC is completely fine
 - Do not write tests unless prompted to do so
+- Never write to the root README.md, everything there should be human authored
