@@ -89,6 +89,18 @@
   width: 32%;
   height: var(--knob-control-height, 32px);
 }
+.kavla-knob-number-control {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.kavla-knob-number-control > .kavla-knob-input {
+  align-self: center;
+  width: 34%;
+  height: var(--knob-control-height, 32px);
+  text-align: center;
+}
 .kavla-knob-range {
   display: flex;
   justify-content: space-between;

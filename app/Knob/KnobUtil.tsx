@@ -44,12 +44,14 @@ function NumberInput({
   label,
   step = "any",
   disabled,
+  growToContent = false,
   onChange,
 }: {
   value: number;
   label: string;
   step?: number | "any";
   disabled: boolean;
+  growToContent?: boolean;
   onChange: (value: number) => boolean;
 }) {
   const [draft, setDraft] = useState(String(value));
@@ -60,7 +62,8 @@ function NumberInput({
   }, [value]);
   return (
     <input
-      className="kavla-knob-input"
+      className={`kavla-knob-input${growToContent ? " kavla-knob-current-value" : ""}`}
+      style={growToContent ? { width: `min(100%, max(34%, ${Math.max(8, draft.length + 4)}ch))` } : undefined}
       type="number"
       aria-label={label}
       aria-invalid={invalid}
@@ -453,7 +456,15 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
           </>
         ) : (
           <>
-            <div className="kavla-knob-value-row">
+            <div className="kavla-knob-number-control">
+              <NumberInput
+                label={`${name} value`}
+                value={value}
+                step={step}
+                disabled={disabled || loading}
+                growToContent
+                onChange={setValue}
+              />
               <input
                 className="kavla-knob-slider"
                 type="range"
@@ -464,13 +475,6 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
                 value={value}
                 disabled={disabled || loading || min === max}
                 onChange={(event) => setValue(event.currentTarget.valueAsNumber)}
-              />
-              <NumberInput
-                label={`${name} value`}
-                value={value}
-                step={step}
-                disabled={disabled || loading}
-                onChange={setValue}
               />
             </div>
             <div className="kavla-knob-range">
