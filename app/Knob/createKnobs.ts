@@ -35,11 +35,29 @@ export function ensureQueryKnobs(editor: Editor, query: SQLTextAreaShape, text: 
       }
       const id = createShapeId();
       const bounds = editor.getShapePageBounds(query.id);
-      const x = (bounds?.x ?? query.x) - 300;
-      let y = bounds?.y ?? query.y;
-      const occupied = editor.getCurrentPageShapes().map((shape) => editor.getShapePageBounds(shape.id));
-      while (occupied.some((box) => box && box.x < x + 240 && box.maxX > x && box.y < y + 126 && box.maxY > y))
-        y += 150;
+      const width = 240;
+      const height = 126;
+      const gap = 16;
+      const left = (bounds?.x ?? query.x) - width / 2;
+      const top = (bounds?.y ?? query.y) - height - gap - 80;
+      const columns = Math.max(1, Math.floor(((bounds?.width ?? query.props.w) + width / 2 + gap) / (width + gap)));
+      const occupied = editor
+        .getCurrentPageShapes()
+        .filter((shape) => shape.type !== "arrow")
+        .map((shape) => editor.getShapePageBounds(shape.id));
+      let slot = 0;
+      let x = left;
+      let y = top;
+      while (
+        occupied.some(
+          (box) =>
+            box && box.x < x + width + gap && box.maxX > x - gap && box.y < y + height + gap && box.maxY > y - gap
+        )
+      ) {
+        slot++;
+        x = left + (slot % columns) * (width + gap);
+        y = top - Math.floor(slot / columns) * (height + gap);
+      }
       editor.createShape<KnobShape>({
         id,
         type: "knob",
