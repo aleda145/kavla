@@ -30,6 +30,7 @@ export function TimeInput({
   open,
   onOpenChange,
   editor,
+  growToContent = false,
 }: {
   value: number;
   label: string;
@@ -40,6 +41,7 @@ export function TimeInput({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editor: Editor;
+  growToContent?: boolean;
 }) {
   const saved = formatKnobTime(value, type);
   const [draft, setDraft] = useState(saved);
@@ -113,7 +115,8 @@ export function TimeInput({
   return (
     <div ref={anchorRef} className="kavla-knob-time-input" data-knob-time-input={pickerId}>
       <input
-        className="kavla-knob-input"
+        className={`kavla-knob-input${growToContent ? " kavla-knob-current-value" : ""}`}
+        style={growToContent ? { width: `min(100%, max(34%, ${Math.max(8, draft.length + 4)}ch))` } : undefined}
         type="text"
         aria-label={label}
         aria-invalid={invalid}

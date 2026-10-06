@@ -427,7 +427,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
           </div>
         ) : temporal ? (
           <>
-            <div className="kavla-knob-time-value">
+            <div className="kavla-knob-time-value kavla-knob-current-time-value">
               <TimeInput
                 {...pickerProps("value")}
                 label={`${name} ${timeLabel}`}
@@ -435,6 +435,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
                 type={temporalType}
                 disabled={disabled || loading}
                 onChange={setTimeValue}
+                growToContent
               />
             </div>
             <input

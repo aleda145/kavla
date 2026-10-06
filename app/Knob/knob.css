@@ -368,6 +368,13 @@
   gap: 4px;
   min-width: 0;
 }
+.kavla-knob-current-time-value {
+  justify-content: center;
+}
+.kavla-knob-current-time-value .kavla-knob-time-input {
+  width: auto;
+  max-width: 100%;
+}
 .kavla-knob-time-value .kavla-knob-input {
   height: 28px;
   font-size: 11px;
