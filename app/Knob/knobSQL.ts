@@ -98,10 +98,10 @@ export function resolveKnobSQL(editor: Editor, sql: string): string {
       const value = formatKnobTime(knob.props.value, type);
       return `CAST(${quoteSqlString(type === "timestamptz" ? `${value}Z` : value)} AS ${type.toUpperCase()})`;
     }
-    if (knob.props.kind === "category") {
+    if (knob.props.kind === "category" || knob.props.kind === "boolean") {
       const value = knob.props.categoryValue;
       if (value === undefined) throw new Error(`Choose a value for knob ${name}.`);
-      if (knob.props.categoryType === "boolean") {
+      if (knob.props.kind === "boolean" || knob.props.categoryType === "boolean") {
         if (value !== "true" && value !== "false") throw new Error(`Knob ${name} must be true or false.`);
         return value.toUpperCase();
       }

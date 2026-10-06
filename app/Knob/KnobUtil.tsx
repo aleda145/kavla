@@ -1,5 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { AlertCircle, CalendarClock, ChevronDown, Loader2, Settings2, SlidersHorizontal, List } from "lucide-react";
+import {
+  AlertCircle,
+  CalendarClock,
+  ChevronDown,
+  Loader2,
+  Settings2,
+  SlidersHorizontal,
+  List,
+  ToggleLeft,
+} from "lucide-react";
 import {
   HTMLContainer,
   Rectangle2d,
@@ -120,7 +129,9 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
     editor,
     shape.isLocked,
   ]);
-  const categorical = shape.props.kind === "category";
+  const boolean =
+    shape.props.kind === "boolean" || (shape.props.kind === "category" && shape.props.categoryType === "boolean");
+  const categorical = shape.props.kind === "category" && !boolean;
   const temporal = shape.props.kind === "timestamp";
   const temporalType = shape.props.temporalType ?? "timestamp";
   const timeLabel = temporalType === "date" ? "Date" : "Date & time";
@@ -191,19 +202,24 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
     updateSettings({
       options: nextOptions,
       optionsTruncated: false,
-      categoryType:
-        shape.props.categoryType === "boolean" && nextOptions.every((option) => option === "true" || option === "false")
-          ? "boolean"
-          : "text",
+      categoryType: "text",
       categoryValue:
         shape.props.categoryValue !== undefined && nextOptions.includes(shape.props.categoryValue)
           ? shape.props.categoryValue
           : nextOptions[0],
     });
   };
-  const changeKind = (kind: "numeric" | "category" | "timestamp") => {
-    if (kind === (shape.props.kind ?? "numeric")) return;
-    if (kind === "timestamp") {
+  const changeKind = (kind: "numeric" | "category" | "timestamp" | "boolean") => {
+    if (kind === (boolean ? "boolean" : (shape.props.kind ?? "numeric"))) return;
+    if (kind === "boolean") {
+      updateSettings({
+        kind,
+        categoryType: "boolean",
+        categoryValue: shape.props.categoryValue === "false" ? "false" : "true",
+        options: ["false", "true"],
+        optionsTruncated: false,
+      });
+    } else if (kind === "timestamp") {
       const end = Math.floor(Date.now() / 60_000) * 60_000;
       const start = end - 30 * 86_400_000;
       updateSettings({
@@ -220,6 +236,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
       updateSettings({
         kind,
         options: nextOptions,
+        categoryType: "text",
         categoryValue:
           shape.props.categoryValue !== undefined && nextOptions.includes(shape.props.categoryValue)
             ? shape.props.categoryValue
@@ -362,7 +379,22 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
         onKeyDown={(event) => event.stopPropagation()}
         onDoubleClick={(event) => event.stopPropagation()}
       >
-        {categorical ? (
+        {boolean ? (
+          <button
+            type="button"
+            className="kavla-knob-toggle"
+            role="switch"
+            aria-label={`${name} value`}
+            aria-checked={shape.props.categoryValue === "true"}
+            disabled={disabled || loading}
+            onClick={() => update({ categoryValue: shape.props.categoryValue === "true" ? "false" : "true" })}
+          >
+            <span className={`kavla-knob-toggle-track ${getColumnTypeColor("BOOLEAN")}`} aria-hidden="true">
+              <span />
+            </span>
+            <span>{shape.props.categoryValue === "true" ? "On" : "Off"}</span>
+          </button>
+        ) : categorical ? (
           <div className="kavla-knob-select">
             <select
               className="kavla-knob-input"
@@ -455,8 +487,8 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
           <div className="kavla-knob-kind">
             <button
               type="button"
-              aria-pressed={!categorical && !temporal}
-              className={!categorical && !temporal ? getColumnTypeColor("DOUBLE") : undefined}
+              aria-pressed={!categorical && !temporal && !boolean}
+              className={!categorical && !temporal && !boolean ? getColumnTypeColor("DOUBLE") : undefined}
               disabled={disabled}
               onClick={() => changeKind("numeric")}
             >
@@ -465,11 +497,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
             <button
               type="button"
               aria-pressed={categorical}
-              className={
-                categorical
-                  ? getColumnTypeColor(shape.props.categoryType === "boolean" ? "BOOLEAN" : "TEXT")
-                  : undefined
-              }
+              className={categorical ? getColumnTypeColor("TEXT") : undefined}
               disabled={disabled}
               onClick={() => changeKind("category")}
             >
@@ -483,6 +511,15 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
               onClick={() => changeKind("timestamp")}
             >
               <CalendarClock size={15} /> Timestamp
+            </button>
+            <button
+              type="button"
+              aria-pressed={boolean}
+              className={boolean ? getColumnTypeColor("BOOLEAN") : undefined}
+              disabled={disabled}
+              onClick={() => changeKind("boolean")}
+            >
+              <ToggleLeft size={15} /> Boolean
             </button>
           </div>
           {categorical ? (
@@ -546,7 +583,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
                 </select>
               </label>
             </>
-          ) : (
+          ) : !boolean ? (
             <div className="kavla-knob-range-options">
               {(["min", "max", "step"] as const).map((field) => (
                 <label key={field} className="kavla-knob-option-label">
@@ -560,7 +597,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
                 </label>
               ))}
             </div>
-          )}
+          ) : null}
           {shape.props.optionsTruncated && categorical && (
             <div className="kavla-knob-option-unit">First 200 choices</div>
           )}
@@ -587,7 +624,7 @@ export class KnobUtil extends ShapeUtil<KnobShape> {
     step: T.number,
     downstreamShapeIds: T.arrayOf(T.string).nullable(),
     upstreamShapeIds: T.arrayOf(T.string).nullable(),
-    kind: T.literalEnum("numeric", "category", "timestamp").optional(),
+    kind: T.literalEnum("numeric", "category", "timestamp", "boolean").optional(),
     temporalType: T.literalEnum("date", "timestamp", "timestamptz").optional(),
     categoryType: T.literalEnum("text", "boolean").optional(),
     categoryValue: T.string.optional(),

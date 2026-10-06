@@ -12,7 +12,7 @@ export type KnobShape = TLBaseShape<
     min: number;
     max: number;
     step: number;
-    kind?: "numeric" | "category" | "timestamp";
+    kind?: "numeric" | "category" | "timestamp" | "boolean";
     temporalType?: KnobTemporalType;
     categoryType?: "text" | "boolean";
     categoryValue?: string;

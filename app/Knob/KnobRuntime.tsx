@@ -102,7 +102,7 @@ export function KnobRuntime() {
               props.value = Math.max(props.min!, Math.min(props.max!, current.props.value));
             }
             if (
-              props.kind === "category" &&
+              (props.kind === "category" || props.kind === "boolean") &&
               current.props.categoryValue !== knob.props.categoryValue &&
               props.options?.includes(current.props.categoryValue ?? "")
             ) {
@@ -183,7 +183,9 @@ export function KnobRuntime() {
                 knob.props.kind ?? "numeric",
                 knob.props.categoryType,
                 knob.props.temporalType,
-                knob.props.kind === "category" ? knob.props.categoryValue : knob.props.value,
+                knob.props.kind === "category" || knob.props.kind === "boolean"
+                  ? knob.props.categoryValue
+                  : knob.props.value,
               ]),
           ])
         );
