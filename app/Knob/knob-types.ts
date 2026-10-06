@@ -1,5 +1,7 @@
 import type { TLBaseShape } from "tldraw";
 
+export type KnobTemporalType = "date" | "timestamp" | "timestamptz";
+
 export type KnobShape = TLBaseShape<
   "knob",
   {
@@ -10,7 +12,8 @@ export type KnobShape = TLBaseShape<
     min: number;
     max: number;
     step: number;
-    kind?: "numeric" | "category";
+    kind?: "numeric" | "category" | "timestamp";
+    temporalType?: KnobTemporalType;
     categoryType?: "text" | "boolean";
     categoryValue?: string;
     options?: string[];

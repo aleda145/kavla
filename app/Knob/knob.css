@@ -246,11 +246,12 @@
 }
 .kavla-knob-kind {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .kavla-knob-kind button {
   display: flex;
-  flex: 1;
+  flex: 1 0 80px;
   align-items: center;
   justify-content: center;
   gap: 5px;
@@ -287,4 +288,133 @@
 .kavla-knob-error {
   font-size: 11px;
   color: #b91c1c;
+}
+
+.kavla-knob-time-value {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.kavla-knob-time-value .kavla-knob-input {
+  height: 28px;
+  font-size: 11px;
+}
+.kavla-knob-time-slider {
+  flex: 0 0 20px;
+  height: 20px;
+}
+
+.kavla-knob-time-input {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+.kavla-knob-time-input > .kavla-knob-input {
+  padding-right: 28px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.kavla-knob-option-label > .kavla-knob-time-input {
+  margin-top: 5px;
+}
+.kavla-knob-calendar-button {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: #000;
+  cursor: pointer;
+}
+.kavla-knob-calendar {
+  position: fixed;
+  z-index: 9999999;
+  width: 280px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 10px;
+  box-sizing: border-box;
+  border: 2px solid #000;
+  border-radius: 8px;
+  background: #fff;
+  color: #000;
+  box-shadow: 4px 4px 0 #000;
+  font-family: Inter, sans-serif;
+  pointer-events: all;
+}
+.kavla-knob-calendar-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.kavla-knob-calendar-header select {
+  flex: 1;
+}
+.kavla-knob-calendar-header input {
+  width: 62px;
+}
+.kavla-knob-calendar button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: #fff;
+  color: #000;
+  font-size: 12px;
+  cursor: pointer;
+}
+.kavla-knob-calendar button:hover {
+  border-color: #000;
+}
+.kavla-knob-calendar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.kavla-knob-calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.kavla-knob-calendar-days > span {
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+}
+.kavla-knob-calendar-days > button {
+  height: 28px;
+}
+.kavla-knob-calendar-days > button[aria-pressed="true"] {
+  background: var(--color-teal-100, #ccfbf1);
+  border-color: #000;
+  font-weight: 700;
+}
+.kavla-knob-calendar-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.kavla-knob-calendar .kavla-knob-calendar-ok {
+  padding: 5px 14px;
+  border: 2px solid #000;
+  background: var(--color-teal-100, #ccfbf1);
+  font-weight: 700;
+  box-shadow: 2px 2px 0 rgb(0 0 0 / 20%);
+}
+.kavla-knob-calendar .kavla-knob-calendar-ok:hover {
+  box-shadow: 2px 2px 0 #000;
+}
+.kavla-knob-calendar .kavla-knob-calendar-ok:active {
+  transform: translateY(1px);
 }

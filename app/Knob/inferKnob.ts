@@ -5,6 +5,7 @@ import { buildRemoteSQLFromDag, walkSQLDag } from "../SQLTextArea/walkSQLDag";
 import { randomUUID } from "../util/randomUUID";
 import { mapKnobParameters } from "./knobSQL";
 import type { KnobShape } from "./knob-types";
+import { getTimeStep, parseKnobTime } from "./knobTime";
 
 type Token = { text: string; from: number; to: number; depth: number };
 const identifier = /^(?:[A-Za-z_][A-Za-z0-9_$]*|"(?:""|[^"])+"|`(?:``|[^`])+`)$/;
@@ -109,6 +110,35 @@ export async function inferKnob(
     const description = await run(`SELECT * FROM (${input}) AS knob_input LIMIT 0`);
     const columnType = description.schema[0]?.type ?? "";
     const analysisType = getColumnAnalysisType(columnType);
+    if (analysisType === "temporal" && /DATE|TIMESTAMP/i.test(columnType)) {
+      const result = await run(
+        `SELECT CAST(MIN(knob_value) AS VARCHAR) AS min_value, CAST(MAX(knob_value) AS VARCHAR) AS max_value FROM (${input}) AS knob_input`
+      );
+      const row = result.sampleRows[0];
+      if (row?.min_value == null || row?.max_value == null) throw new Error("This column has no non-null values yet.");
+      const min = Math.floor(parseKnobTime(row.min_value) / 1000) * 1000;
+      const max = Math.ceil(parseKnobTime(row.max_value) / 1000) * 1000;
+      const temporalType = /^DATE$/i.test(columnType)
+        ? "date"
+        : /TIMESTAMPTZ|WITH TIME ZONE/i.test(columnType) ||
+            (executionState.sourceNativePreview &&
+              executionState.sourceType === "bigquery" &&
+              /^TIMESTAMP$/i.test(columnType))
+          ? "timestamptz"
+          : "timestamp";
+      return {
+        kind: "timestamp",
+        temporalType,
+        min,
+        max,
+        step: getTimeStep(min, max, temporalType),
+        value:
+          knob.props.kind === "timestamp"
+            ? Math.max(min, Math.min(max, Math.floor(knob.props.value / 1000) * 1000))
+            : min,
+        optionsTruncated: false,
+      };
+    }
     if (analysisType === "numeric") {
       const result = await run(
         `SELECT MIN(knob_value) AS min_value, MAX(knob_value) AS max_value FROM (${input}) AS knob_input`
