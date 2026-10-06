@@ -1,4 +1,5 @@
 .tl-html-container.kavla-knob {
+  container: knob / inline-size;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -100,6 +101,50 @@
 .kavla-knob-range span {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.kavla-knob-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: #000;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.kavla-knob-toggle-track {
+  position: relative;
+  width: 50px;
+  height: 28px;
+  box-sizing: border-box;
+  border: 2px solid #000;
+  border-radius: 20px;
+  box-shadow: 2px 2px 0 rgb(0 0 0 / 20%);
+}
+.kavla-knob-toggle-track > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  border: 2px solid #000;
+  border-radius: 50%;
+  background: #fff;
+}
+.kavla-knob-toggle[aria-checked="true"] .kavla-knob-toggle-track > span {
+  transform: translateX(22px);
+}
+.kavla-knob-toggle[aria-checked="false"] .kavla-knob-toggle-track {
+  background: #fff;
+}
+.kavla-knob-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .kavla-knob-input,
@@ -245,13 +290,24 @@
   letter-spacing: normal;
 }
 .kavla-knob-kind {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
+}
+@container knob (min-width: 256px) {
+  .kavla-knob-kind {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container knob (min-width: 480px) {
+  .kavla-knob-kind {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 .kavla-knob-kind button {
   display: flex;
-  flex: 1 0 80px;
+  min-width: 0;
+  white-space: nowrap;
   align-items: center;
   justify-content: center;
   gap: 5px;

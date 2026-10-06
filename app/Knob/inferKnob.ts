@@ -110,6 +110,15 @@ export async function inferKnob(
     const description = await run(`SELECT * FROM (${input}) AS knob_input LIMIT 0`);
     const columnType = description.schema[0]?.type ?? "";
     const analysisType = getColumnAnalysisType(columnType);
+    if (/^(BOOL|BOOLEAN)$/i.test(columnType)) {
+      return {
+        kind: "boolean",
+        categoryType: "boolean",
+        categoryValue: knob.props.categoryValue === "false" ? "false" : "true",
+        options: ["false", "true"],
+        optionsTruncated: false,
+      };
+    }
     if (analysisType === "temporal" && /DATE|TIMESTAMP/i.test(columnType)) {
       const result = await run(
         `SELECT CAST(MIN(knob_value) AS VARCHAR) AS min_value, CAST(MAX(knob_value) AS VARCHAR) AS max_value FROM (${input}) AS knob_input`
