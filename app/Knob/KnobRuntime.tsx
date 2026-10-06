@@ -98,7 +98,7 @@ export function KnobRuntime() {
             const query = editor.getShape<SQLTextAreaShape>(context.query.id);
             if (!query || getKnobColumnQuery(query.props.text, current.props.name) !== context.sql) return;
             // Keep a user's selection if they adjusted the knob during inference.
-            if (props.kind === "numeric" && current.props.value !== knob.props.value) {
+            if ((props.kind === "numeric" || props.kind === "timestamp") && current.props.value !== knob.props.value) {
               props.value = Math.max(props.min!, Math.min(props.max!, current.props.value));
             }
             if (
@@ -182,6 +182,7 @@ export function KnobRuntime() {
                 knob.id,
                 knob.props.kind ?? "numeric",
                 knob.props.categoryType,
+                knob.props.temporalType,
                 knob.props.kind === "category" ? knob.props.categoryValue : knob.props.value,
               ]),
           ])
@@ -272,7 +273,8 @@ export function KnobRuntime() {
               a.props.value !== b.props.value ||
               a.props.kind !== b.props.kind ||
               a.props.categoryValue !== b.props.categoryValue ||
-              a.props.categoryType !== b.props.categoryType
+              a.props.categoryType !== b.props.categoryType ||
+              a.props.temporalType !== b.props.temporalType
             ) {
               knobsChanged = true;
               relevant = true;

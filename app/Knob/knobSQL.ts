@@ -1,6 +1,7 @@
 import type { Editor } from "tldraw";
 import type { KnobShape } from "./knob-types";
 import { quoteSqlString } from "../src/duckdb/sql";
+import { formatKnobTime } from "./knobTime";
 
 // Only substitute SQL code, never strings, quoted identifiers or comments.
 export function mapKnobParameters(
@@ -92,6 +93,11 @@ export function resolveKnobSQL(editor: Editor, sql: string): string {
     if (!matches.length) throw new Error(`Missing knob {${name}}. Add a knob named ${name} on this page.`);
     if (matches.length > 1) throw new Error(`More than one knob is named ${name}. Give each knob a unique name.`);
     const knob = matches[0];
+    if (knob.props.kind === "timestamp") {
+      const type = knob.props.temporalType ?? "timestamp";
+      const value = formatKnobTime(knob.props.value, type);
+      return `CAST(${quoteSqlString(type === "timestamptz" ? `${value}Z` : value)} AS ${type.toUpperCase()})`;
+    }
     if (knob.props.kind === "category") {
       const value = knob.props.categoryValue;
       if (value === undefined) throw new Error(`Choose a value for knob ${name}.`);

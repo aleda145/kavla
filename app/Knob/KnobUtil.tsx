@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { AlertCircle, ChevronDown, Loader2, Settings2, SlidersHorizontal, List } from "lucide-react";
+import { AlertCircle, CalendarClock, ChevronDown, Loader2, Settings2, SlidersHorizontal, List } from "lucide-react";
 import {
   HTMLContainer,
   Rectangle2d,
@@ -13,9 +13,18 @@ import {
 } from "tldraw";
 import EditableText from "../util/EditableText";
 import { getUniqueKnobName } from "./createKnobs";
-import type { KnobShape } from "./knob-types";
+import type { KnobShape, KnobTemporalType } from "./knob-types";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { mapKnobParameters } from "./knobSQL";
+import {
+  formatKnobTime,
+  getTimeStep,
+  timeSteps,
+  timeSliderSteps,
+  timeSliderValue,
+  timeSliderPosition,
+} from "./knobTime";
+import { TimeInput } from "./TimeInput";
 import "./knob.css";
 
 const compactHeight = 126;
@@ -101,6 +110,7 @@ function ChoicesInput({
 function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
   const { name, value, min, max, step, h } = shape.props;
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [openTimePicker, setOpenTimePicker] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -110,6 +120,19 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
     shape.isLocked,
   ]);
   const categorical = shape.props.kind === "category";
+  const temporal = shape.props.kind === "timestamp";
+  const temporalType = shape.props.temporalType ?? "timestamp";
+  const timeLabel = temporalType === "date" ? "Date" : "Date & time";
+  const timeStep = Math.max(temporalType === "date" ? 86_400_000 : 1000, step);
+  const pickerProps = (field: string) => {
+    const pickerId = `${shape.id}:${field}`;
+    return {
+      pickerId,
+      open: openTimePicker === pickerId,
+      onOpenChange: (open: boolean) => setOpenTimePicker(open ? pickerId : null),
+      editor,
+    };
+  };
   const loading = shape.props.inferenceStatus === "loading";
   const options = shape.props.options ?? [];
   const update = (props: Partial<KnobShape["props"]>) => {
@@ -140,8 +163,18 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
     update({ value: Math.max(min, Math.min(max, next)) });
     return true;
   };
+  const setTimeValue = (next: number) => {
+    if (!Number.isFinite(next) || disabled) return false;
+    if (next < min || next > max) updateSettings({ value: next, min: Math.min(min, next), max: Math.max(max, next) });
+    else update({ value: next });
+    return true;
+  };
   const changeRange = (field: "min" | "max" | "step", next: number) => {
     const range = { min, max, step, [field]: next };
+    if (temporal && range.min > range.max) {
+      if (field === "min") range.max = next;
+      if (field === "max") range.min = next;
+    }
     if (range.min > range.max || range.step <= 0 || !Number.isFinite(range.max - range.min)) {
       setError(range.step <= 0 ? "Step must be positive." : "Min must not exceed max; the range must be finite.");
       return false;
@@ -167,8 +200,20 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
           : nextOptions[0],
     });
   };
-  const changeKind = (kind: "numeric" | "category") => {
-    if (kind === "numeric") updateSettings({ kind });
+  const changeKind = (kind: "numeric" | "category" | "timestamp") => {
+    if (kind === (shape.props.kind ?? "numeric")) return;
+    if (kind === "timestamp") {
+      const end = Math.floor(Date.now() / 60_000) * 60_000;
+      const start = end - 30 * 86_400_000;
+      updateSettings({
+        kind,
+        temporalType: "timestamp",
+        min: start,
+        max: end,
+        value: start,
+        step: getTimeStep(start, end, "timestamp"),
+      });
+    } else if (kind === "numeric") updateSettings(temporal ? { kind, min: 0, max: 100, value: 10, step: 1 } : { kind });
     else {
       const nextOptions = options.length ? options : [String(value)];
       updateSettings({
@@ -181,13 +226,33 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
       });
     }
   };
+  const changeTimeType = (type: KnobTemporalType) => {
+    const round = (number: number) => (type === "date" ? Math.floor(number / 86_400_000) * 86_400_000 : number);
+    updateSettings({
+      temporalType: type,
+      min: round(min),
+      max: round(max),
+      value: round(value),
+      step: type === "date" ? Math.max(86_400_000, Math.round(step / 86_400_000) * 86_400_000) : step,
+    });
+  };
+  const timeRangeLabel = (number: number) => {
+    const text = formatKnobTime(number, temporalType);
+    return temporalType !== "date" && formatKnobTime(min, "date") === formatKnobTime(max, "date")
+      ? text.slice(11)
+      : text.slice(0, 10);
+  };
 
   useLayoutEffect(() => {
     const resize = () => {
       const height = settingsRef.current?.offsetHeight ?? 0;
       const current = editor.getShape<KnobShape>(shape.id);
-      if (!current || height === settingsHeight.current) return;
-      const collapsedHeight = Math.max(96, current.props.h - settingsHeight.current);
+      if (!current) return;
+      const collapsedHeight = Math.max(
+        current.props.kind === "timestamp" ? 126 : 96,
+        current.props.h - settingsHeight.current
+      );
+      if (height === settingsHeight.current && current.props.h === collapsedHeight + height) return;
       settingsHeight.current = height;
       editor.updateShape<KnobShape>({ id: shape.id, type: "knob", props: { h: collapsedHeight + height } });
     };
@@ -196,12 +261,21 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
     const observer = new ResizeObserver(resize);
     observer.observe(settingsRef.current);
     return () => observer.disconnect();
-  }, [editor, shape.id, settingsOpen]);
+  }, [editor, shape.id, shape.props.kind, settingsOpen]);
 
   useEffect(() => {
-    if (!settingsOpen) return;
+    if (!settingsOpen && !openTimePicker) return;
     const closeOutside = (event: PointerEvent) => {
       const target = event.target as Node;
+      if (openTimePicker) {
+        if (
+          target instanceof Element &&
+          target.closest("[data-knob-time-input]")?.getAttribute("data-knob-time-input") === openTimePicker
+        )
+          return;
+        setOpenTimePicker(null);
+        return;
+      }
       if (buttonRef.current?.closest(".kavla-knob")?.contains(target)) return;
       setSettingsOpen(false);
       setError(null);
@@ -209,6 +283,11 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
     const closeWithEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.stopPropagation();
+      event.preventDefault();
+      if (openTimePicker) {
+        setOpenTimePicker(null);
+        return;
+      }
       setSettingsOpen(false);
       setError(null);
       buttonRef.current?.focus();
@@ -219,7 +298,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
       document.removeEventListener("pointerdown", closeOutside, true);
       document.removeEventListener("keydown", closeWithEscape, true);
     };
-  }, [settingsOpen]);
+  }, [settingsOpen, openTimePicker]);
 
   const controlStyle = {
     "--knob-control-height": `${Math.min(48, Math.max(28, (h - settingsHeight.current - 50) / 2))}px`,
@@ -289,6 +368,35 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
             </select>
             <ChevronDown size={16} aria-hidden="true" />
           </div>
+        ) : temporal ? (
+          <>
+            <div className="kavla-knob-time-value">
+              <TimeInput
+                {...pickerProps("value")}
+                label={`${name} ${timeLabel}`}
+                value={value}
+                type={temporalType}
+                disabled={disabled || loading}
+                onChange={setTimeValue}
+              />
+            </div>
+            <input
+              className="kavla-knob-slider kavla-knob-time-slider"
+              type="range"
+              aria-label={`${name} slider`}
+              aria-valuetext={formatKnobTime(value, temporalType)}
+              min={0}
+              max={timeSliderSteps(min, max, timeStep)}
+              step={1}
+              value={timeSliderPosition(min, max, timeStep, value)}
+              disabled={disabled || loading || min === max}
+              onChange={(event) => setValue(timeSliderValue(min, max, timeStep, event.currentTarget.valueAsNumber))}
+            />
+            <div className="kavla-knob-range">
+              <span title={formatKnobTime(min, temporalType)}>{timeRangeLabel(min)}</span>
+              <span title={formatKnobTime(max, temporalType)}>{timeRangeLabel(max)}</span>
+            </div>
+          </>
         ) : (
           <>
             <div className="kavla-knob-value-row">
@@ -331,11 +439,19 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
         >
           <div className="kavla-knob-option-label">Control</div>
           <div className="kavla-knob-kind">
-            <button type="button" aria-pressed={!categorical} disabled={disabled} onClick={() => changeKind("numeric")}>
+            <button
+              type="button"
+              aria-pressed={!categorical && !temporal}
+              disabled={disabled}
+              onClick={() => changeKind("numeric")}
+            >
               <SlidersHorizontal size={15} /> Number
             </button>
             <button type="button" aria-pressed={categorical} disabled={disabled} onClick={() => changeKind("category")}>
               <List size={15} /> Category
+            </button>
+            <button type="button" aria-pressed={temporal} disabled={disabled} onClick={() => changeKind("timestamp")}>
+              <CalendarClock size={15} /> Timestamp
             </button>
           </div>
           {categorical ? (
@@ -343,6 +459,62 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
               Choices <span className="kavla-knob-option-unit">one per line</span>
               <ChoicesInput options={options} disabled={disabled} onChange={changeChoices} />
             </label>
+          ) : temporal ? (
+            <>
+              <label className="kavla-knob-option-label">
+                Format
+                <select
+                  className="kavla-knob-input"
+                  value={temporalType === "date" ? "date" : "timestamp"}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    changeTimeType(
+                      event.currentTarget.value === "date"
+                        ? "date"
+                        : temporalType === "timestamptz"
+                          ? "timestamptz"
+                          : "timestamp"
+                    )
+                  }
+                >
+                  <option value="date">Date</option>
+                  <option value="timestamp">Date & time</option>
+                </select>
+              </label>
+              {(["min", "max"] as const).map((field) => (
+                <div key={field} className="kavla-knob-option-label">
+                  {field === "min" ? "Start" : "End"}
+                  <TimeInput
+                    {...pickerProps(field)}
+                    label={`${field === "min" ? "Start" : "End"} ${timeLabel}`}
+                    value={shape.props[field]}
+                    type={temporalType}
+                    disabled={disabled}
+                    onChange={(next) => changeRange(field, next)}
+                  />
+                </div>
+              ))}
+              <label className="kavla-knob-option-label">
+                Step
+                <select
+                  className="kavla-knob-input"
+                  value={timeStep}
+                  disabled={disabled}
+                  onChange={(event) => changeRange("step", Number(event.currentTarget.value))}
+                >
+                  {!timeSteps.some((option) => option.value === timeStep) && (
+                    <option value={timeStep}>{timeStep / 1000} seconds</option>
+                  )}
+                  {timeSteps
+                    .filter((option) => temporalType !== "date" || option.value >= 86_400_000)
+                    .map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </>
           ) : (
             <div className="kavla-knob-range-options">
               {(["min", "max", "step"] as const).map((field) => (
@@ -384,7 +556,8 @@ export class KnobUtil extends ShapeUtil<KnobShape> {
     step: T.number,
     downstreamShapeIds: T.arrayOf(T.string).nullable(),
     upstreamShapeIds: T.arrayOf(T.string).nullable(),
-    kind: T.literalEnum("numeric", "category").optional(),
+    kind: T.literalEnum("numeric", "category", "timestamp").optional(),
+    temporalType: T.literalEnum("date", "timestamp", "timestamptz").optional(),
     categoryType: T.literalEnum("text", "boolean").optional(),
     categoryValue: T.string.optional(),
     options: T.arrayOf(T.string).optional(),
@@ -398,7 +571,7 @@ export class KnobUtil extends ShapeUtil<KnobShape> {
     return true;
   }
   override onResize(shape: KnobShape, info: TLResizeInfo<KnobShape>) {
-    return resizeBox(shape, info, { minWidth: 160, minHeight: 96 });
+    return resizeBox(shape, info, { minWidth: 160, minHeight: shape.props.kind === "timestamp" ? 126 : 96 });
   }
   getDefaultProps(): KnobShape["props"] {
     return {
