@@ -297,29 +297,14 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
     const isResizingKnob = () =>
       editor.getSelectedShapeIds().includes(shape.id) &&
       (editor.isIn("select.resizing") || editor.isIn("select.pointing_resize_handle"));
-    const closeOutside = (event: PointerEvent) => {
+    const closePickerOutside = (event: PointerEvent) => {
       const target = event.target as Node;
-      // Capture runs before tldraw enters its resize state; include the handles themselves.
       if (
-        isResizingKnob() ||
-        (editor.getSelectedShapeIds().includes(shape.id) &&
-          target instanceof Element &&
-          editor.getContainer().contains(target) &&
-          target.closest(".tl-resize-handle, .tl-corner-handle"))
+        target instanceof Element &&
+        target.closest("[data-knob-time-input]")?.getAttribute("data-knob-time-input") === openTimePicker
       )
         return;
-      if (openTimePicker) {
-        if (
-          target instanceof Element &&
-          target.closest("[data-knob-time-input]")?.getAttribute("data-knob-time-input") === openTimePicker
-        )
-          return;
-        setOpenTimePicker(null);
-        return;
-      }
-      if (buttonRef.current?.closest(".kavla-knob")?.contains(target)) return;
-      setSettingsOpen(false);
-      setError(null);
+      setOpenTimePicker(null);
     };
     const closeWithEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -328,16 +313,12 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
       event.preventDefault();
       if (openTimePicker) {
         setOpenTimePicker(null);
-        return;
       }
-      setSettingsOpen(false);
-      setError(null);
-      buttonRef.current?.focus();
     };
-    document.addEventListener("pointerdown", closeOutside, true);
+    if (openTimePicker) document.addEventListener("pointerdown", closePickerOutside, true);
     document.addEventListener("keydown", closeWithEscape, true);
     return () => {
-      document.removeEventListener("pointerdown", closeOutside, true);
+      if (openTimePicker) document.removeEventListener("pointerdown", closePickerOutside, true);
       document.removeEventListener("keydown", closeWithEscape, true);
     };
   }, [editor, shape.id, settingsOpen, openTimePicker]);
@@ -381,7 +362,8 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
             setSettingsOpen((open) => !open);
           }}
         >
-          <Settings2 size={16} />
+          <Settings2 size={14} />
+          <span>Options</span>
         </button>
       </div>
       <div
