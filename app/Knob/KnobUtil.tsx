@@ -266,8 +266,20 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
 
   useEffect(() => {
     if (!settingsOpen && !openTimePicker) return;
+    const isResizingKnob = () =>
+      editor.getSelectedShapeIds().includes(shape.id) &&
+      (editor.isIn("select.resizing") || editor.isIn("select.pointing_resize_handle"));
     const closeOutside = (event: PointerEvent) => {
       const target = event.target as Node;
+      // Capture runs before tldraw enters its resize state; include the handles themselves.
+      if (
+        isResizingKnob() ||
+        (editor.getSelectedShapeIds().includes(shape.id) &&
+          target instanceof Element &&
+          editor.getContainer().contains(target) &&
+          target.closest(".tl-resize-handle, .tl-corner-handle"))
+      )
+        return;
       if (openTimePicker) {
         if (
           target instanceof Element &&
@@ -283,6 +295,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
     };
     const closeWithEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (isResizingKnob()) return;
       event.stopPropagation();
       event.preventDefault();
       if (openTimePicker) {
@@ -299,7 +312,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
       document.removeEventListener("pointerdown", closeOutside, true);
       document.removeEventListener("keydown", closeWithEscape, true);
     };
-  }, [settingsOpen, openTimePicker]);
+  }, [editor, shape.id, settingsOpen, openTimePicker]);
 
   const controlStyle = {
     "--knob-control-height": `${Math.min(48, Math.max(28, (h - settingsHeight.current - 50) / 2))}px`,
