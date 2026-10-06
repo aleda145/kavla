@@ -12,6 +12,7 @@ import {
   type TLResizeInfo,
 } from "tldraw";
 import EditableText from "../util/EditableText";
+import { getColumnTypeColor } from "../util/column-colors";
 import { getUniqueKnobName } from "./createKnobs";
 import type { KnobShape, KnobTemporalType } from "./knob-types";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
@@ -442,15 +443,32 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
             <button
               type="button"
               aria-pressed={!categorical && !temporal}
+              className={!categorical && !temporal ? getColumnTypeColor("DOUBLE") : undefined}
               disabled={disabled}
               onClick={() => changeKind("numeric")}
             >
               <SlidersHorizontal size={15} /> Number
             </button>
-            <button type="button" aria-pressed={categorical} disabled={disabled} onClick={() => changeKind("category")}>
+            <button
+              type="button"
+              aria-pressed={categorical}
+              className={
+                categorical
+                  ? getColumnTypeColor(shape.props.categoryType === "boolean" ? "BOOLEAN" : "TEXT")
+                  : undefined
+              }
+              disabled={disabled}
+              onClick={() => changeKind("category")}
+            >
               <List size={15} /> Category
             </button>
-            <button type="button" aria-pressed={temporal} disabled={disabled} onClick={() => changeKind("timestamp")}>
+            <button
+              type="button"
+              aria-pressed={temporal}
+              className={temporal ? getColumnTypeColor("TIMESTAMP") : undefined}
+              disabled={disabled}
+              onClick={() => changeKind("timestamp")}
+            >
               <CalendarClock size={15} /> Timestamp
             </button>
           </div>
