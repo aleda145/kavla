@@ -5,18 +5,21 @@ import type { LocalServerContextType } from "../client/localServer/types";
 import { walkSQLDag, buildRemoteSQLFromDag } from "./walkSQLDag";
 import { connectShapes, setShapeUpstreamConnections } from "../util/shapeConnections";
 import { dispatchSQLShapeRunStarted, dispatchSQLShapeRunFinished, type SQLShapeRunResult } from "./sqlShapeRun";
+import { ensureQueryKnobs } from "../Knob/createKnobs";
 
 export async function executeSQLShape(
   editor: Editor,
   data: LocalServerContextType,
   id: TLShapeId,
   sql: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  options: { createMissingKnobs?: boolean } = {}
 ): Promise<SQLShapeRunResult> {
   signal.throwIfAborted();
   const shape = editor.getShape<SQLTextAreaShape>(id);
   if (!shape || shape.type !== "sql-text-area") throw new Error("The query shape is unavailable.");
   if (shape.props.isRunning) throw new Error("This query is already running.");
+  if (options.createMissingKnobs !== false) ensureQueryKnobs(editor, shape, sql);
   clearRestoredRemoteQueryMetadata(id);
   const started = Date.now();
   const plan = walkSQLDag(editor, sql);
@@ -38,7 +41,7 @@ export async function executeSQLShape(
   try {
     signal.throwIfAborted();
     const output = await data.runRemoteQuery({
-      sql: buildRemoteSQLFromDag(sql, orderedDependencies),
+      sql: buildRemoteSQLFromDag(sql, orderedDependencies, editor),
       sourceName: executionState.sourceName,
       sourceType: executionState.sourceType,
       sourceNative: executionState.sourceNativePreview,
@@ -49,7 +52,7 @@ export async function executeSQLShape(
     const current = editor.getShape<SQLTextAreaShape>(id);
     if (!current) throw new Error("The query shape was removed.");
     if (current.props.text !== sql)
-      throw new Error("The query was edited while the Agent was running it; run the edited query again.");
+      throw new Error("The query was edited while it was running; run the edited query again.");
     editor.updateShape<SQLTextAreaShape>({
       id,
       type: "sql-text-area",

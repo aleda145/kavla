@@ -3,6 +3,7 @@ import { syntaxTree } from "@codemirror/language";
 import { getCachedRemoteColumnStats, type RemoteSourceInfo } from "./remote-column-stats";
 import { quoteIdentifier, quoteSqlString, quoteDottedIdentifier } from "../src/duckdb/sql";
 import { randomUUID } from "../util/randomUUID";
+import { isKnobCodePosition } from "../Knob/knobReferences";
 import {
   createSqlNameLookup,
   findMentionedTables,
@@ -31,6 +32,8 @@ export const createSqlAutocomplete = (
   return autocompletion({
     override: [
       async (context: CompletionContext) => {
+        const knobPrefix = context.matchBefore(/\{[A-Za-z_][A-Za-z0-9_]*$|\{$/);
+        if (knobPrefix && isKnobCodePosition(context.state.doc.toString(), knobPrefix.from)) return null;
         const dotMatch = context.matchBefore(/([a-zA-Z_][a-zA-Z0-9_]*)\.[\w_]*/);
 
         const textBeforeForValues = context.state.sliceDoc(Math.max(0, context.pos - 50), context.pos);

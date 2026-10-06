@@ -84,7 +84,7 @@ export async function computeAgentProfiles(
               : "to_json(list(kavla_profile))";
         const packedSQL = `SELECT ${aggregate} AS profile_rows FROM (${sql}) AS kavla_profile`;
         const response = await env.data.runRemoteQuery({
-          sql: buildRemoteSQLFromDag(packedSQL, orderedDependencies),
+          sql: buildRemoteSQLFromDag(packedSQL, orderedDependencies, editor),
           sourceName: executionState.sourceName,
           sourceType: executionState.sourceType,
           sourceNative: executionState.sourceNativePreview,

@@ -18,6 +18,7 @@ Kavla features a distinct "Neo-Brutalist" or "Pop" aesthetic characterized by hi
 - **Violet**: `bg-violet-300` / `#c4b5fd` - **Strictly** for Kavla Branding elements only.
 - **Blue**: `bg-blue-100` / `#dbeafe` - Product headers (DataSource).
 - **Pink**: `bg-pink-100` / `#fce7f3` - Product headers (Chart).
+- **Teal**: `bg-teal-100` - Knob headers, controls, SQL parameter highlights, and hints.
 
 ---
 

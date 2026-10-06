@@ -4,6 +4,7 @@ import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
 import { quoteDottedIdentifier, quoteIdentifier, stripTrailingSemicolons } from "../src/duckdb/sql";
 import { getEngineAppearance, type ShapeEngineTab } from "../util/ShapeEngineTabs";
 import { getOrderedDependenciesForSQL, type SQLDependencyShape } from "./sqlDependencies";
+import { getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
 
 export type QueryExecutionState = {
   sourceName?: string;
@@ -158,7 +159,21 @@ export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]
 
 export function walkSQLDag(editor: Editor, sqlText: string): SQLDagWalkResult {
   const { orderedDependencies, immediateUpstreamIds } = getOrderedDependenciesForSQL(editor, sqlText);
-  const nextUpstreamShapeIds = Array.from(new Set(immediateUpstreamIds));
+  const nextUpstreamShapeIds = Array.from(
+    new Set([...immediateUpstreamIds, ...getSQLKnobs(editor, sqlText).map((knob) => knob.id)])
+  );
+
+  try {
+    resolveKnobSQL(editor, sqlText);
+    for (const dependency of orderedDependencies) {
+      if (dependency.type === "sql-text-area") resolveKnobSQL(editor, dependency.props.text);
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      error: { title: "Knob unavailable", message: error instanceof Error ? error.message : String(error) },
+    };
+  }
 
   const executionState = describeQueryExecution(orderedDependencies);
   const missingSourceMessage = getMissingSourceMessage(orderedDependencies);
@@ -183,14 +198,18 @@ export function walkSQLDag(editor: Editor, sqlText: string): SQLDagWalkResult {
   };
 }
 
-export function buildRemoteSQLFromDag(sqlText: string, orderedDependencies: SQLDependencyShape[]): string {
+export function buildRemoteSQLFromDag(
+  sqlText: string,
+  orderedDependencies: SQLDependencyShape[],
+  editor: Editor
+): string {
   const ctes = orderedDependencies.map((dependency) => {
     if (dependency.type === "sql-text-area")
-      return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(dependency.props.text)})`;
+      return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(resolveKnobSQL(editor, dependency.props.text))})`;
     const source = getRemoteSourceMetadata(dependency);
     if (!source) throw new Error(`Source "${dependency.props.name}" is unavailable.`);
     return `${quoteIdentifier(dependency.props.name)} AS (SELECT * FROM ${quoteDottedIdentifier(source.remoteTableRef)})`;
   });
-  const query = stripTrailingSemicolons(sqlText);
+  const query = stripTrailingSemicolons(resolveKnobSQL(editor, sqlText));
   return ctes.length ? `WITH ${ctes.join(",\n")} SELECT * FROM (${query}) AS kavla_query` : query;
 }

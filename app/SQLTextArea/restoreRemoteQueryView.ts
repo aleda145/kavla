@@ -60,7 +60,7 @@ export function restoreRemoteQueryView(
       );
     }
     const result = await runRemoteQuery({
-      sql: buildRemoteSQLFromDag(currentShape.props.text, orderedDependencies),
+      sql: buildRemoteSQLFromDag(currentShape.props.text, orderedDependencies, editor),
       sourceName: executionState.sourceName,
       sourceType: executionState.sourceType,
       shapeId: currentShape.id,

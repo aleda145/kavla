@@ -3,6 +3,8 @@ import { defaultHighlightStyle } from "@codemirror/language";
 import React, { memo, useMemo } from "react";
 import { getColumnTypeMutedColor } from "../util/column-colors";
 import { DuckDBDialect } from "./duckdb-dialect";
+import { useEditor } from "tldraw";
+import { getKnobReferences, navigateToKnob } from "../Knob/knobReferences";
 import {
   createSqlNameLookup,
   findMentionedTables,
@@ -25,12 +27,13 @@ interface StaticSQLHighlighterProps {
 
 export const StaticSQLHighlighter = memo(
   ({ sql, validTableNames, sources, queries, columnMapping, upstreamTableNames }: StaticSQLHighlighterProps) => {
+    const editor = useEditor();
     const spansByLine = useMemo(() => {
       const tableNames = createSqlNameLookup(validTableNames ?? []);
       const mentionedTables = findMentionedTables(sql, tableNames);
       const upstreamTables = new Set(upstreamTableNames ?? []);
       const tree = parser.parse(sql);
-      const tokens: { from: number; to: number; classes?: string }[] = [];
+      let tokens: { from: number; to: number; classes?: string; knobName?: string }[] = [];
       let pos = 0;
 
       highlightTree(tree, defaultHighlightStyle, (from, to, classes) => {
@@ -44,6 +47,18 @@ export const StaticSQLHighlighter = memo(
       if (pos < sql.length) {
         tokens.push({ from: pos, to: sql.length, classes: undefined });
       }
+
+      for (const reference of getKnobReferences(sql)) {
+        tokens = tokens.flatMap((token) => {
+          if (token.to <= reference.from || token.from >= reference.to) return [token];
+          return [
+            ...(token.from < reference.from ? [{ ...token, to: reference.from }] : []),
+            ...(token.to > reference.to ? [{ ...token, from: reference.to }] : []),
+          ];
+        });
+        tokens.push({ from: reference.from, to: reference.to, knobName: reference.name });
+      }
+      tokens.sort((a, b) => a.from - b.from);
 
       const lines = sql.split("\n");
       let currentGlobalPos = 0;
@@ -82,7 +97,29 @@ export const StaticSQLHighlighter = memo(
                 token.classes.includes("comment") ||
                 token.classes.includes("number"));
 
-            if (token.classes && isSafe) {
+            if (token.knobName !== undefined) {
+              const name = token.knobName;
+              lineNodes.push(
+                <span
+                  key={intersectionStart}
+                  title={name ? "Ctrl/Cmd+click to go to knob" : "Type a name inside {} to create a knob"}
+                  style={{
+                    fontFamily: "monospace",
+                    backgroundColor: "var(--color-teal-100, #ccfbf1)",
+                    color: "#115e59",
+                    borderBottom: "2px solid #0d9488",
+                  }}
+                  onMouseDown={(event) => {
+                    if (!name || (!event.ctrlKey && !event.metaKey)) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    navigateToKnob(editor, name);
+                  }}
+                >
+                  {textPart}
+                </span>
+              );
+            } else if (token.classes && isSafe) {
               lineNodes.push(
                 <span key={intersectionStart} className={token.classes} style={{ fontFamily: "monospace" }}>
                   {textPart}
@@ -129,7 +166,7 @@ export const StaticSQLHighlighter = memo(
 
         return lineNodes;
       });
-    }, [sql, validTableNames, sources, queries, columnMapping, upstreamTableNames]);
+    }, [sql, validTableNames, sources, queries, columnMapping, upstreamTableNames, editor]);
 
     const lineCount = spansByLine.length;
     // Match CodeMirror's gutter padding while allowing for every line-number digit.
