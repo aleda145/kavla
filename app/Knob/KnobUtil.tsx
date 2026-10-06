@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlertCircle,
   CalendarClock,
@@ -119,6 +119,14 @@ function ChoicesInput({
 
 function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
   const { name, value, min, max, step, h } = shape.props;
+  const stackRangeOptions = useMemo(() => {
+    const context = document.createElement("canvas").getContext("2d");
+    if (!context) return true;
+    context.font = "700 12px Inter";
+    const widestNumber = Math.max(...[min, max, step].map((number) => context.measureText(String(number)).width));
+    // Shape border, options padding, grid gaps, and input padding/border all take space.
+    return (shape.props.w - 48) / 3 < widestNumber + 20;
+  }, [min, max, step, shape.props.w]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [openTimePicker, setOpenTimePicker] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -584,7 +592,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
               </label>
             </>
           ) : !boolean ? (
-            <div className="kavla-knob-range-options">
+            <div className={`kavla-knob-range-options${stackRangeOptions ? " kavla-knob-range-options-stacked" : ""}`}>
               {(["min", "max", "step"] as const).map((field) => (
                 <label key={field} className="kavla-knob-option-label">
                   {field}

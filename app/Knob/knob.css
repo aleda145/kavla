@@ -337,6 +337,9 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
+.kavla-knob-range-options-stacked {
+  grid-template-columns: minmax(0, 1fr);
+}
 .kavla-knob-choices {
   height: 100px;
   min-height: 60px;
