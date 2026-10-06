@@ -38,6 +38,9 @@ import { DataSourceUtil } from "../../DataSource/DataSourceUtil";
 import { SQLResultTableUtil } from "../../SQLResultArea/SQLResultAreaUtil";
 import { SQLTextAreaTool } from "../../SQLTextArea/SQLTextAreaTool";
 import { SQLTextAreaUtil } from "../../SQLTextArea/SQLTextAreaUtil";
+import { KnobUtil } from "../../Knob/KnobUtil";
+import { getUniqueKnobName } from "../../Knob/createKnobs";
+import { KnobRuntime } from "../../Knob/KnobRuntime";
 import source from "../../util/source.svg";
 import sql from "../../util/sql.svg";
 import { SourceTextAreaTool } from "../../DataSource/DataSourceTool";
@@ -70,6 +73,7 @@ import { getUniqueName } from "../../util/getUniqueName";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 
 const customShapeUtils = [
+  KnobUtil,
   SQLTextAreaUtil,
   SQLResultTableUtil,
   DataSourceUtil,
@@ -559,7 +563,10 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
               ...nextShape,
               props: {
                 ...nextShape.props,
-                name: getUniqueName(editor, nextShape.props.name),
+                name:
+                  nextShape.type === "knob"
+                    ? getUniqueKnobName(editor, nextShape.props.name)
+                    : getUniqueName(editor, nextShape.props.name),
               },
             };
           }
@@ -708,7 +715,9 @@ function LocalCanvasMount({
       assetUrls={customAssetUrls}
       assets={localAssetStore}
       options={{ actionShortcutsLocation: "menu", maxPages: 1 }}
-    />
+    >
+      <KnobRuntime />
+    </Tldraw>
   );
 }
 

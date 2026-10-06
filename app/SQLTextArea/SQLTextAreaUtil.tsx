@@ -38,6 +38,8 @@ import { SQLTextAreaHeader } from "./SQLTextAreaHeader";
 import { clearRestoredRemoteQueryMetadata } from "./restoreRemoteQueryView";
 import { buildRemoteSQLFromDag, describeQueryExecution, getMissingSourceMessage, walkSQLDag } from "./walkSQLDag";
 import { getAutoExpandedSQLShapeSize } from "./sqlShapeSize";
+import { getKnobNames, getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
+import { ensureQueryKnobs } from "../Knob/createKnobs";
 
 export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   private updateSourceName: ((payload: { prevName: string; nextName: string }) => void) | null = null;
@@ -190,9 +192,16 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
     const handleValidate = async (sql: string): Promise<EditorValidationIssue | null> => {
       if (!sql.trim()) return null;
+      const knobs = getSQLKnobs(this.editor, sql);
+      // Let debounced creation and column inference finish before validating parameters.
+      if (
+        getKnobNames(sql).some((name) => !knobs.some((knob) => knob.props.name.toUpperCase() === name)) ||
+        knobs.some((knob) => knob.props.inferenceStatus === "loading")
+      )
+        return null;
 
       try {
-        const syntaxIssue = validateDuckDBSyntax(sql);
+        const syntaxIssue = validateDuckDBSyntax(resolveKnobSQL(this.editor, sql));
         if (syntaxIssue) {
           return syntaxIssue;
         }
@@ -203,7 +212,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         if (missingSource) return issueFromMessage(missingSource);
         // Native remote queries retain syntax-only validation; preparing them can contact a paid source.
         if (execution.sourceNativePreview && execution.sourceType !== "duckdb") return null;
-        await validateBackendQuery(buildRemoteSQLFromDag(sql, orderedDependencies));
+        await validateBackendQuery(buildRemoteSQLFromDag(sql, orderedDependencies, this.editor));
         return null;
       } catch (e: unknown) {
         console.error("Validation error", e);
@@ -212,11 +221,16 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     };
 
     const runQueryLogic = async (sqlText: string, markRunning: boolean = true) => {
+      if (this.editor.getShape<SQLTextAreaShape>(shape.id)?.props.isRunning) {
+        return { success: false, error: "Query is already running." };
+      }
       const startTime = Date.now();
       clearRestoredRemoteQueryMetadata(shape.id);
+      ensureQueryKnobs(this.editor, shape, sqlText);
 
       const dagWalk = walkSQLDag(this.editor, sqlText);
       if (!dagWalk.ok) {
+        update({ error: dagWalk.error.message, isDirty: true });
         addToast({
           title: dagWalk.error.title,
           description: dagWalk.error.message,
@@ -225,6 +239,11 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         return { success: false, error: dagWalk.error.message };
       }
       const { executionState: currentQueryExecutionState, nextUpstreamShapeIds, orderedDependencies } = dagWalk.plan;
+      if (nextUpstreamShapeIds.includes(shape.id)) {
+        const error = "A query cannot read from its own output.";
+        update({ error, isDirty: true });
+        return { success: false, error };
+      }
       const runnerName = "CLI";
       setShapeUpstreamConnections(
         this.editor,
@@ -250,7 +269,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
         {
           const { sourceName, sourceType, sourceNativePreview } = currentQueryExecutionState;
-          const finalSQL = buildRemoteSQLFromDag(sqlText, orderedDependencies);
+          const finalSQL = buildRemoteSQLFromDag(sqlText, orderedDependencies, this.editor);
 
           const result = await runRemoteQuery({
             sql: finalSQL,
@@ -271,6 +290,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
           queryStartTime: null,
           runnerName: null,
           outputSchema: schema,
+          stale: false,
           columnStats: null,
           lastRunStats: {
             executionTime,
@@ -319,9 +339,8 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     };
 
     const handleCancel = () => {
-      if (!isRemoteRunning) return;
+      if (!this.editor.getShape<SQLTextAreaShape>(shape.id)?.props.isRunning) return;
       cancelRemoteQuery(shape.id, shape.props.name);
-      update({ isRunning: false, error: null, queryStartTime: null, runnerName: null });
     };
 
     const handleChainQuery = () => {
@@ -380,6 +399,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
           const messySql = shape.props.text;
           formattedSql = format(messySql, {
             language: "duckdb", // Always specify a dialect for best results
+            paramTypes: { custom: [{ regex: "\\{[A-Za-z_][A-Za-z0-9_]*\\}" }] },
             keywordCase: "upper", // Forces "SELECT", "FROM"
             tabWidth: 2, // Indentation size
           });
@@ -479,7 +499,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
           <SQLTextAreaBody
             hasFooter={hasFooter}
-            isRemoteRunning={isRemoteRunning}
+            isRemoteRunning={isRemoteRunning || shape.props.isRunning}
             shape={shape}
             text={text}
             onCancel={handleCancel}

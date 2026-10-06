@@ -1,9 +1,10 @@
 import { getArrowBindings, type Editor, type TLArrowShape, type TLShape, type TLShapeId } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
+import type { KnobShape } from "../Knob/knob-types";
 import createArrowBetweenShapes from "./CreateArrowBetweenShapes";
 
-type ConnectionShape = DataSourceShape | SQLTextAreaShape;
+type ConnectionShape = DataSourceShape | SQLTextAreaShape | KnobShape;
 type ConnectionProps = Pick<ConnectionShape["props"], "downstreamShapeIds" | "upstreamShapeIds">;
 
 interface ConnectorArrow {
@@ -13,10 +14,14 @@ interface ConnectorArrow {
 }
 
 function isConnectionShape(shape: TLShape | undefined): shape is ConnectionShape {
-  return shape?.type === "data-source" || shape?.type === "sql-text-area";
+  return shape?.type === "data-source" || shape?.type === "sql-text-area" || shape?.type === "knob";
 }
 
 function updateConnectionProps(editor: Editor, shape: ConnectionShape, props: Partial<ConnectionProps>) {
+  if (shape.type === "knob") {
+    editor.updateShape<KnobShape>({ id: shape.id, type: "knob", props });
+    return;
+  }
   if (shape.type === "data-source") {
     editor.updateShape<DataSourceShape>({
       id: shape.id,
@@ -85,6 +90,9 @@ export function connectShapes(editor: Editor, upstreamShapeId: TLShapeId, downst
   }
   if (!downstreamShape) {
     throw new Error(`Downstream shape ${downstreamShapeId} does not exist.`);
+  }
+  if (downstreamShape.type === "knob" || (upstreamShape.type === "knob" && downstreamShape.type !== "sql-text-area")) {
+    throw new Error("Knobs can only connect to SQL queries, as inputs.");
   }
 
   editor.run(() => {

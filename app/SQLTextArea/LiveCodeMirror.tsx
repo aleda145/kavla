@@ -40,6 +40,8 @@ import {
 import { buildSqlSchemaIndex } from "./schema-index";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
+import { createKnobEditorExtensions, getKnobHoverSource } from "./knob-editor";
+import { getKnobReferences } from "../Knob/knobReferences";
 
 const spatialMark = Decoration.mark({
   class: "cm-spatial-link",
@@ -75,8 +77,11 @@ const createSpatialPlugin = (
       computeDecorations(view: EditorView): DecorationSet {
         const builder = new RangeSetBuilder<Decoration>();
         const text = view.state.doc.toString();
+        const knobReferences = getKnobReferences(text);
 
         for (const identifier of scanSqlIdentifiers(text)) {
+          if (knobReferences.some((reference) => reference.from <= identifier.from && reference.to >= identifier.to))
+            continue;
           const actualName = tableNames.get(identifier.name.toLowerCase());
           if (actualName) {
             if (queries.has(actualName)) {
@@ -139,8 +144,11 @@ const createColumnHighlightPlugin = (
         const text = view.state.doc.toString();
 
         const mentionedTables = findMentionedTables(text, tableNames);
+        const knobReferences = getKnobReferences(text);
 
         for (const identifier of scanSqlIdentifiers(text)) {
+          if (knobReferences.some((reference) => reference.from <= identifier.from && reference.to >= identifier.to))
+            continue;
           if (!shouldSuppressColumn(text, identifier)) {
             const colDefs = columnMapping[identifier.name.toLowerCase()];
             if (colDefs && colDefs.length > 0) {
@@ -407,8 +415,8 @@ export const LiveCodeMirror = ({
         remoteMap.set(entry.tableName, {
           sourceName: executionState.sourceName ?? "uploaded_files",
           sourceType: executionState.sourceNativePreview ? executionState.sourceType : "duckdb",
-          fullTableRef: `query:${queryShape.id}:${buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies)}`,
-          tableSql: buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies),
+          fullTableRef: `query:${queryShape.id}:${buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies, editor)}`,
+          tableSql: buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies, editor),
           runRemoteQuery,
           cancelRemoteQuery,
         });
@@ -625,10 +633,12 @@ export const LiveCodeMirror = ({
         tables: Array.from(tableNames).map((t) => ({ label: t, type: "table" })),
       }),
       createSpatialPlugin(tableNames, sources, queries, onNavigate),
+      createKnobEditorExtensions(editor),
       createColumnHighlightPlugin(columnMapping, upstreamTableNames, tableNames), // Add column highlighting
       gracePeriodHoverTooltip(
         [
           getErrorHoverSource(onTooltipActive), // Error takes precedence
+          getKnobHoverSource(editor, onTooltipActive),
           getColumnHoverSource(
             columnMapping,
             tableNames,
@@ -693,6 +703,7 @@ export const LiveCodeMirror = ({
 
                 const formatted = format(original, {
                   language: "duckdb",
+                  paramTypes: { custom: [{ regex: "\\{[A-Za-z_][A-Za-z0-9_]*\\}" }] },
                   keywordCase: "upper",
                   tabWidth: 2,
                 });
@@ -776,6 +787,7 @@ export const LiveCodeMirror = ({
         }
         /* Hover pointer only when ctrl is pressed */
         .cm-ctrl-pressed .cm-spatial-link:hover,
+        .cm-ctrl-pressed .cm-knob-reference:hover,
         .cm-ctrl-pressed .cm-spatial-link-query:hover {
           cursor: pointer;
           opacity: 0.8;
