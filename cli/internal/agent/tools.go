@@ -2,14 +2,16 @@ package agent
 
 func dynamicTools() []map[string]interface{} {
 	tools := []map[string]interface{}{
-		tool("get_canvas_context", "List the data sources, SQL queries, query results, charts, and notes currently on the Kavla canvas.", map[string]interface{}{
+		tool("get_canvas_context", "List the data sources, SQL queries, query results, charts, knobs with their current values/configuration, and notes currently on the Kavla canvas.", map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"shapeIds": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
 			},
 			"additionalProperties": false,
 		}),
-		tool("create_query", "Create and execute ONE analytical operation reading the immediate sourceShapeId's table. No CTEs or subqueries. Use HAVING/QUALIFY sparingly for simple result filters. Split combined operations into chained nodes; reuse cleaned inputs.", objectSchema(map[string]interface{}{
+		tool("create_knob", "Create a configured interactive knob. Use sparingly for a meaningful exploration, or whenever the user requests/mentions a knob. Supply a real initial value and complete ranges/options. Then connect it using the returned unquoted {name} parameter in create_query/update_query SQL. anchorShapeId controls placement only, not connections. Reuse existing knobs instead of duplicating them.", knobSchema(false)),
+		tool("update_knob", "Configure an existing knob in place, preserving its name and connections. Supply its kind, value, and complete range/step or category options. This applies manual settings; connected queries rerun automatically when the value changes.", knobSchema(true)),
+		tool("create_query", "Create and execute ONE analytical operation reading the immediate sourceShapeId's table. No CTEs or subqueries. Use HAVING/QUALIFY sparingly for simple result filters. Split combined operations into chained nodes; reuse cleaned inputs. To add an interactive parameter, create/configure its knob first and reference its exact unquoted {name} in SQL.", objectSchema(map[string]interface{}{
 			"sourceShapeId": map[string]string{"type": "string"},
 			"name":          map[string]string{"type": "string"},
 			"sql":           map[string]string{"type": "string"},
@@ -88,7 +90,7 @@ func dynamicTools() []map[string]interface{} {
 
 func tool(name, description string, schema map[string]interface{}) map[string]interface{} {
 	switch name {
-	case "get_canvas_context", "compute_column_profiles", "create_query", "update_query", "run_query", "create_chart", "update_chart", "create_lens", "update_lens":
+	case "get_canvas_context", "compute_column_profiles", "create_query", "update_query", "run_query", "create_chart", "update_chart", "create_lens", "update_lens", "create_knob", "update_knob":
 		properties := schema["properties"].(map[string]interface{})
 		properties["progress"] = map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 600, "description": "Brief user-facing explanation of this step: what you are checking and why, or what the previous result changes about the next step. One or two sentences, grounded in available evidence."}
 		required, _ := schema["required"].([]string)
@@ -100,6 +102,26 @@ func tool(name, description string, schema map[string]interface{}) map[string]in
 		"description": description,
 		"inputSchema": schema,
 	}
+}
+
+func knobSchema(updating bool) map[string]interface{} {
+	properties := map[string]interface{}{
+		"kind":         map[string]interface{}{"type": "string", "enum": []string{"numeric", "category", "timestamp", "boolean"}},
+		"value":        map[string]interface{}{"type": []string{"number", "string", "boolean"}, "description": "Required initial/current value: a number, an actual category string, a timestamp string YYYY-MM-DD HH:mm:ss (or YYYY-MM-DD for dates), or true/false."},
+		"min":          map[string]interface{}{"type": []string{"number", "string"}, "description": "Required for numeric/timestamp knobs. Lower bound based on upstream data or the user's requested range."},
+		"max":          map[string]interface{}{"type": []string{"number", "string"}, "description": "Required for numeric/timestamp knobs. Upper bound; min <= value <= max."},
+		"step":         map[string]interface{}{"type": []string{"number", "string"}, "description": "Required for numeric/timestamp knobs: a positive number for numeric, or second/minute/hour/day/week/year for timestamp. Date-only uses day/week/year."},
+		"options":      map[string]interface{}{"type": "array", "minItems": 1, "maxItems": 200, "items": map[string]string{"type": "string"}, "description": "Required for category knobs: verified distinct values; must contain value. Omit for other kinds."},
+		"temporalType": map[string]interface{}{"type": "string", "enum": []string{"date", "timestamp", "timestamptz"}, "description": "For timestamp knobs, match the source column type. Defaults to timestamp. Timezone-aware values use UTC."},
+	}
+	if updating {
+		properties["shapeId"] = map[string]string{"type": "string"}
+		return objectSchema(properties, "shapeId", "kind", "value")
+	}
+	properties["name"] = map[string]interface{}{"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "Unique meaningful parameter name, without braces."}
+	properties["anchorShapeId"] = map[string]interface{}{"type": "string", "description": "Existing source/query to place the knob near. Does not create a connection."}
+	properties["layout"] = layoutSchema()
+	return objectSchema(properties, "name", "anchorShapeId", "kind", "value")
 }
 
 func objectSchema(properties map[string]interface{}, required ...string) map[string]interface{} {

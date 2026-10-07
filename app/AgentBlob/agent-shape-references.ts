@@ -16,6 +16,7 @@ export function isContextShape(shape: TLShape) {
     "note",
     "lens-shape",
     "summary-shape",
+    "knob",
   ].includes(shape.type);
 }
 
@@ -51,6 +52,7 @@ export function getCanvasBadges(editor: Editor): ContextBadge[] {
         "lens-shape": ["#fce7f3", "#db2777"],
         "summary-shape": ["#dcfce7", "#16a34a"],
         note: ["#ffedd5", "#f97316"],
+        knob: ["#ccfbf1", "#0d9488"],
       };
       const [backgroundColor, borderBottomColor] = colors[shape.type] ?? ["#fff", "#000"];
       return { id: shape.id, name, backgroundColor, borderBottomColor };

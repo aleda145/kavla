@@ -4,6 +4,9 @@ import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
 import type { LensShape } from "../Lens/lens-shape-types";
 import type { SummaryShape, SummaryArtifact, SummarySection } from "../Summary/summary-shape-types";
 import { runLensTool } from "./agentLensTools";
+import { describeAgentKnob, runAgentKnobTool } from "./agentKnobTools";
+import type { KnobShape } from "../Knob/knob-types";
+import { getSQLKnobs } from "../Knob/knobSQL";
 import { computeAgentProfiles, getAgentDataPreview, resolveAgentDataShape } from "./agentDataTools";
 import {
   createShapeId,
@@ -135,6 +138,7 @@ function compactColumnStats(stats: Record<string, unknown> | null | undefined) {
 }
 
 function describeShape(editor: Editor, shape: TLShape): Record<string, unknown> | null {
+  if (shape.type === "knob") return describeAgentKnob(shape as KnobShape);
   if (shape.type === "data-source") {
     const source = shape as DataSourceShape;
     return {
@@ -237,9 +241,13 @@ export function buildPromptCanvasContext(editor: Editor, explicitShapeIds?: stri
     if ("sourceShapeId" in shape.props && typeof shape.props.sourceShapeId === "string")
       includedIds.add(shape.props.sourceShapeId as TLShapeId);
     if (shape.type === "sql-text-area") {
+      for (const knob of getSQLKnobs(editor, (shape as SQLTextAreaShape).props.text)) includedIds.add(knob.id);
       for (const dep of getOrderedDependenciesForSQL(editor, (shape as SQLTextAreaShape).props.text)
         .orderedDependencies)
         includedIds.add(dep.id);
+    }
+    if (shape.type === "knob") {
+      for (const queryId of (shape as KnobShape).props.downstreamShapeIds ?? []) includedIds.add(queryId as TLShapeId);
     }
   }
   return {
@@ -591,6 +599,7 @@ async function dispatchAgentCanvasTool(
                 "note",
                 "lens-shape",
                 "summary-shape",
+                "knob",
               ].includes(shape.type)
             )
             .slice(0, 50)
@@ -599,6 +608,12 @@ async function dispatchAgentCanvasTool(
     }
     case "create_query":
       return createQuery(editor, args, env, onActivityShape);
+    case "create_knob":
+    case "update_knob": {
+      const result = runAgentKnobTool(editor, args, tool === "update_knob");
+      onActivityShape?.(result.shapeId);
+      return result;
+    }
     case "move_shapes":
       return moveShapes(editor, args);
     case "set_query_table":
@@ -680,6 +695,7 @@ function moveShapes(editor: Editor, args: ToolArguments): ToolResult {
         "note",
         "text",
         "image",
+        "knob",
       ].includes(shape.type)
     )
       throw new Error(`Cannot move ${shape.type} with this tool.`);

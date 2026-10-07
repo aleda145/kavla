@@ -346,7 +346,7 @@ func (s *Server) handleAgentToolResult(w http.ResponseWriter, r *http.Request) {
 
 func isAllowedAgentCanvasTool(tool string) bool {
 	switch tool {
-	case "get_canvas_context", "create_query", "run_query", "update_query", "create_chart", "create_note", "update_chart", "update_note", "compute_column_profiles", "create_summary", "create_lens", "update_lens", "move_shapes", "set_query_table":
+	case "get_canvas_context", "create_query", "run_query", "update_query", "create_chart", "create_note", "update_chart", "update_note", "compute_column_profiles", "create_summary", "create_lens", "update_lens", "move_shapes", "set_query_table", "create_knob", "update_knob":
 		return true
 	default:
 		return false
