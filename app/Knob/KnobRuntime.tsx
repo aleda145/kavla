@@ -8,7 +8,8 @@ import { connectShapes, disconnectShapes } from "../util/shapeConnections";
 import { getKnobNames, getSQLKnobs } from "./knobSQL";
 import type { KnobShape } from "./knob-types";
 import { ensureQueryKnobs } from "./createKnobs";
-import { getKnobColumnQuery, inferKnob } from "./inferKnob";
+import { getKnobInferenceContext, inferKnob } from "./inferKnob";
+import { isKnobQueryConnected } from "./knobUpstream";
 
 // Mounted at canvas level: queries keep reacting even when their shapes are offscreen.
 export function KnobRuntime() {
@@ -56,20 +57,24 @@ export function KnobRuntime() {
           inferred.delete(knob.id);
           continue;
         }
-        const candidates = queries.filter((query) =>
-          getKnobNames(query.props.text).includes(knob.props.name.toUpperCase())
-        );
+        const candidates = queries.filter((query) => isKnobQueryConnected(knob, query));
         candidates.sort(
           (a, b) => Number(b.id === knob.props.inferenceQueryId) - Number(a.id === knob.props.inferenceQueryId)
         );
-        const context = candidates
-          .map((query) => ({ query, sql: getKnobColumnQuery(query.props.text, knob.props.name) }))
-          .find((item) => item.sql);
+        const context = getKnobInferenceContext(editor, knob, candidates);
         if (!context?.sql) {
           inferences.get(knob.id)?.controller.abort();
           inferences.delete(knob.id);
           inferred.delete(knob.id);
-          if (knob.props.inferenceStatus === "loading")
+          if (knob.props.inferenceColumn) {
+            const inferenceError = "The selected column is no longer available upstream.";
+            if (knob.props.inferenceError !== inferenceError)
+              editor.updateShape<KnobShape>({
+                id: knob.id,
+                type: "knob",
+                props: { inferenceStatus: "error", inferenceError },
+              });
+          } else if (knob.props.inferenceStatus === "loading")
             editor.updateShape<KnobShape>({ id: knob.id, type: "knob", props: { inferenceStatus: "ready" } });
           continue;
         }
@@ -77,6 +82,7 @@ export function KnobRuntime() {
         const key = JSON.stringify([
           context.query.id,
           context.sql,
+          knob.props.inferenceColumn ? knob.props.kind : null,
           dependencies.map((dependency) => [
             dependency.id,
             dependency.type === "sql-text-area" ? dependency.props.text : dependency.props.remoteTableRef,
@@ -96,7 +102,14 @@ export function KnobRuntime() {
             const current = editor.getShape<KnobShape>(knob.id);
             if (disposed || controller.signal.aborted || !current || current.props.inferFromColumn === false) return;
             const query = editor.getShape<SQLTextAreaShape>(context.query.id);
-            if (!query || getKnobColumnQuery(query.props.text, current.props.name) !== context.sql) return;
+            if (
+              !query ||
+              !isKnobQueryConnected(current, query) ||
+              getKnobInferenceContext(editor, current, [query])?.sql !== context.sql
+            )
+              return;
+            if (current.props.inferenceColumn && props.kind !== current.props.kind)
+              throw new Error("This column no longer matches the knob's control type. Choose another column.");
             // Keep a user's selection if they adjusted the knob during inference.
             if ((props.kind === "numeric" || props.kind === "timestamp") && current.props.value !== knob.props.value) {
               props.value = Math.max(props.min!, Math.min(props.max!, current.props.value));
@@ -281,7 +294,13 @@ export function KnobRuntime() {
               knobsChanged = true;
               relevant = true;
             }
-            if (a.props.inferFromColumn !== b.props.inferFromColumn) relevant = true;
+            if (
+              a.props.inferFromColumn !== b.props.inferFromColumn ||
+              a.props.inferenceColumn !== b.props.inferenceColumn ||
+              a.props.inferenceQueryId !== b.props.inferenceQueryId ||
+              a.props.inferenceSourceId !== b.props.inferenceSourceId
+            )
+              relevant = true;
           }
           if (before.type === "sql-text-area" && after.type === "sql-text-area") {
             const a = before as SQLTextAreaShape;
@@ -294,7 +313,7 @@ export function KnobRuntime() {
               clearTimeout(creationTimers.get(b.id));
               creationTimers.delete(b.id);
             }
-            if (a.props.name !== b.props.name) relevant = true;
+            if (a.props.name !== b.props.name || a.props.upstreamShapeIds !== b.props.upstreamShapeIds) relevant = true;
           }
           if (after.type === "data-source") relevant = true;
         }
