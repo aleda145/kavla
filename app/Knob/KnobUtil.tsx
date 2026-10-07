@@ -438,7 +438,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
             <span className={`kavla-knob-toggle-track ${getColumnTypeColor("BOOLEAN")}`} aria-hidden="true">
               <span />
             </span>
-            <span>{shape.props.categoryValue === "true" ? "On" : "Off"}</span>
+            <span>{shape.props.categoryValue === "true" ? "True" : "False"}</span>
           </button>
         ) : categorical ? (
           <div className="kavla-knob-select">
