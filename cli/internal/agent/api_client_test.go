@@ -38,7 +38,7 @@ func TestAPIClientToolLoop(t *testing.T) {
 		if body.Model != "test-model" || body.Stream == nil || *body.Stream {
 			t.Errorf("request must use the configured model without streaming")
 		}
-		if len(body.Tools) != 14 || body.Tools[0].Function.Name != "get_canvas_context" || body.Tools[0].Function.Parameters["type"] != "object" {
+		if len(body.Tools) != 16 || body.Tools[0].Function.Name != "get_canvas_context" || body.Tools[0].Function.Parameters["type"] != "object" {
 			t.Errorf("missing Kavla function schemas: %+v", body.Tools)
 		}
 		w.Header().Set("Content-Type", "application/json")
