@@ -6,6 +6,30 @@ import { randomUUID } from "../util/randomUUID";
 import { mapKnobParameters } from "./knobSQL";
 import type { KnobShape } from "./knob-types";
 import { getTimeStep, parseKnobTime } from "./knobTime";
+import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
+import { quoteIdentifier } from "../src/duckdb/sql";
+import { getKnobUpstreamSources } from "./knobUpstream";
+
+export function getKnobInferenceContext(editor: Editor, knob: KnobShape, queries: SQLTextAreaShape[]) {
+  if (knob.props.inferenceColumn) {
+    const upstream = getKnobUpstreamSources(editor, queries).find(({ query, source }) => {
+      if (knob.props.inferenceSourceId) return source.id === knob.props.inferenceSourceId;
+      const columns = source.type === "data-source" ? source.props.metadata : source.props.outputSchema;
+      return (
+        query.id === knob.props.inferenceQueryId &&
+        columns?.some((column) => column.name === knob.props.inferenceColumn)
+      );
+    });
+    if (!upstream) return undefined;
+    return {
+      query: upstream.query,
+      sql: `SELECT ${quoteIdentifier(knob.props.inferenceColumn)} AS knob_value FROM ${quoteIdentifier(upstream.source.props.name)}`,
+    };
+  }
+  return queries
+    .map((query) => ({ query, sql: getKnobColumnQuery(query.props.text, knob.props.name) }))
+    .find((context) => context.sql);
+}
 
 type Token = { text: string; from: number; to: number; depth: number };
 const identifier = /^(?:[A-Za-z_][A-Za-z0-9_$]*|"(?:""|[^"])+"|`(?:``|[^`])+`)$/;

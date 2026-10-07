@@ -26,6 +26,8 @@ import { getUniqueKnobName } from "./createKnobs";
 import type { KnobShape, KnobTemporalType } from "./knob-types";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { mapKnobParameters } from "./knobSQL";
+import { getKnobUpstreamSources, isKnobQueryConnected } from "./knobUpstream";
+import { getColumnAnalysisType } from "../src/duckdb/column-stats-sql";
 import {
   formatKnobTime,
   getTimeStep,
@@ -144,6 +146,50 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
     shape.props.kind === "boolean" || (shape.props.kind === "category" && shape.props.categoryType === "boolean");
   const categorical = shape.props.kind === "category" && !boolean;
   const temporal = shape.props.kind === "timestamp";
+  const columnOptions = useValue(
+    "Connected knob columns",
+    () => {
+      if (boolean) return [];
+      const current = editor.getShape<KnobShape>(shape.id);
+      if (!current) return [];
+      const queries = editor
+        .getCurrentPageShapes()
+        .filter(
+          (candidate): candidate is SQLTextAreaShape =>
+            candidate.type === "sql-text-area" && isKnobQueryConnected(current, candidate as SQLTextAreaShape)
+        );
+      return getKnobUpstreamSources(editor, queries).flatMap(({ query, source }) => {
+        const columns = source.type === "data-source" ? source.props.metadata : source.props.outputSchema;
+        return (columns ?? [])
+          .filter((column) => {
+            const type = getColumnAnalysisType(column.type);
+            if (categorical)
+              return !/BOOL/i.test(column.type) && (type === "text" || /^(ENUM|UUID)/i.test(column.type));
+            if (temporal) return type === "temporal" && /DATE|TIMESTAMP/i.test(column.type);
+            return type === "numeric";
+          })
+          .map((column) => ({
+            queryId: query.id,
+            sourceId: source.id,
+            column: column.name,
+            value: JSON.stringify([source.id, column.name]),
+            label: column.name,
+          }));
+      });
+    },
+    [editor, shape.id, boolean, categorical, temporal]
+  );
+  const selectedColumn =
+    shape.props.inferFromColumn !== false && shape.props.inferenceColumn
+      ? JSON.stringify([
+          shape.props.inferenceSourceId ??
+            columnOptions.find(
+              (option) =>
+                option.queryId === shape.props.inferenceQueryId && option.column === shape.props.inferenceColumn
+            )?.sourceId,
+          shape.props.inferenceColumn,
+        ])
+      : "";
   const temporalType = shape.props.temporalType ?? "timestamp";
   const timeLabel = temporalType === "date" ? "Date" : "Date & time";
   const timeStep = Math.max(temporalType === "date" ? 86_400_000 : 1000, step);
@@ -163,7 +209,14 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
   };
   const updateSettings = (props: Partial<KnobShape["props"]>) => {
     setError(null);
-    update({ ...props, inferFromColumn: false, inferenceStatus: "ready", inferenceError: null });
+    update({
+      ...props,
+      inferFromColumn: false,
+      inferenceColumn: undefined,
+      inferenceSourceId: undefined,
+      inferenceStatus: "ready",
+      inferenceError: null,
+    });
   };
   const rename = (nextName: string) => {
     if (disabled || nextName === name) return;
@@ -517,6 +570,52 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
               <ToggleLeft size={15} /> Boolean
             </button>
           </div>
+          {!boolean && (
+            <label className="kavla-knob-option-label">
+              Values from column
+              <select
+                className="kavla-knob-input"
+                aria-label="Values from column"
+                value={selectedColumn || (shape.props.inferFromColumn !== false ? "automatic" : "")}
+                disabled={disabled}
+                onChange={(event) => {
+                  if (event.currentTarget.value === "") {
+                    updateSettings({});
+                    return;
+                  }
+                  const column = columnOptions.find((option) => option.value === event.currentTarget.value);
+                  if (!column) return;
+                  setError(null);
+                  update({
+                    inferenceQueryId: column.queryId,
+                    inferenceSourceId: column.sourceId,
+                    inferenceColumn: column.column,
+                    inferFromColumn: true,
+                    inferenceStatus: "loading",
+                    inferenceError: null,
+                  });
+                  window.dispatchEvent(new CustomEvent("kavla:infer-knob", { detail: { shapeId: shape.id } }));
+                }}
+              >
+                <option value="">Manual</option>
+                {!selectedColumn && shape.props.inferFromColumn !== false && (
+                  <option value="automatic" disabled>
+                    Automatic
+                  </option>
+                )}
+                {selectedColumn && !columnOptions.some((option) => option.value === selectedColumn) && (
+                  <option value={selectedColumn} disabled>
+                    {shape.props.inferenceColumn} (unavailable)
+                  </option>
+                )}
+                {columnOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {categorical ? (
             <label className="kavla-knob-option-label">
               Choices <span className="kavla-knob-option-unit">one per line</span>
@@ -596,9 +695,9 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
           {shape.props.optionsTruncated && categorical && (
             <div className="kavla-knob-option-unit">First 200 choices</div>
           )}
-          {error && (
+          {(error || (shape.props.inferenceColumn && shape.props.inferenceError)) && (
             <div className="kavla-knob-error" role="alert">
-              {error}
+              {error ?? shape.props.inferenceError}
             </div>
           )}
         </div>
@@ -627,6 +726,8 @@ export class KnobUtil extends ShapeUtil<KnobShape> {
     optionsTruncated: T.boolean.optional(),
     inferFromColumn: T.boolean.optional(),
     inferenceQueryId: T.string.optional(),
+    inferenceColumn: T.string.optional(),
+    inferenceSourceId: T.string.optional(),
     inferenceStatus: T.literalEnum("loading", "ready", "error").optional(),
     inferenceError: T.string.nullable().optional(),
   };

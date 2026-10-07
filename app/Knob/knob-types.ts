@@ -20,6 +20,8 @@ export type KnobShape = TLBaseShape<
     optionsTruncated?: boolean;
     inferFromColumn?: boolean;
     inferenceQueryId?: string;
+    inferenceColumn?: string;
+    inferenceSourceId?: string;
     inferenceStatus?: "loading" | "ready" | "error";
     inferenceError?: string | null;
     downstreamShapeIds: string[] | null;
