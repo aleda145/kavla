@@ -12,6 +12,7 @@ func TestRunAddSourceDoesNotOverwriteMalformedConfig(t *testing.T) {
 	resetSourceFlags()
 	defer resetSourceFlags()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	path, err := kavlaconfig.GetConfigPath()
 	if err != nil {

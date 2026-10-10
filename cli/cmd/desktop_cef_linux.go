@@ -12,6 +12,7 @@ func cefExecutable(executable string) string {
 	return filepath.Join(filepath.Dir(executable), "..", "lib", "kavla-desktop", "kavla-desktop")
 }
 
-func configureCEFCommand(command *exec.Cmd) {
+func configureCEFCommand(command *exec.Cmd) error {
 	command.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
+	return nil
 }

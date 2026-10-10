@@ -37,6 +37,7 @@ func TestDirectoryDefinitionExpandsHomePath(t *testing.T) {
 	definition := definitionForType(t, "directory")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	path := filepath.Join(home, "datasets")
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatalf("MkdirAll returned error: %v", err)

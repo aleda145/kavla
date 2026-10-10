@@ -8,6 +8,10 @@
 #include "include/cef_client.h"
 #include "include/cef_command_line.h"
 #include "include/cef_version.h"
+#if defined(OS_WIN)
+#include "include/cef_sandbox_win.h"
+#include "include/cef_version_info.h"
+#endif
 #if defined(OS_MAC)
 #include "include/cef_path_util.h"
 #endif
@@ -214,18 +218,28 @@ void CloseKavlaBrowsers() {
 }
 
 NO_STACK_PROTECTOR
+#if defined(OS_WIN)
+int RunKavla(HINSTANCE instance, void* sandbox_info) {
+  CefMainArgs main_args(instance);
+#else
 int RunKavla(int argc, char* argv[]) {
   CefMainArgs main_args(argc, argv);
+  void* sandbox_info = nullptr;
+#endif
   CefRefPtr<KavlaApp> app(new KavlaApp());
 #if !defined(OS_MAC)
-  int exit_code = CefExecuteProcess(main_args, app, nullptr);
+  int exit_code = CefExecuteProcess(main_args, app, sandbox_info);
   if (exit_code >= 0) {
     return exit_code;
   }
 #endif
 
   auto command_line = CefCommandLine::CreateCommandLine();
+#if defined(OS_WIN)
+  command_line->InitFromString(GetCommandLineW());
+#else
   command_line->InitFromArgv(argc, argv);
+#endif
   if (!command_line->HasSwitch("url") || !command_line->HasSwitch("cache-path")) {
     std::cerr << "Launch the Kavla desktop package, or supply --url and --cache-path." << std::endl;
     return 1;
@@ -249,7 +263,7 @@ int RunKavla(int argc, char* argv[]) {
   std::cout << "Kavla CEF " << CEF_VERSION << " / Chromium "
             << CHROME_VERSION_MAJOR << "." << CHROME_VERSION_MINOR << "."
             << CHROME_VERSION_BUILD << "." << CHROME_VERSION_PATCH << std::endl;
-  if (!CefInitialize(main_args, settings, app, nullptr)) {
+  if (!CefInitialize(main_args, settings, app, sandbox_info)) {
     return CefGetExitCode();
   }
   CefRunMessageLoop();
@@ -257,7 +271,15 @@ int RunKavla(int argc, char* argv[]) {
   return application_exit_code;
 }
 
-#if !defined(OS_MAC)
+#if defined(OS_WIN)
+CEF_BOOTSTRAP_EXPORT int RunWinMain(HINSTANCE instance,
+                                    LPWSTR command_line,
+                                    int show_command,
+                                    void* sandbox_info,
+                                    cef_version_info_t* version_info) {
+  return RunKavla(instance, sandbox_info);
+}
+#elif !defined(OS_MAC)
 NO_STACK_PROTECTOR
 int main(int argc, char* argv[]) {
   return RunKavla(argc, argv);

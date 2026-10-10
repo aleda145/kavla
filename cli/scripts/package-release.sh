@@ -12,12 +12,17 @@ goarch="$3"
 input_dir="$4"
 dist_dir="$5"
 binary_name="kavla_${version}_${goos}_${goarch}"
+source_name=kavla
+if [[ "$goos" == windows ]]; then
+  source_name=kavla.exe
+  binary_name+=.exe
+fi
 
-if [[ ! -f "$input_dir/kavla" ]]; then
-  echo "expected $input_dir/kavla to exist" >&2
+if [[ ! -f "$input_dir/$source_name" ]]; then
+  echo "expected $input_dir/$source_name to exist" >&2
   exit 1
 fi
 
 mkdir -p "$dist_dir"
 rm -f "$dist_dir/$binary_name"
-install -m 0755 "$input_dir/kavla" "$dist_dir/$binary_name"
+install -m 0755 "$input_dir/$source_name" "$dist_dir/$binary_name"

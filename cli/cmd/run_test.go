@@ -15,6 +15,7 @@ import (
 func TestDefaultCanvasPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	path, err := defaultCanvasPath()
 	if err != nil {
@@ -30,6 +31,7 @@ func TestDefaultCanvasPath(t *testing.T) {
 func TestDefaultTitanicDatabasePath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	path, err := defaultTitanicDatabasePath()
 	if err != nil {
@@ -45,6 +47,7 @@ func TestDefaultTitanicDatabasePath(t *testing.T) {
 func TestStartupCanvasPathUsesTheMostRecentlyOpenedDocument(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	recentPath := filepath.Join(t.TempDir(), "analysis.kavla")
 	if err := os.WriteFile(recentPath, []byte("document"), 0600); err != nil {
 		t.Fatal(err)
@@ -65,6 +68,7 @@ func TestStartupCanvasPathUsesTheMostRecentlyOpenedDocument(t *testing.T) {
 func TestStartupCanvasPathFallsBackWhenTheRecentDocumentIsMissing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	if err := kavlaconfig.SaveConfig(&kavlaconfig.Config{LastDocument: filepath.Join(home, "missing.kavla")}); err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +129,7 @@ func TestEnsureBundledStarterCanvasDoesNotOverwriteExistingDocument(t *testing.T
 func TestEnsureBundledTitanicSourceCreatesDatabaseAndConfiguration(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	if err := ensureBundledTitanicSource(); err != nil {
 		t.Fatalf("ensure bundled Titanic source: %v", err)
@@ -160,6 +165,7 @@ func TestEnsureBundledTitanicSourceCreatesDatabaseAndConfiguration(t *testing.T)
 func TestEnsureBundledTitanicSourceDoesNotOverwriteExistingDatabaseOrSource(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	databasePath := filepath.Join(home, ".kavla", defaultTitanicDatabaseFilename)
 	if err := os.MkdirAll(filepath.Dir(databasePath), 0700); err != nil {
 		t.Fatal(err)
