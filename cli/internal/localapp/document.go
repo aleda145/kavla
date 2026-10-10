@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -214,7 +215,7 @@ func (d *Document) PutBlob(id string, descriptor BlobDescriptor, reader io.Reade
 	descriptor.Size = size
 	descriptor.SHA256 = hex.EncodeToString(hash.Sum(nil))
 
-	destination := filepath.Join(blobDir, id)
+	destination := filepath.Join(blobDir, stagedBlobName(id))
 	if err := os.Rename(tempName, destination); err != nil {
 		return BlobDescriptor{}, fmt.Errorf("publish staged blob: %w", err)
 	}
@@ -262,7 +263,7 @@ func (d *Document) DeleteBlobsForShapes(shapeIDs []string) error {
 		return err
 	}
 	for id := range removed {
-		if err := os.Remove(filepath.Join(d.workingDir, "blobs", id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := os.Remove(filepath.Join(d.workingDir, "blobs", stagedBlobName(id))); err != nil && !errors.Is(err, os.ErrNotExist) {
 			log.Printf("Kavla could not remove unreferenced blob %s: %v", id, err)
 		}
 	}
@@ -287,7 +288,7 @@ func (d *Document) DeleteBlob(id string) error {
 		d.rebuildBlobListLocked()
 		return err
 	}
-	if err := os.Remove(filepath.Join(d.workingDir, "blobs", id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(filepath.Join(d.workingDir, "blobs", stagedBlobName(id))); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("Kavla could not remove unreferenced blob %s: %v", id, err)
 	}
 	return nil
@@ -300,7 +301,7 @@ func (d *Document) BlobPath(id string) (string, BlobDescriptor, error) {
 	if !ok {
 		return "", BlobDescriptor{}, os.ErrNotExist
 	}
-	blobPath := filepath.Join(d.workingDir, "blobs", id)
+	blobPath := filepath.Join(d.workingDir, "blobs", stagedBlobName(id))
 	if err := d.ensureBlobExtractedLocked(id, descriptor); err != nil {
 		return "", BlobDescriptor{}, err
 	}
@@ -483,7 +484,7 @@ func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reas
 			if err = d.ensureBlobExtractedLocked(descriptor.ID, descriptor); err != nil {
 				break
 			}
-			if err = writeZipFile(zipWriter, "blobs/"+descriptor.ID, filepath.Join(d.workingDir, "blobs", descriptor.ID)); err != nil {
+			if err = writeZipFile(zipWriter, "blobs/"+descriptor.ID, filepath.Join(d.workingDir, "blobs", stagedBlobName(descriptor.ID))); err != nil {
 				break
 			}
 		}
@@ -569,7 +570,7 @@ func (d *Document) ReplaceFromArchive(archivePath string) error {
 		if err != nil {
 			return fmt.Errorf("read loaded blob %s: %w", descriptor.ID, err)
 		}
-		if err := copyPrivateFile(sourcePath, filepath.Join(stagedBlobDir, descriptor.ID)); err != nil {
+		if err := copyPrivateFile(sourcePath, filepath.Join(stagedBlobDir, stagedBlobName(descriptor.ID))); err != nil {
 			return fmt.Errorf("stage loaded blob %s: %w", descriptor.ID, err)
 		}
 		nextBlobs[descriptor.ID] = descriptor
@@ -735,7 +736,7 @@ func (d *Document) pruneUnreferencedBlobsLocked() error {
 		return err
 	}
 	for id := range removed {
-		if err := os.Remove(filepath.Join(d.workingDir, "blobs", id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := os.Remove(filepath.Join(d.workingDir, "blobs", stagedBlobName(id))); err != nil && !errors.Is(err, os.ErrNotExist) {
 			log.Printf("Kavla could not remove unreferenced blob %s: %v", id, err)
 		}
 	}
@@ -878,8 +879,19 @@ func validateBlobEntry(file *zip.File, descriptor BlobDescriptor) error {
 	return nil
 }
 
+// Only temporary filesystem names are encoded. Archive entries and manifest IDs
+// stay unchanged so documents remain compatible across platforms and versions.
+func stagedBlobName(id string) string {
+	if runtime.GOOS == "windows" {
+		// Hashing also avoids reserved device names and case-insensitive collisions.
+		digest := sha256.Sum256([]byte(id))
+		return hex.EncodeToString(digest[:])
+	}
+	return id
+}
+
 func (d *Document) ensureBlobExtractedLocked(id string, descriptor BlobDescriptor) error {
-	destination := filepath.Join(d.workingDir, "blobs", id)
+	destination := filepath.Join(d.workingDir, "blobs", stagedBlobName(id))
 	if _, err := os.Stat(destination); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {

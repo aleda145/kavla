@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -246,7 +247,12 @@ func (s *Server) Start(host string, port int, fallbackIfPortIsBusy bool) (string
 	listener, err := net.Listen("tcp", listenAddress)
 	usedFallbackPort := false
 	if err != nil {
-		if !fallbackIfPortIsBusy || !errors.Is(err, syscall.EADDRINUSE) {
+		addressInUse := errors.Is(err, syscall.EADDRINUSE)
+		if runtime.GOOS == "windows" {
+			// Winsock's WSAEADDRINUSE differs from Go's POSIX EADDRINUSE.
+			addressInUse = errors.Is(err, syscall.Errno(10048))
+		}
+		if !fallbackIfPortIsBusy || !addressInUse {
 			return "", fmt.Errorf("listen on %s: %w", listenAddress, err)
 		}
 		listener, err = net.Listen("tcp", net.JoinHostPort(host, "0"))

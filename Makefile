@@ -1,4 +1,4 @@
-.PHONY: build build-app build-appimage build-cef-appimage docker-push release run FORCE
+.PHONY: build build-app build-appimage build-cef-appimage build-windows-app docker-push release run FORCE
 
 CLI_SOURCES := $(shell find cli -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \))
 DEMO_ARCHIVE := cli/internal/demo/titanic.kavla
@@ -25,13 +25,17 @@ build-app:
 	@case "$$(uname -s)" in \
 		Linux) bash ./cli/scripts/build-linux-cef-appimage.sh "$(VERSION)" ;; \
 		Darwin) bash ./cli/scripts/build-macos-cef-app.sh "$(VERSION)" ;; \
-		*) echo "CEF desktop builds support Linux and macOS" >&2; exit 1 ;; \
+		MINGW*|MSYS*) bash ./cli/scripts/build-windows-cef-app.sh "$(VERSION)" ;; \
+		*) echo "CEF desktop builds support Linux, macOS and Windows" >&2; exit 1 ;; \
 	esac
 
 build-appimage: build-cef-appimage
 
 build-cef-appimage:
 	bash ./cli/scripts/build-linux-cef-appimage.sh "$(VERSION)"
+
+build-windows-app:
+	bash ./cli/scripts/build-windows-cef-app.sh "$(VERSION)"
 
 docker-push:
 	docker build --build-arg KAVLA_VERSION="$(DOCKER_TAG)" --tag "$(DOCKER_REF)" .

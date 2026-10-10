@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -16,6 +17,7 @@ import (
 
 func TestAgentRoutesAndRuntimeStream(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	fixture := newAPIAgentTestServer(t)
 	s, err := NewServer(fixture.document, fstest.MapFS{"index.html": {Data: []byte("ok")}}, nil, false)
 	if err != nil {

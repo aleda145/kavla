@@ -51,6 +51,7 @@ func TestRunAddSourceInteractivePromptsAndSavesConfig(t *testing.T) {
 	resetSourceFlags()
 	defer resetSourceFlags()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	prompter := &fakeSourcePrompter{
 		selectAnswers: []string{"bigquery"},
@@ -78,6 +79,7 @@ func TestRunAddSourceInteractivePromptsAndSavesPostgresConfig(t *testing.T) {
 	resetSourceFlags()
 	defer resetSourceFlags()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	prompter := &fakeSourcePrompter{
 		selectAnswers: []string{"postgres"},
@@ -105,6 +107,7 @@ func TestRunAddSourcePartialFlagsOnlyPromptsForMissingValues(t *testing.T) {
 	resetSourceFlags()
 	defer resetSourceFlags()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	sourceType = "bigquery"
 	sourceName = "analytics"
@@ -127,6 +130,7 @@ func TestRunAddSourcePostgresTrimsProvidedConnection(t *testing.T) {
 	resetSourceFlags()
 	defer resetSourceFlags()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	sourceType = "postgres"
 	sourceName = "warehouse"
@@ -146,6 +150,7 @@ func TestRunAddSourceNonInteractiveRequiresMissingFlags(t *testing.T) {
 	resetSourceFlags()
 	defer resetSourceFlags()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	err := runAddSourceWithPrompter(&fakeSourcePrompter{}, false)
 	if err == nil {
@@ -160,6 +165,7 @@ func TestRunAddSourceRejectsDuplicateNameBeforeSave(t *testing.T) {
 	resetSourceFlags()
 	defer resetSourceFlags()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	if err := kavlaconfig.SaveConfig(&kavlaconfig.Config{Sources: map[string]kavlaconfig.SourceConfig{
 		"analytics": {Type: "bigquery", Connection: "old-project"},
@@ -184,6 +190,7 @@ func TestRunAddSourceRetriesInvalidPromptedConnection(t *testing.T) {
 	resetSourceFlags()
 	defer resetSourceFlags()
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	duckdbPath := filepath.Join(t.TempDir(), "analytics.duckdb")
 	if err := os.WriteFile(duckdbPath, []byte("duckdb"), 0o600); err != nil {
