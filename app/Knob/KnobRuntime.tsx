@@ -47,13 +47,15 @@ export function KnobRuntime() {
 
     const inferOptions = (knobs: KnobShape[], queries: SQLTextAreaShape[]) => {
       for (const [id, request] of inferences) {
-        if (!knobs.some((knob) => knob.id === id && knob.props.inferFromColumn !== false)) {
+        if (
+          !knobs.some((knob) => knob.id === id && knob.props.kind !== "text" && knob.props.inferFromColumn !== false)
+        ) {
           request.controller.abort();
           inferences.delete(id);
         }
       }
       for (const knob of knobs) {
-        if (knob.props.inferFromColumn === false) {
+        if (knob.props.kind === "text" || knob.props.inferFromColumn === false) {
           inferred.delete(knob.id);
           continue;
         }
@@ -196,7 +198,7 @@ export function KnobRuntime() {
                 knob.props.kind ?? "numeric",
                 knob.props.categoryType,
                 knob.props.temporalType,
-                knob.props.kind === "category" || knob.props.kind === "boolean"
+                knob.props.kind === "category" || knob.props.kind === "boolean" || knob.props.kind === "text"
                   ? knob.props.categoryValue
                   : knob.props.value,
               ]),

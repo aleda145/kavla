@@ -93,6 +93,7 @@ export function resolveKnobSQL(editor: Editor, sql: string): string {
     if (!matches.length) throw new Error(`Missing knob {${name}}. Add a knob named ${name} on this page.`);
     if (matches.length > 1) throw new Error(`More than one knob is named ${name}. Give each knob a unique name.`);
     const knob = matches[0];
+    if (knob.props.kind === "text") return quoteSqlString(knob.props.categoryValue ?? "");
     if (knob.props.kind === "timestamp") {
       const type = knob.props.temporalType ?? "timestamp";
       const value = formatKnobTime(knob.props.value, type);

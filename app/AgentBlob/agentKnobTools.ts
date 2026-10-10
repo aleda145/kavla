@@ -16,7 +16,7 @@ export function describeAgentKnob(knob: KnobShape) {
     value:
       kind === "boolean"
         ? props.categoryValue === "true"
-        : kind === "category"
+        : kind === "category" || kind === "text"
           ? props.categoryValue
           : kind === "timestamp"
             ? formatKnobTime(props.value, props.temporalType)
@@ -95,6 +95,9 @@ export function runAgentKnobTool(editor: Editor, args: Record<string, unknown>, 
     if (min > max || !Number.isFinite(max - min) || value < min || value > max)
       throw new Error("The range must be finite with min <= value <= max.");
     Object.assign(props, { kind, min, max, value, step, ...(kind === "timestamp" ? { temporalType } : {}) });
+  } else if (args.kind === "text") {
+    if (typeof args.value !== "string") throw new Error("Free text knobs require a string value.");
+    Object.assign(props, { kind: "text", categoryType: "text", categoryValue: args.value });
   } else if (args.kind === "category") {
     if (
       !Array.isArray(args.options) ||
@@ -119,7 +122,7 @@ export function runAgentKnobTool(editor: Editor, args: Record<string, unknown>, 
       categoryValue: String(args.value),
       options: ["false", "true"],
     });
-  } else throw new Error("kind must be numeric, category, timestamp, or boolean.");
+  } else throw new Error("kind must be numeric, category, timestamp, boolean, or text.");
 
   const id = existing?.id ?? createShapeId();
   if (existing) editor.updateShape<KnobShape>({ id, type: "knob", props });

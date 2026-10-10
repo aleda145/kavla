@@ -44,6 +44,7 @@ export function navigateToKnob(editor: Editor, name: string): void {
 }
 
 export function describeKnob(knob: KnobShape): string {
+  if (knob.props.kind === "text") return knob.props.categoryValue || "(empty)";
   return knob.props.kind === "category"
     ? knob.props.categoryValue === ""
       ? "(empty)"

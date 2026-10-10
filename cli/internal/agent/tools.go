@@ -106,8 +106,8 @@ func tool(name, description string, schema map[string]interface{}) map[string]in
 
 func knobSchema(updating bool) map[string]interface{} {
 	properties := map[string]interface{}{
-		"kind":         map[string]interface{}{"type": "string", "enum": []string{"numeric", "category", "timestamp", "boolean"}},
-		"value":        map[string]interface{}{"type": []string{"number", "string", "boolean"}, "description": "Required initial/current value: a number, an actual category string, a timestamp string YYYY-MM-DD HH:mm:ss (or YYYY-MM-DD for dates), or true/false."},
+		"kind":         map[string]interface{}{"type": "string", "enum": []string{"numeric", "category", "timestamp", "boolean", "text"}},
+		"value":        map[string]interface{}{"type": []string{"number", "string", "boolean"}, "description": "Required initial/current value: a number, an actual category string, any string for free text (including empty), a timestamp string YYYY-MM-DD HH:mm:ss (or YYYY-MM-DD for dates), or true/false."},
 		"min":          map[string]interface{}{"type": []string{"number", "string"}, "description": "Required for numeric/timestamp knobs. Lower bound based on upstream data or the user's requested range."},
 		"max":          map[string]interface{}{"type": []string{"number", "string"}, "description": "Required for numeric/timestamp knobs. Upper bound; min <= value <= max."},
 		"step":         map[string]interface{}{"type": []string{"number", "string"}, "description": "Required for numeric/timestamp knobs: a positive number for numeric, or second/minute/hour/day/week/year for timestamp. Date-only uses day/week/year."},
