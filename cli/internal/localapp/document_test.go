@@ -12,6 +12,7 @@ import (
 
 func TestDocumentRoundTrip(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	documentPath := filepath.Join(t.TempDir(), "analysis.kavla")
 	document, err := OpenDocument(documentPath)
 	if err != nil {
@@ -86,6 +87,7 @@ func TestOpenDocumentIgnoresAnotherProcessWorkingCopy(t *testing.T) {
 
 func TestDocumentExtractsArchivedBlobsOnDemand(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	documentPath := filepath.Join(t.TempDir(), "lazy.kavla")
 	document, err := OpenDocument(documentPath)
 	if err != nil {
@@ -113,7 +115,7 @@ func TestDocumentExtractsArchivedBlobsOnDemand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stagedPath := filepath.Join(reopened.workingDir, "blobs", "source:shape-1")
+	stagedPath := filepath.Join(reopened.workingDir, "blobs", stagedBlobName("source:shape-1"))
 	if _, err := os.Stat(stagedPath); !os.IsNotExist(err) {
 		t.Fatalf("expected blob to remain archived until requested, got %v", err)
 	}
@@ -127,6 +129,7 @@ func TestDocumentExtractsArchivedBlobsOnDemand(t *testing.T) {
 
 func TestSavePrunesBlobsWhoseOwnersAreNoLongerInTheCanvas(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	documentPath := filepath.Join(t.TempDir(), "pruned.kavla")
 	document, err := OpenDocument(documentPath)
 	if err != nil {
@@ -186,6 +189,7 @@ func TestSavePrunesBlobsWhoseOwnersAreNoLongerInTheCanvas(t *testing.T) {
 
 func TestStaleCanvasStageDoesNotDeleteAnUploadForANewerCanvas(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	document, err := OpenDocument(filepath.Join(t.TempDir(), "upload-race.kavla"))
 	if err != nil {
 		t.Fatal(err)
@@ -223,6 +227,7 @@ func TestStaleCanvasStageDoesNotDeleteAnUploadForANewerCanvas(t *testing.T) {
 
 func TestReplaceFromArchiveKeepsActivePath(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	targetPath := filepath.Join(t.TempDir(), "default.kavla")
 	target, err := OpenDocument(targetPath)
 	if err != nil {
@@ -278,6 +283,7 @@ func TestReplaceFromArchiveKeepsActivePath(t *testing.T) {
 
 func TestSaveAsChangesActiveDocumentPathAndName(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	document, err := OpenDocument(filepath.Join(t.TempDir(), "default.kavla"))
 	if err != nil {
 		t.Fatal(err)
@@ -303,6 +309,7 @@ func TestSaveAsChangesActiveDocumentPathAndName(t *testing.T) {
 
 func TestOpenFromPathAdoptsLoadedDocumentPath(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	target, err := OpenDocument(filepath.Join(t.TempDir(), "default.kavla"))
 	if err != nil {
 		t.Fatal(err)
@@ -332,6 +339,7 @@ func TestOpenFromPathAdoptsLoadedDocumentPath(t *testing.T) {
 
 func TestNewAtPathCreatesFreshDocumentSession(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	document, err := OpenDocument(filepath.Join(t.TempDir(), "default.kavla"))
 	if err != nil {
 		t.Fatal(err)
@@ -359,6 +367,7 @@ func TestNewAtPathCreatesFreshDocumentSession(t *testing.T) {
 
 func TestNewAtPathRejectsExistingDocument(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	document, err := OpenDocument(filepath.Join(t.TempDir(), "default.kavla"))
 	if err != nil {
 		t.Fatal(err)
@@ -392,6 +401,7 @@ func TestNewAtPathRejectsExistingDocument(t *testing.T) {
 
 func TestDocumentRejectsInvalidCanvasAndBlobID(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	document, err := OpenDocument(filepath.Join(t.TempDir(), "invalid.kavla"))
 	if err != nil {
 		t.Fatal(err)
@@ -418,6 +428,7 @@ func TestDocumentRejectsInvalidCanvasAndBlobID(t *testing.T) {
 
 func TestDocumentRejectsUnsafeArchivePath(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	documentPath := filepath.Join(t.TempDir(), "unsafe.kavla")
 	file, err := os.Create(documentPath)
 	if err != nil {
@@ -457,6 +468,7 @@ func TestDocumentRejectsUnsafeArchivePath(t *testing.T) {
 
 func TestCleanupWorkingCopyRemovesTemporaryFilesAfterSave(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	document, err := OpenDocument(filepath.Join(t.TempDir(), "clean.kavla"))
 	if err != nil {
 		t.Fatal(err)

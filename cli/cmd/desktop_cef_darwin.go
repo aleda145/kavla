@@ -19,6 +19,7 @@ func cefExecutable(executable string) string {
 	return filepath.Join(filepath.Dir(executable), "kavla-desktop")
 }
 
-func configureCEFCommand(command *exec.Cmd) {
+func configureCEFCommand(command *exec.Cmd) error {
 	// macOS has no parent-death signal; normal shutdown forwards SIGTERM.
+	return nil
 }

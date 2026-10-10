@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
 project(kavla_cef LANGUAGES C CXX)
 
-if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin)$")
-  message(FATAL_ERROR "Kavla CEF supports Linux and macOS")
+if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin|Windows)$")
+  message(FATAL_ERROR "Kavla CEF supports Linux, macOS and Windows")
 endif()
 if(NOT IS_DIRECTORY "${CEF_ROOT}")
   message(FATAL_ERROR "Set CEF_ROOT to an extracted CEF binary distribution")
@@ -22,6 +22,23 @@ if(OS_LINUX)
     BUILD_WITH_INSTALL_RPATH TRUE
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Release"
   )
+elseif(OS_WINDOWS)
+  if(NOT USE_SANDBOX)
+    message(FATAL_ERROR "Windows desktop builds require USE_SANDBOX=ON")
+  endif()
+  ADD_LOGICAL_TARGET(libcef_lib "${CEF_LIB_DEBUG}" "${CEF_LIB_RELEASE}")
+  # CEF's bootstrap executable loads the matching DLL and provides the sandbox.
+  add_library(kavla-desktop SHARED main.cc)
+  SET_LIBRARY_TARGET_PROPERTIES(kavla-desktop)
+  target_link_libraries(kavla-desktop libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS})
+  set(CEF_TARGET_OUT_DIR "${CMAKE_BINARY_DIR}/$<CONFIG>")
+  set_target_properties(kavla-desktop PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CEF_TARGET_OUT_DIR}"
+  )
+  COPY_SINGLE_FILE(kavla-desktop "${CEF_BINARY_DIR}/bootstrap.exe" "${CEF_TARGET_OUT_DIR}/kavla-desktop.exe")
+  COPY_FILES(kavla-desktop "${CEF_BINARY_FILES}" "${CEF_BINARY_DIR}" "${CEF_TARGET_OUT_DIR}")
+  COPY_FILES(kavla-desktop "${CEF_RESOURCE_FILES}" "${CEF_RESOURCE_DIR}" "${CEF_TARGET_OUT_DIR}")
+  SET_LPAC_ACLS(kavla-desktop)
 elseif(OS_MAC)
   set(KAVLA_BUNDLE_VERSION "0.0.0" CACHE STRING "macOS bundle version")
   set(app_path "${CMAKE_BINARY_DIR}/Release/Kavla.app")

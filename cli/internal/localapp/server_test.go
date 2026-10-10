@@ -77,6 +77,7 @@ func TestStartFallsBackWhenRequestedPortIsBusy(t *testing.T) {
 
 func TestCLIEventsStartsWithRuntimeSnapshot(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	document, err := OpenDocument(filepath.Join(t.TempDir(), "runtime-events.kavla"))
 	if err != nil {
 		t.Fatal(err)
@@ -114,6 +115,7 @@ func TestCLIEventsStartsWithRuntimeSnapshot(t *testing.T) {
 
 func TestExportCLISourceTableWithoutQuery(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	sourceDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(sourceDir, "people.csv"), []byte("name,age\nAda,36\nGrace,40\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -184,6 +186,7 @@ func TestExportCLISourceTableWithoutQuery(t *testing.T) {
 
 func TestLocalQueryKeepsTheFullResultOnlyAtRuntime(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	document, err := OpenDocument(filepath.Join(t.TempDir(), "query.kavla"))
 	if err != nil {
 		t.Fatal(err)
@@ -285,6 +288,7 @@ func TestLocalQueryKeepsTheFullResultOnlyAtRuntime(t *testing.T) {
 
 func TestBlobEndpointsRequireSameHostOriginForMutations(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	document, err := OpenDocument(filepath.Join(t.TempDir(), "assets.kavla"))
 	if err != nil {
 		t.Fatal(err)
@@ -534,6 +538,7 @@ func TestNewDocumentRequiresConfirmationToOverwriteExistingFile(t *testing.T) {
 
 func TestTransientQueryResultIsServedOnceWithoutEnteringDocument(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	document, err := OpenDocument(filepath.Join(t.TempDir(), "transient.kavla"))
 	if err != nil {
 		t.Fatal(err)

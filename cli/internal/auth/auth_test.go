@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/base64"
+	"os"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ func TestGetTokenExpiryDecodesURLSafeJWT(t *testing.T) {
 
 func TestSaveTokenPreservesSourcesAndHostedURLs(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	config := &kavlaconfig.Config{
 		APIURL:  "https://worker.example.test",
 		AuthURL: "https://auth.example.test",

@@ -83,7 +83,13 @@ jobs:
           - runner: macos-15
             goos: darwin
             goarch: arm64
+          - runner: windows-2022
+            goos: windows
+            goarch: amd64
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -97,6 +103,23 @@ jobs:
       - name: Install Linux desktop build dependencies
         if: matrix.goos == 'linux'
         run: sudo apt-get update && sudo apt-get install -y build-essential cmake file libgtk-3-dev libnss3-dev
+      - name: Install Windows Go/DuckDB toolchain
+        if: matrix.goos == 'windows'
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Configure Windows Go/DuckDB toolchain
+        if: matrix.goos == 'windows'
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          printf '%s\\ucrt64\\bin\n' "$MSYS2_LOCATION" >> "$GITHUB_PATH"
+          echo 'CGO_ENABLED=1' >> "$GITHUB_ENV"
+          echo 'CC=gcc' >> "$GITHUB_ENV"
+          echo 'CXX=g++' >> "$GITHUB_ENV"
       - name: Install app dependencies
         working-directory: app
         run: yarn install --frozen-lockfile
@@ -104,6 +127,12 @@ jobs:
         if: matrix.goos == 'darwin'
         working-directory: cli
         run: go test -tags cef ./cmd ./internal/localapp
+      - name: Test Windows backend
+        if: matrix.goos == 'windows'
+        working-directory: cli
+        run: |
+          go test ./...
+          go test -tags cef ./cmd ./internal/localapp
       - name: Build self-contained CLI binary
         working-directory: cli
         env:
@@ -127,6 +156,18 @@ jobs:
           BUILD_DATE: ${{ needs.meta.outputs.build_date }}
           CEF_SKIP_WEB_BUILD: "1"
         run: bash ./cli/scripts/build-macos-cef-app.sh "${{ needs.meta.outputs.version }}"
+      - name: Build Windows CEF desktop package
+        if: matrix.goos == 'windows'
+        env:
+          COMMIT: ${{ needs.meta.outputs.commit }}
+          BUILD_DATE: ${{ needs.meta.outputs.build_date }}
+          CEF_SKIP_WEB_BUILD: "1"
+        run: bash ./cli/scripts/build-windows-cef-app.sh "${{ needs.meta.outputs.version }}"
+      - name: Check Windows CLI release executable
+        if: matrix.goos == 'windows'
+        working-directory: cli
+        # The distributed CLI must run without the MinGW runtime on PATH.
+        run: PATH="/c/Windows/System32:/c/Windows" ./dist/kavla_${{ needs.meta.outputs.version }}_windows_amd64.exe version
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.goos }}-${{ matrix.goarch }}

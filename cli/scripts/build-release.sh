@@ -17,14 +17,20 @@ commit="${COMMIT:-unknown}"
 build_date="${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 module_path="$(go list -m -f '{{.Path}}')"
 ldflags="-s -w -X ${module_path}/cmd.Version=${version} -X ${module_path}/cmd.Commit=${commit} -X ${module_path}/cmd.BuildDate=${build_date}"
+binary_name=kavla
+if [[ "$goos" == windows ]]; then
+  binary_name=kavla.exe
+  # Bundle MinGW's C++ and threading runtimes in the CLI executable.
+  ldflags+=" -extldflags=-static"
+fi
 
 mkdir -p "$output_dir"
-rm -f "$output_dir/kavla"
+rm -f "$output_dir/$binary_name"
 
 CGO_ENABLED=1 GOOS="$goos" GOARCH="$goarch" go build \
   -trimpath \
   -ldflags "$ldflags" \
-  -o "$output_dir/.kavla.new" \
+  -o "$output_dir/.$binary_name.new" \
   .
 
-mv "$output_dir/.kavla.new" "$output_dir/kavla"
+mv "$output_dir/.$binary_name.new" "$output_dir/$binary_name"
