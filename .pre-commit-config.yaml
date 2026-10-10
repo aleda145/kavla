@@ -15,7 +15,7 @@ repos:
         files: ^cli/.*\.go$
       - id: prettier
         name: Run prettier
-        entry: npx prettier --write --config ./.prettierrc.json
+        entry: app/node_modules/.bin/prettier --write --config ./.prettierrc.json
         language: system
         files: ^app/.*\.(js|jsx|ts|tsx|json|css|scss|html)$
         require_serial: true
