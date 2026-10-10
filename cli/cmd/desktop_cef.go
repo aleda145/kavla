@@ -1,4 +1,4 @@
-//go:build cef && (linux || darwin)
+//go:build cef && (linux || darwin || windows)
 
 package cmd
 
@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -56,7 +57,9 @@ func runDesktop(server *localapp.Server, launchURL, _ string, _ func(string, str
 	)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
-	configureCEFCommand(command)
+	if err := configureCEFCommand(command); err != nil {
+		return err
+	}
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -72,7 +75,12 @@ func runDesktop(server *localapp.Server, launchURL, _ string, _ func(string, str
 			return fmt.Errorf("CEF desktop shell exited: %w", err)
 		}
 	case <-signals:
-		_ = command.Process.Signal(syscall.SIGTERM)
+		if runtime.GOOS == "windows" {
+			// Windows does not support sending SIGTERM to a child process.
+			_ = command.Process.Kill()
+		} else {
+			_ = command.Process.Signal(syscall.SIGTERM)
+		}
 		select {
 		case <-wait:
 		case <-time.After(10 * time.Second):

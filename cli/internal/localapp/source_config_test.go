@@ -57,6 +57,7 @@ func decodeCLISourcesResponse(t *testing.T, recorder *httptest.ResponseRecorder)
 
 func TestCLISourceConfigurationCreatesRenamesAndDeletesSource(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	_, handler := newSourceConfigTestServer(t)
 	firstDirectory := filepath.Join(t.TempDir(), "first")
 	secondDirectory := filepath.Join(t.TempDir(), "second")
@@ -110,6 +111,7 @@ func TestCLISourceConfigurationCreatesRenamesAndDeletesSource(t *testing.T) {
 
 func TestCLISourceConfigurationDoesNotOverwriteMalformedConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	_, handler := newSourceConfigTestServer(t)
 	configPath, err := kavlaconfig.GetConfigPath()
 	if err != nil {
@@ -140,6 +142,7 @@ func TestCLISourceConfigurationDoesNotOverwriteMalformedConfig(t *testing.T) {
 
 func TestCLISourcePathListingIncludesDirectoriesAndFiles(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	_, handler := newSourceConfigTestServer(t)
 	directory := t.TempDir()
 	if err := os.Mkdir(filepath.Join(directory, "datasets"), 0700); err != nil {

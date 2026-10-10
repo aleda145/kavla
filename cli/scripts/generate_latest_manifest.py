@@ -10,6 +10,7 @@ TARGETS = [
     ("linux", "amd64"),
     ("linux", "arm64"),
     ("darwin", "arm64"),
+    ("windows", "amd64"),
 ]
 
 
@@ -35,6 +36,10 @@ def main() -> None:
 
     for goos, goarch in TARGETS:
         filename = f"kavla_{args.version}_{goos}_{goarch}"
+        binary_name = "kavla"
+        if goos == "windows":
+            filename += ".exe"
+            binary_name += ".exe"
         path = dist_dir / filename
         if not path.is_file():
             raise SystemExit(f"missing release binary: {path}")
@@ -42,7 +47,7 @@ def main() -> None:
             "url": f"https://github.com/{args.repo}/releases/download/{args.version}/{filename}",
             "sha256": sha256_file(path),
             "format": "binary",
-            "binary_name": "kavla",
+            "binary_name": binary_name,
         }
 
     manifest = {

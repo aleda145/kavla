@@ -176,6 +176,11 @@ func (u *Updater) Update(ctx context.Context, currentVersion string) (UpdateResu
 	if err != nil {
 		return UpdateResult{}, err
 	}
+	if u.goos == "windows" {
+		// Windows locks running executables; replacing this process in place
+		// needs a separate updater. Keep release downloads usable in the meantime.
+		return UpdateResult{}, fmt.Errorf("%w: download the Windows package from %s", ErrManualInstallRequired, ReleasesURL)
+	}
 
 	binaryPath, tempDir, err := u.downloadBinary(ctx, asset)
 	if err != nil {
@@ -282,10 +287,14 @@ func (u *Updater) assetForCurrentPlatform(manifest Manifest) (Asset, error) {
 	if asset.Format != "binary" {
 		return Asset{}, fmt.Errorf("unsupported release asset format %q", asset.Format)
 	}
-	if asset.BinaryName == "" {
-		asset.BinaryName = "kavla"
+	binaryName := "kavla"
+	if u.goos == "windows" {
+		binaryName = "kavla.exe"
 	}
-	if asset.BinaryName != "kavla" {
+	if asset.BinaryName == "" {
+		asset.BinaryName = binaryName
+	}
+	if asset.BinaryName != binaryName {
 		return Asset{}, fmt.Errorf("unexpected binary name %q", asset.BinaryName)
 	}
 	return asset, nil
@@ -391,6 +400,8 @@ func platformKey(goos, goarch string) string {
 		return "linux-arm64"
 	case goos == "darwin" && goarch == "arm64":
 		return "darwin-arm64"
+	case goos == "windows" && goarch == "amd64":
+		return "windows-amd64"
 	default:
 		return ""
 	}

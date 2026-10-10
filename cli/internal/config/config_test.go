@@ -3,11 +3,13 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func TestLoadConfigAllowMissingReturnsEmptyConfigWhenFileIsMissing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	config, err := LoadConfigAllowMissing()
 	if err != nil {
@@ -23,6 +25,7 @@ func TestLoadConfigAllowMissingReturnsEmptyConfigWhenFileIsMissing(t *testing.T)
 
 func TestSaveConfigTightensExistingFilePermissions(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	path, err := GetConfigPath()
 	if err != nil {
 		t.Fatalf("GetConfigPath returned error: %v", err)
@@ -40,7 +43,7 @@ func TestSaveConfigTightensExistingFilePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat returned error: %v", err)
 	}
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatalf("expected config permissions 0600, got %o", info.Mode().Perm())
 	}
 }

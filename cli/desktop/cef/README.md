@@ -1,10 +1,11 @@
 # CEF desktop
 
-Kavla uses a Chromium Embedded Framework window on Linux and macOS.
+Kavla uses a Chromium Embedded Framework window on Linux, macOS and Windows.
 The frontend, Go HTTP server, DuckDB, and `.kavla` document format are shared.
 The desktop build uses the `cef` Go build tag; ordinary CLI builds open the
 system browser. The release workflow builds CLI binaries and CEF desktop
-packages on Linux (amd64 and arm64) and macOS (Apple Silicon arm64 only).
+packages on Linux (amd64 and arm64), macOS (Apple Silicon arm64 only), and
+Windows (x64).
 AppImage smoke tests are disabled because startup under Xvfb times out without
 a diagnosed cause. Go tests and native CEF compilation remain enabled. CEF assets are
 named `kavla-desktop_*`; the CLI updater continues to use the ordinary CLI binaries.
@@ -29,6 +30,32 @@ The bundle includes the CEF framework and its sandboxed helper applications.
 Closing the last window or choosing Quit saves and closes the Go backend.
 macOS packages are ad-hoc signed and verified during packaging; Developer ID
 signing and Apple notarization are not configured.
+
+On Windows x64, run this from Git Bash:
+
+```sh
+bash ./cli/scripts/build-windows-cef-app.sh local
+```
+
+This produces `cli/dist/kavla-desktop_local_windows_amd64.zip`. Extract the whole
+`Kavla` folder to a writable location and launch `Kavla.exe`. Keep its console
+open while using the app; closing the canvas window or pressing Ctrl+C saves
+and exits. Drop a `.kavla` file onto `Kavla.exe`, or run
+`Kavla.exe open 'C:\path\to\document.kavla'`, to open an existing document.
+The `cef` folder contains CEF's sandbox bootstrap, the Kavla browser DLL, and
+Chromium's runtime files. The launcher restores the sandbox's read/execute ACL
+on this folder, because ZIP extraction does not preserve Windows ACLs.
+
+Windows build requirements are Visual Studio 2022 with Desktop development
+with C++, CMake, Git Bash, Go x64, Node/Yarn, and MSYS2's
+`mingw-w64-ucrt-x86_64-gcc` package. Put `C:\msys64\ucrt64\bin` on PATH for
+Go/DuckDB; CMake uses Visual Studio for CEF. Run `yarn install --frozen-lockfile`
+in `app` first. With Make installed, `make build-windows-app VERSION=local` also
+works. CI builds both the standalone `kavla_<version>_windows_amd64.exe` CLI
+(which opens the system browser) and the desktop ZIP. The CLI includes its
+MinGW runtime, and CI checks it can run without MinGW on PATH.
+Windows packages are unsigned. Windows updates require downloading the new
+package from the release page; `kavla update` reports this explicitly.
 
 The first build downloads the pinned CEF minimal SDK (Chromium 152) and verifies
 it against the checksum published by the CEF build service. It also downloads
