@@ -363,9 +363,11 @@
   grid-template-columns: minmax(0, 1fr);
 }
 .kavla-knob-choices {
-  height: 100px;
+  height: auto;
   min-height: 60px;
-  resize: vertical;
+  max-height: calc(6 * 1.4em + 12px);
+  resize: none;
+  overflow-y: auto;
 }
 .kavla-knob-error {
   font-size: 11px;

@@ -102,13 +102,33 @@ function ChoicesInput({
   disabled: boolean;
   onChange: (options: string[]) => void;
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState(options.join("\n"));
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const resize = () => {
+      textarea.style.height = "auto";
+      const borderHeight = textarea.offsetHeight - textarea.clientHeight;
+      textarea.style.height = `${textarea.scrollHeight + borderHeight}px`;
+    };
+    resize();
+    let width = textarea.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (textarea.clientWidth === width) return;
+      width = textarea.clientWidth;
+      resize();
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [draft]);
   const saved = options.join("\n");
   useEffect(() => {
     setDraft(saved);
   }, [saved]);
   return (
     <textarea
+      ref={textareaRef}
       className="kavla-knob-input kavla-knob-choices"
       aria-label="Choices, one per line"
       value={draft}
