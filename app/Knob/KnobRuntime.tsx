@@ -197,6 +197,7 @@ export function KnobRuntime() {
                 knob.id,
                 knob.props.kind ?? "numeric",
                 knob.props.categoryType,
+                knob.props.categoryAll,
                 knob.props.temporalType,
                 knob.props.kind === "category" || knob.props.kind === "boolean" || knob.props.kind === "text"
                   ? knob.props.categoryValue
@@ -290,6 +291,7 @@ export function KnobRuntime() {
               a.props.value !== b.props.value ||
               a.props.kind !== b.props.kind ||
               a.props.categoryValue !== b.props.categoryValue ||
+              a.props.categoryAll !== b.props.categoryAll ||
               a.props.categoryType !== b.props.categoryType ||
               a.props.temporalType !== b.props.temporalType
             ) {

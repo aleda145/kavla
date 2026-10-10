@@ -30,7 +30,9 @@ export function describeAgentKnob(knob: KnobShape) {
           temporalType: props.temporalType ?? "timestamp",
         }
       : {}),
-    ...(kind === "category" ? { options: props.options, optionsTruncated: props.optionsTruncated } : {}),
+    ...(kind === "category"
+      ? { options: props.options, optionsTruncated: props.optionsTruncated, all: props.categoryAll ?? false }
+      : {}),
     downstreamShapeIds: props.downstreamShapeIds,
     inferFromColumn: props.inferFromColumn !== false,
     inferenceSourceId: props.inferenceSourceId,
@@ -62,6 +64,7 @@ export function runAgentKnobTool(editor: Editor, args: Record<string, unknown>, 
     inferenceStatus: "ready",
     inferenceError: null,
     optionsTruncated: false,
+    categoryAll: false,
   };
   const number = (key: string) => {
     const value = args[key];

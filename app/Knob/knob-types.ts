@@ -16,6 +16,7 @@ export type KnobShape = TLBaseShape<
     temporalType?: KnobTemporalType;
     categoryType?: "text" | "boolean";
     categoryValue?: string;
+    categoryAll?: boolean;
     options?: string[];
     optionsTruncated?: boolean;
     inferFromColumn?: boolean;

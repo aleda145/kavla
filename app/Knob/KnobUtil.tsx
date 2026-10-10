@@ -297,6 +297,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
   };
   const changeKind = (kind: NonNullable<KnobShape["props"]["kind"]>) => {
     if (kind === (boolean ? "boolean" : (shape.props.kind ?? "numeric"))) return;
+    update({ categoryAll: false });
     if (kind === "text") {
       updateSettings({ kind, categoryType: "text", categoryValue: shape.props.categoryValue ?? "" });
     } else if (kind === "boolean") {
@@ -478,16 +479,24 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
             <select
               className="kavla-knob-input"
               aria-label={`${name} value`}
-              value={shape.props.categoryValue ?? ""}
-              disabled={disabled || loading || !options.length}
-              onChange={(event) => update({ categoryValue: event.currentTarget.value })}
+              value={shape.props.categoryAll ? "all" : `value:${shape.props.categoryValue ?? ""}`}
+              disabled={disabled || loading}
+              onChange={(event) => {
+                const selected = event.currentTarget.value;
+                update(
+                  selected === "all" ? { categoryAll: true } : { categoryAll: false, categoryValue: selected.slice(6) }
+                );
+              }}
             >
+              <option value="all">All</option>
               {shape.props.categoryValue !== undefined && !options.includes(shape.props.categoryValue) && (
-                <option value={shape.props.categoryValue}>{shape.props.categoryValue || "(empty)"}</option>
+                <option value={`value:${shape.props.categoryValue}`}>
+                  {shape.props.categoryValue === "All" ? '"All" (value)' : shape.props.categoryValue || "(empty)"}
+                </option>
               )}
               {options.map((option) => (
-                <option key={option} value={option}>
-                  {option || "(empty)"}
+                <option key={option} value={`value:${option}`}>
+                  {option === "All" ? '"All" (value)' : option || "(empty)"}
                 </option>
               ))}
             </select>
@@ -764,6 +773,7 @@ export class KnobUtil extends ShapeUtil<KnobShape> {
     temporalType: T.literalEnum("date", "timestamp", "timestamptz").optional(),
     categoryType: T.literalEnum("text", "boolean").optional(),
     categoryValue: T.string.optional(),
+    categoryAll: T.boolean.optional(),
     options: T.arrayOf(T.string).optional(),
     optionsTruncated: T.boolean.optional(),
     inferFromColumn: T.boolean.optional(),
