@@ -105,21 +105,38 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential cmake file libgtk-3-dev libnss3-dev
       - name: Install Windows Go/DuckDB toolchain
         if: matrix.goos == 'windows'
-        id: msys2
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-          install: mingw-w64-ucrt-x86_64-gcc
-      - name: Configure Windows Go/DuckDB toolchain
-        if: matrix.goos == 'windows'
-        env:
-          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        shell: pwsh
+        # DuckDB's prebuilt Windows libraries require emulated TLS symbols that
+        # MSYS2 GCC 16 removed. Pin the compiler and its matching C++ runtime.
+        # https://www.msys2.org/news/#2026-05-11-native-thread-local-storage-tls-with-gcc-16
         run: |
-          printf '%s\\ucrt64\\bin\n' "$MSYS2_LOCATION" >> "$GITHUB_PATH"
-          echo 'CGO_ENABLED=1' >> "$GITHUB_ENV"
-          echo 'CC=gcc' >> "$GITHUB_ENV"
-          echo 'CXX=g++' >> "$GITHUB_ENV"
+          $ErrorActionPreference = 'Stop'
+          $release = '15.2.0posix-13.0.0-ucrt-r6'
+          $filename = 'winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-13.0.0-r6.zip'
+          $sha256 = '9f3ee66dd11f1c40a85850976ab9a740469cd3bc43a234a2e9f91c04c92c4f57'
+          $archive = Join-Path $env:RUNNER_TEMP $filename
+          $toolchain = Join-Path $env:RUNNER_TEMP "kavla-gcc-$release"
+          Invoke-WebRequest "https://github.com/brechtsanders/winlibs_mingw/releases/download/$release/$filename" -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $sha256) {
+            throw 'Windows toolchain checksum mismatch'
+          }
+          New-Item -ItemType Directory -Force -Path $toolchain | Out-Null
+          Push-Location $toolchain
+          try {
+            cmake -E tar xf $archive
+            if ($LASTEXITCODE -ne 0) { throw 'Windows toolchain extraction failed' }
+          } finally {
+            Pop-Location
+          }
+          Join-Path $toolchain 'mingw64\bin' | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          @('CGO_ENABLED=1', 'CC=gcc', 'CXX=g++') | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Verify Windows compiler selection
+        if: matrix.goos == 'windows'
+        run: |
+          test "$(gcc -dumpmachine)" = x86_64-w64-mingw32
+          test "$(gcc -dumpfullversion)" = 15.2.0
+          test "$(g++ -dumpfullversion)" = 15.2.0
+          gcc -v
       - name: Install app dependencies
         working-directory: app
         run: yarn install --frozen-lockfile

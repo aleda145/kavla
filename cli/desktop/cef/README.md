@@ -47,9 +47,13 @@ Chromium's runtime files. The launcher restores the sandbox's read/execute ACL
 on this folder, because ZIP extraction does not preserve Windows ACLs.
 
 Windows build requirements are Visual Studio 2022 with Desktop development
-with C++, CMake, Git Bash, Go x64, Node/Yarn, and MSYS2's
-`mingw-w64-ucrt-x86_64-gcc` package. Put `C:\msys64\ucrt64\bin` on PATH for
-Go/DuckDB; CMake uses Visual Studio for CEF. Run `yarn install --frozen-lockfile`
+with C++, CMake, Git Bash, Go x64, Node/Yarn, and
+[WinLibs GCC 15.2.0 POSIX/UCRT release 6](https://github.com/brechtsanders/winlibs_mingw/releases/tag/15.2.0posix-13.0.0-ucrt-r6)
+(the x86_64 ZIP). Extract it and put its `mingw64\bin` directory first on PATH
+for Go/DuckDB; CMake uses Visual Studio for CEF. CI pins and verifies this
+toolchain by SHA-256. Do not substitute the rolling MSYS2 GCC 16 toolchain:
+its C++ runtime removed emulated TLS symbols required by the current prebuilt
+DuckDB libraries. Run `yarn install --frozen-lockfile`
 in `app` first. With Make installed, `make build-windows-app VERSION=local` also
 works. CI builds both the standalone `kavla_<version>_windows_amd64.exe` CLI
 (which opens the system browser) and the desktop ZIP. The CLI includes its
