@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type SyntheticEvent } from "react";
 import {
   AlertCircle,
   CalendarClock,
@@ -41,6 +41,15 @@ import { TimeInput } from "./TimeInput";
 import "./knob.css";
 
 const compactHeight = 126;
+
+function stopControlEvent(event: SyntheticEvent) {
+  if (
+    event.target instanceof Element &&
+    event.target.closest("button, input, textarea, select, [contenteditable='true']")
+  ) {
+    event.stopPropagation();
+  }
+}
 
 function NumberInput({
   value,
@@ -405,15 +414,16 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
     "--knob-control-height": `${Math.min(48, Math.max(28, (h - settingsHeight.current - 50) / 2))}px`,
   } as CSSProperties;
   return (
-    <HTMLContainer className="kavla-knob" style={controlStyle}>
+    <HTMLContainer
+      className="kavla-knob"
+      style={controlStyle}
+      onPointerDown={stopControlEvent}
+      onDoubleClick={stopControlEvent}
+      onKeyDown={stopControlEvent}
+      onWheel={stopControlEvent}
+    >
       <div className="kavla-knob-header">
-        <div
-          className="kavla-knob-name"
-          onPointerDown={(event) => {
-            if ((event.target as HTMLElement).closest("input, button")) event.stopPropagation();
-          }}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
+        <div className="kavla-knob-name">
           {disabled ? (
             <strong>{name}</strong>
           ) : (
@@ -434,7 +444,6 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
           title="Knob options"
           aria-expanded={settingsOpen}
           disabled={disabled}
-          onPointerDown={(event) => event.stopPropagation()}
           onClick={() => {
             setError(null);
             setSettingsOpen((open) => !open);
@@ -444,12 +453,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
           <span>Options</span>
         </button>
       </div>
-      <div
-        className="kavla-knob-body"
-        onPointerDown={(event) => event.stopPropagation()}
-        onKeyDown={(event) => event.stopPropagation()}
-        onDoubleClick={(event) => event.stopPropagation()}
-      >
+      <div className="kavla-knob-body">
         {freeText ? (
           <input
             className="kavla-knob-input"
@@ -563,16 +567,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
         )}
       </div>
       {settingsOpen && (
-        <div
-          ref={settingsRef}
-          className="kavla-knob-options"
-          role="group"
-          aria-label={`${name} options`}
-          onPointerDown={(event) => event.stopPropagation()}
-          onDoubleClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-          onWheel={(event) => event.stopPropagation()}
-        >
+        <div ref={settingsRef} className="kavla-knob-options" role="group" aria-label={`${name} options`}>
           <div className="kavla-knob-option-label">Control</div>
           <div className="kavla-knob-kind">
             <button
