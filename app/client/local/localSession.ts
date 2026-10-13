@@ -1,8 +1,9 @@
+import { parseRecoverableCanvas } from "./parseRecoverableCanvas";
 import { canvasApiURL, disconnectCanvas } from "../canvasConnection";
 import { sessionFetch, setBackendDocument, resetBackendCaches } from "../backendCompute";
 import type { LensShape } from "../../Lens/lens-shape-types";
 import type { Editor, TLAssetPartial, TLCamera } from "tldraw";
-import { CameraRecordType, parseTldrawJsonFile } from "tldraw";
+import { CameraRecordType } from "tldraw";
 import type { DataSourceShape } from "../../DataSource/data-source-types";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { getAgentChat, updateAgentChat } from "../../AgentBlob/agent-chat-store";
@@ -124,7 +125,11 @@ function readCameraRecords(canvasJson: string | null): TLCamera[] {
     if (typeof record !== "object" || record === null || !("typeName" in record) || record.typeName !== "camera") {
       return [];
     }
-    return [CameraRecordType.validator.validate(record)];
+    try {
+      return [CameraRecordType.validator.validate(record)];
+    } catch {
+      return [];
+    } // Invalid camera records are reported and preserved by canvas recovery.
   });
 }
 
@@ -188,16 +193,9 @@ function acceptLocalSession(session: KavlaLocalSession): KavlaLocalSession {
   return activeSession;
 }
 
-export function loadCanvasJson(editor: Editor, canvasJson: string): void {
-  const parsed = parseTldrawJsonFile({
-    json: canvasJson,
-    schema: editor.store.schema,
-  });
-  if (!parsed.ok) {
-    throw new Error(`Could not load canvas: ${parsed.error.type}`);
-  }
-
-  editor.loadSnapshot(parsed.value.getStoreSnapshot());
+export function loadCanvasJson(editor: Editor, canvasJson: string, onWarning?: (message: string) => void): void {
+  const recovered = parseRecoverableCanvas(editor, canvasJson);
+  editor.loadSnapshot(recovered.snapshot);
   const cameraRecords = readCameraRecords(canvasJson);
   if (cameraRecords.length > 0) {
     const activeCameraIds = new Set(
@@ -256,6 +254,10 @@ export function loadCanvasJson(editor: Editor, canvasJson: string): void {
     updateAgentChat(editor, { isRunning: false, streamingText: "", activity: null });
   }
   editor.clearHistory();
+  if (recovered.warnings.length)
+    onWarning?.(
+      `${recovered.warnings.slice(0, 8).join("\n") + (recovered.warnings.length > 8 ? `\n…and ${recovered.warnings.length - 8} more recovery notes.` : "")}\nOriginal incompatible records are kept in document metadata.`
+    );
 }
 
 export function serializeLocalCanvasJson(editor: Editor, includeCurrentCamera = false): string {

@@ -1,3 +1,4 @@
+import { parseRecoverableCanvas } from "./parseRecoverableCanvas";
 import { getAgentRuns, isAgentRunActive, cancelAgentRun } from "../localServer/agentRuns";
 import {
   canvasPersistenceKey,
@@ -22,7 +23,6 @@ import {
   getIndexAbove,
   Editor,
   getUserPreferences,
-  parseTldrawJsonFile,
   setUserPreferences,
   Tldraw,
   TLUiAssetUrlOverrides,
@@ -226,14 +226,15 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         throw new Error("Wait for the canvas to reconnect or finish saving before restoring.");
       }
       const canvasJson = await readCanvasSnapshot(snapshotId);
-      const parsed = parseTldrawJsonFile({ json: canvasJson, schema: editor.store.schema });
-      if (!parsed.ok) throw new Error(`Could not load snapshot: ${parsed.error.type}`);
+      parseRecoverableCanvas(editor, canvasJson);
       let restoreRequested = false;
       setIsDocumentSaving(true);
       const loadRestoredSession = (restored: KavlaLocalSession) => {
         if (!restored.canvasJson) throw new Error("The saved document has no canvas state.");
         loadedRef.current = false;
-        loadCanvasJson(editor, restored.canvasJson);
+        loadCanvasJson(editor, restored.canvasJson, (description) =>
+          addToast({ title: "Document opened with recovery", description, severity: "warning", keepOpen: true })
+        );
         editor.updateInstanceState({ isReadonly: true });
         loadedStoreRef.current = editor.store;
         loadedRef.current = true;
@@ -522,7 +523,10 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         loadedRef.current = false;
         const isNewDocument = !session.canvasJson;
         try {
-          if (session.canvasJson) loadCanvasJson(editor, session.canvasJson);
+          if (session.canvasJson)
+            loadCanvasJson(editor, session.canvasJson, (description) =>
+              addToast({ title: "Document opened with recovery", description, severity: "warning", keepOpen: true })
+            );
           loadedStoreRef.current = editor.store;
           loadedRef.current = true;
           setLoadError(null);
