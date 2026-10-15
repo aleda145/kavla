@@ -27,12 +27,13 @@ type DisconnectEvent struct {
 }
 
 type Manager struct {
-	client   *Client
-	session  *session.Session
-	verbose  bool
-	context  context.Context
-	cancel   context.CancelFunc
-	prepared bool
+	client    *Client
+	session   *session.Session
+	sessionMu sync.RWMutex
+	verbose   bool
+	context   context.Context
+	cancel    context.CancelFunc
+	prepared  bool
 
 	Done     chan DisconnectEvent
 	stopOnce sync.Once
@@ -117,27 +118,29 @@ func (m *Manager) readLoop() {
 func (m *Manager) handleMessage(message map[string]interface{}) {
 	messageType, _ := message["type"].(string)
 	switch messageType {
+	case "cli_sources_config", "get_cli_source_paths":
+		go m.handleSourceConfig(message)
 	case "get_source_tables":
 		request, err := ParseGetSourceTablesMessage(message)
 		if err != nil {
 			m.Log("Invalid table list request: %v\n", err)
 			return
 		}
-		go m.session.HandleGetTables(m.client, request.RequestID, request.SourceName)
+		go m.withSession(func(s *session.Session) { s.HandleGetTables(m.client, request.RequestID, request.SourceName) })
 	case "get_source_schema":
 		request, err := ParseGetSourceSchemaMessage(message)
 		if err != nil {
 			m.Log("Invalid schema request: %v\n", err)
 			return
 		}
-		go m.session.HandleGetSourceSchema(m.client, request.RequestID, request.TableRef)
+		go m.withSession(func(s *session.Session) { s.HandleGetSourceSchema(m.client, request.RequestID, request.TableRef) })
 	case "get_source_stats":
 		request, err := ParseGetSourceStatsMessage(message)
 		if err != nil {
 			m.Log("Invalid statistics request: %v\n", err)
 			return
 		}
-		go m.session.HandleGetSourceStats(m.client, request.RequestID, request.TableRef)
+		go m.withSession(func(s *session.Session) { s.HandleGetSourceStats(m.client, request.RequestID, request.TableRef) })
 	case "query_request":
 		request, err := ParseQueryRequestMessage(message)
 		if err != nil {
@@ -145,14 +148,14 @@ func (m *Manager) handleMessage(message map[string]interface{}) {
 			return
 		}
 		request.PreviewRowLimit = runner.DefaultHostedPreviewRowLimit
-		go m.session.HandleQuery(m.client, request)
+		go m.withSession(func(s *session.Session) { s.HandleQuery(m.client, request) })
 	case "cancel_query":
 		request, err := ParseCancelQueryMessage(message)
 		if err != nil {
 			m.Log("Invalid query cancellation: %v\n", err)
 			return
 		}
-		m.session.CancelQuery(request.ShapeID)
+		m.withSession(func(s *session.Session) { s.CancelQuery(request.ShapeID) })
 	}
 }
 
@@ -161,10 +164,12 @@ func (m *Manager) Stop(reason DisconnectReason, err error) {
 		if m.cancel != nil {
 			m.cancel()
 		}
+		m.sessionMu.RLock()
 		if m.session != nil {
 			_ = m.session.Close()
 			m.prepared = false
 		}
+		m.sessionMu.RUnlock()
 		if m.client != nil {
 			_ = m.client.Close()
 		}
