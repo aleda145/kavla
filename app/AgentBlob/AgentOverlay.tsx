@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
-import { Loader2, Send, Square, Trash2, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Loader2, Maximize2, Minimize2, Send, Square, Trash2, X } from "lucide-react";
 import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useAgentModels, useAgentStatus } from "../client/localServer/agentStore";
 import { useData } from "../client/useLocalServer";
@@ -8,6 +9,7 @@ import { appendAgentChatEntry, createOrFocusAgentChat, getAgentChat, updateAgent
 import { AGENT_BLOB_SHAPE_ID, getAgentBlob, removeAgentBlob, startAgentBlob } from "./agent-blob-store";
 import type { AgentChatEntry } from "./agent-chat-types";
 import { AgentRuntime } from "./AgentRuntime";
+import { useAgentChatLayout } from "./AgentChatLayout";
 import { getCanvasBadges, getMentionRanges, getShapeCitations, type ContextBadge } from "./agent-shape-references";
 import {
   agentClientId,
@@ -167,6 +169,7 @@ function AnswerText({
 
 function AgentChatOverlay() {
   const editor = useEditor();
+  const { container, isMaximized, setIsMaximized } = useAgentChatLayout();
   const dataSocket = useData();
   const agentStatus = useAgentStatus();
   const agentModels = useAgentModels();
@@ -287,6 +290,14 @@ function AgentChatOverlay() {
   const entries = isCat ? catEntries : (agent?.props.entries ?? []);
 
   useLayoutEffect(() => {
+    if (!isOpen) setIsMaximized(false);
+  }, [isOpen, setIsMaximized]);
+
+  useLayoutEffect(() => {
+    editor.updateViewportScreenBounds(editor.getContainer());
+  }, [editor, isMaximized]);
+
+  useLayoutEffect(() => {
     const update = () => setLayout(getDockLayout());
     update();
     const timers = [window.setTimeout(update, 100), window.setTimeout(update, 500)];
@@ -299,7 +310,7 @@ function AgentChatOverlay() {
       window.removeEventListener("resize", update);
       observer?.disconnect();
     };
-  }, [isOpen]);
+  }, [isOpen, isMaximized]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -434,15 +445,16 @@ function AgentChatOverlay() {
           ? "Thinking"
           : "Ready";
 
-  return (
+  if (!container) return null;
+
+  return createPortal(
     <div
       data-kavla-agent-ui
       style={{
         fontFamily: '"Kavla Agent Inter", sans-serif',
         inset: 0,
         pointerEvents: "none",
-        position: "fixed",
-        zIndex: "calc(var(--layer-panels) - 1)",
+        position: "absolute",
       }}
     >
       <style>{`
@@ -465,18 +477,20 @@ function AgentChatOverlay() {
           onWheel={stopOverlayEvent}
           style={{
             background: "#fff",
-            border: "3px solid #000",
-            borderRadius: 12,
-            boxShadow: "4px 4px 0 0 #000",
+            border: isMaximized ? 0 : "3px solid #000",
+            borderLeft: isMaximized ? "6px solid #000" : "3px solid #000",
+            borderRadius: isMaximized ? 0 : 12,
+            boxShadow: isMaximized ? "none" : "4px 4px 0 0 #000",
+            boxSizing: "border-box",
             display: "flex",
             flexDirection: "column",
-            height: CHAT_HEIGHT,
-            left: layout.chat.x,
-            overflow: "visible",
+            height: isMaximized ? "100%" : CHAT_HEIGHT,
+            left: isMaximized ? 0 : layout.chat.x,
+            overflow: isMaximized ? "hidden" : "visible",
             pointerEvents: "all",
             position: "absolute",
-            top: layout.chat.y,
-            width: CHAT_WIDTH,
+            top: isMaximized ? 0 : layout.chat.y,
+            width: isMaximized ? "100%" : CHAT_WIDTH,
           }}
         >
           <div
@@ -484,8 +498,10 @@ function AgentChatOverlay() {
               alignItems: "center",
               background: isCat ? "#ffedd5" : "#ede9fe",
               borderBottom: "3px solid #000",
-              borderRadius: "9px 9px 0 0",
+              borderRadius: isMaximized ? 0 : "9px 9px 0 0",
               display: "flex",
+              flexShrink: 0,
+              flexWrap: "wrap",
               gap: 8,
               minHeight: 42,
               padding: "6px 8px",
@@ -583,6 +599,26 @@ function AgentChatOverlay() {
               >
                 {visualStatus}
               </div>
+              <button
+                aria-label={isMaximized ? "Restore floating agent chat" : "Maximize agent chat"}
+                onClick={() => setIsMaximized(!isMaximized)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "#fff",
+                  border: "2px solid #000",
+                  borderRadius: 5,
+                  height: 24,
+                  width: 24,
+                  padding: 0,
+                  cursor: "pointer",
+                }}
+                title={isMaximized ? "Restore floating chat" : "Maximize chat to sidebar"}
+                type="button"
+              >
+                {isMaximized ? <Minimize2 size={13} strokeWidth={3} /> : <Maximize2 size={13} strokeWidth={3} />}
+              </button>
               <button
                 aria-label="Close agent chat"
                 onClick={() => updateAgentChat(editor, { isOpen: false })}
@@ -773,8 +809,9 @@ function AgentChatOverlay() {
           <div
             style={{
               background: "#fff",
-              borderRadius: "0 0 9px 9px",
+              borderRadius: isMaximized ? 0 : "0 0 9px 9px",
               borderTop: "3px solid #000",
+              flexShrink: 0,
               padding: 7,
               position: "relative",
             }}
@@ -1024,7 +1061,8 @@ function AgentChatOverlay() {
           }}
         />
       ) : null}
-    </div>
+    </div>,
+    container
   );
 }
 
