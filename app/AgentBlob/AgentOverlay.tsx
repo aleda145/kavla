@@ -10,6 +10,7 @@ import { AGENT_BLOB_SHAPE_ID, getAgentBlob, removeAgentBlob, startAgentBlob } fr
 import type { AgentChatEntry } from "./agent-chat-types";
 import { AgentRuntime } from "./AgentRuntime";
 import { useAgentChatLayout } from "./AgentChatLayout";
+import { useChatComposerSize } from "./useChatComposerSize";
 import { getCanvasBadges, getMentionRanges, getShapeCitations, type ContextBadge } from "./agent-shape-references";
 import {
   agentClientId,
@@ -186,7 +187,7 @@ function AgentChatOverlay() {
   const [dismissedMention, setDismissedMention] = useState<string | null>(null);
   const [chosenMentions, setChosenMentions] = useState<ContextBadge[]>([]);
   const [isFollowing, setIsFollowing] = useState(false);
-  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const chatPanelRef = useRef<HTMLElement>(null);
   const [layout, setLayout] = useState(() => getDockLayout());
   const endRef = useRef<HTMLDivElement>(null);
   const agent = useValue("Kavla agent", () => getAgentChat(editor), [editor]);
@@ -286,6 +287,12 @@ function AgentChatOverlay() {
   };
   const ready = agentStatus.state === "ready";
   const isOpen = agent?.props.isOpen ?? false;
+  const {
+    inputRef,
+    textareaRef: promptRef,
+    textareaHeight,
+    resizeHandleProps,
+  } = useChatComposerSize(chatPanelRef, isOpen && container !== null, prompt);
   const isRunning = !isCat && (isSending || runs.some(isAgentRunActive) || (agent?.props.isRunning ?? false));
   const entries = isCat ? catEntries : (agent?.props.entries ?? []);
 
@@ -462,6 +469,7 @@ function AgentChatOverlay() {
       `}</style>
       {isOpen && agent ? (
         <aside
+          ref={chatPanelRef}
           aria-label={isCat ? "Kavla cat chat" : "Kavla Agent chat"}
           className="kavla-agent-chat"
           tabIndex={-1}
@@ -816,6 +824,7 @@ function AgentChatOverlay() {
               position: "relative",
             }}
           >
+            <div {...resizeHandleProps} />
             {contextBadges.length ? (
               <div
                 style={{
@@ -906,11 +915,11 @@ function AgentChatOverlay() {
               </div>
             ) : null}
             <div
+              ref={inputRef}
               style={{
                 background: "#fff",
                 border: "2px solid #000",
                 borderRadius: 6,
-                minHeight: 58,
                 overflow: "hidden",
                 position: "relative",
               }}
@@ -991,7 +1000,7 @@ function AgentChatOverlay() {
                   position: "relative",
                   display: "block",
                   font: '700 12px/1.35 "Kavla Agent Inter", sans-serif',
-                  height: 58,
+                  height: textareaHeight,
                   outline: 0,
                   padding: "7px 56px 7px 8px",
                   resize: "none",
