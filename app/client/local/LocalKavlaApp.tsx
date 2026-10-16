@@ -33,6 +33,7 @@ import { SummaryShapeUtil } from "../../Summary/SummaryShapeUtil";
 import { ChartUtil } from "../../Chart/ChartUtil";
 import { AgentBlobUtil } from "../../AgentBlob/AgentBlobUtil";
 import { AgentChatUtil } from "../../AgentBlob/AgentChatUtil";
+import { AgentChatLayout } from "../../AgentBlob/AgentChatLayout";
 import { CLITerminalUtil } from "../../CLITerminal/CLITerminalUtil";
 import { DataSourceUtil } from "../../DataSource/DataSourceUtil";
 import { SQLResultTableUtil } from "../../SQLResultArea/SQLResultAreaUtil";
@@ -708,20 +709,22 @@ function LocalCanvasMount({
   const bindingUtils = useMemo(() => [KavlaArrowBindingUtil], []);
 
   return (
-    <Tldraw
-      persistenceKey={canvasPersistenceKey()}
-      onMount={(editor) => void onMount(editor)}
-      shapeUtils={localShapeUtils}
-      bindingUtils={bindingUtils}
-      tools={customTools}
-      overrides={localUiOverrides}
-      components={components}
-      assetUrls={customAssetUrls}
-      assets={localAssetStore}
-      options={{ actionShortcutsLocation: "menu", maxPages: 1 }}
-    >
-      <KnobRuntime />
-    </Tldraw>
+    <AgentChatLayout>
+      <Tldraw
+        persistenceKey={canvasPersistenceKey()}
+        onMount={(editor) => void onMount(editor)}
+        shapeUtils={localShapeUtils}
+        bindingUtils={bindingUtils}
+        tools={customTools}
+        overrides={localUiOverrides}
+        components={components}
+        assetUrls={customAssetUrls}
+        assets={localAssetStore}
+        options={{ actionShortcutsLocation: "menu", maxPages: 1 }}
+      >
+        <KnobRuntime />
+      </Tldraw>
+    </AgentChatLayout>
   );
 }
 
