@@ -52,6 +52,7 @@ import { AgentLayer } from "../../AgentBlob/AgentOverlay";
 import { createOrFocusAgentChat, getAgentChat, updateAgentChat } from "../../AgentBlob/agent-chat-store";
 import { LocalRoomInfoPanel } from "./LocalRoomInfoPanel";
 import { KavlaVersionBadge } from "./KavlaVersion";
+import { LineageHighlights } from "../canvas/LineageHighlights";
 import { LocalAgentDialog } from "./LocalAgentDialog";
 import { LocalSaveDialog } from "./LocalSaveDialog";
 import { LocalSourcesDialog } from "./LocalSourcesDialog";
@@ -564,6 +565,7 @@ export function useLocalComponents({
       MainMenu: CustomMainMenu,
       PageMenu: null,
       TopPanel: LocalConnectionStatus,
+      OnTheCanvas: LineageHighlights,
       InFrontOfTheCanvas: () => (
         <>
           <AgentLayer />
