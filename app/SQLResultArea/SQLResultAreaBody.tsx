@@ -2,7 +2,7 @@ import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode 
 import { createPortal } from "react-dom";
 import { flexRender } from "@tanstack/react-table";
 import type { VirtualItem } from "@tanstack/react-virtual";
-import { Check, Copy } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Copy } from "lucide-react";
 import { useToasts } from "tldraw";
 import { TldrawScrollAreaIndicator } from "../DataSource/TldrawScrollAreaIndicator";
 import type { useTldrawScrollArea } from "../DataSource/useTldrawScrollArea";
@@ -11,6 +11,7 @@ import { formatDateForDisplay, isDateLikeColumnType } from "../util/date-formatt
 import { getBriefErrorMessage } from "../util/error-message";
 import { SQL_RESULT_BUTTON_CLASS } from "./sql-result-area-styles";
 import type { SQLResultTable } from "./sql-result-table-features";
+import type { SQLResultSort } from "./sql-result-sorting";
 
 export type SQLResultFocusedCell = {
   rowId: string;
@@ -166,6 +167,9 @@ interface SQLResultAreaBodyProps {
   dataErrorMessage: string | null;
   focusedCell: SQLResultFocusedCell | null;
   isLoadingData: boolean;
+  isSortingDisabled: boolean;
+  sorting: SQLResultSort | null;
+  onSortColumn: (columnName: string) => void;
   rowTotalSize: number;
   scrollArea: ReturnType<typeof useTldrawScrollArea>;
   table: SQLResultTable;
@@ -185,6 +189,9 @@ export function SQLResultAreaBody({
   dataErrorMessage,
   focusedCell,
   isLoadingData,
+  isSortingDisabled,
+  sorting,
+  onSortColumn,
   rowTotalSize,
   scrollArea,
   table,
@@ -263,9 +270,18 @@ export function SQLResultAreaBody({
                       ) : null}
                       {virtualColumns.map((virtualColumn) => {
                         const header = headerGroup.headers[virtualColumn.index];
+                        const direction = sorting?.columnName === header.column.id ? sorting.direction : null;
+                        const sortAction =
+                          direction === "desc"
+                            ? "Sort ascending"
+                            : direction === "asc"
+                              ? "Remove sorting"
+                              : "Sort descending";
                         return (
                           <div
                             key={header.id}
+                            role="columnheader"
+                            aria-sort={direction === "desc" ? "descending" : direction === "asc" ? "ascending" : "none"}
                             style={{
                               display: "flex",
                               width: header.getSize(),
@@ -282,16 +298,36 @@ export function SQLResultAreaBody({
                             }}
                           >
                             {header.isPlaceholder ? null : (
-                              <div
+                              <button
+                                type="button"
+                                disabled={isSortingDisabled}
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onKeyDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onSortColumn(header.column.id);
+                                }}
+                                aria-label={`${header.column.id}: ${sortAction}`}
                                 style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  padding: 0,
+                                  border: "none",
+                                  background: "none",
+                                  color: "inherit",
+                                  font: "inherit",
+                                  textAlign: "left",
+                                  cursor: isSortingDisabled ? "wait" : "pointer",
                                   whiteSpace: "nowrap",
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",
                                   width: "100%",
                                 }}
-                                title={`${header.column.id} (${(header.column.columnDef.meta as any)?.type || "unknown type"})`}
+                                title={`${header.column.id} (${(header.column.columnDef.meta as any)?.type || "unknown type"}) · ${sortAction}`}
                               >
                                 <span
+                                  style={{ overflow: "hidden", textOverflow: "ellipsis" }}
                                   className={`${
                                     getColumnTypeColor((header.column.columnDef.meta as any)?.type || "")
                                       ? `px-1 rounded-none text-black ${getColumnTypeColor(
@@ -302,7 +338,13 @@ export function SQLResultAreaBody({
                                 >
                                   {flexRender(header.column.columnDef.header, header.getContext())}
                                 </span>
-                              </div>
+                                {direction === "desc" && (
+                                  <ArrowDown size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
+                                )}
+                                {direction === "asc" && (
+                                  <ArrowUp size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
+                                )}
+                              </button>
                             )}
                             <div
                               onMouseDown={header.getResizeHandler()}

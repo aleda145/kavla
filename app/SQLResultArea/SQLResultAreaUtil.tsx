@@ -30,6 +30,8 @@ import { SQL_RESULT_TABLE_FEATURES, type SQLResultRow } from "./sql-result-table
 import { getRestoredRemoteQueryMetadata, restoreRemoteQueryView } from "../SQLTextArea/restoreRemoteQueryView";
 import { getBriefErrorMessage } from "../util/error-message";
 import { confirmLargeTableDownload, estimateTableDownloadBytesFromRows } from "../util/largeTableDownload";
+import { requestSQLShapeRun } from "../SQLTextArea/sqlShapeRun";
+import { getSQLResultSort, toggleSQLResultSort } from "./sql-result-sorting";
 
 const TABLE_ROW_HEIGHT = 35;
 const TABLE_PAGE_SIZE = 1000;
@@ -74,6 +76,8 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
     const { addToast } = useToasts();
     const { getQueryResultPage, prepareQueryResultDownload, runRemoteQuery } = useData();
     const [isCopied, setIsCopied] = useState(false);
+    const [isSorting, setIsSorting] = useState(false);
+    const sortInFlight = useRef(false);
 
     const sourceShape = useValue(
       "source shape",
@@ -130,7 +134,9 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
           const outputSchema = restoredMetadata?.schema ?? sourceShape.props.outputSchema ?? [];
           setColumns(
             outputSchema.map((column) => ({
+              id: column.name,
               accessorKey: column.name,
+              accessorFn: (row: SQLResultRow) => row[column.name],
               header: column.name,
               meta: { type: column.type },
               cell: (info: any) => String(formatSQLResultCellValue(info.getValue(), column.type) ?? ""),
@@ -179,6 +185,43 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
     }, [pageIndex]);
 
     const [focusedCell, setFocusedCell] = useState<SQLResultFocusedCell | null>(null);
+
+    const columnNames = useMemo(() => columns.map((column) => String(column.accessorKey)), [columns]);
+    const sorting = useMemo(
+      () => getSQLResultSort(sourceShape?.props.text ?? "", columnNames),
+      [sourceShape?.props.text, columnNames]
+    );
+
+    const handleSortColumn = async (columnName: string) => {
+      if (!sourceShapeId || sortInFlight.current) return;
+      const upstream = this.editor.getShape<SQLTextAreaShape>(sourceShapeId as TLShapeId);
+      if (!upstream || upstream.props.isRunning) return;
+
+      sortInFlight.current = true;
+      setIsSorting(true);
+      setFocusedCell(null);
+      try {
+        const sqlText = toggleSQLResultSort(upstream.props.text, columnName, columnNames);
+        this.editor.updateShape<SQLTextAreaShape>({
+          id: upstream.id,
+          type: "sql-text-area",
+          props: { text: sqlText, isDirty: true },
+        });
+        const result = await requestSQLShapeRun(upstream.id, sqlText);
+        if (!result.success) throw new Error(result.error || "Could not sort this result.");
+        setPageIndex(0);
+        if (parentRef.current) parentRef.current.scrollTop = 0;
+      } catch (error) {
+        addToast({
+          title: "Sorting failed",
+          description: getBriefErrorMessage(error, "Could not sort this result."),
+          severity: "error",
+        });
+      } finally {
+        sortInFlight.current = false;
+        setIsSorting(false);
+      }
+    };
 
     const SIDEBAR_WIDTH = 90;
     const SCROLLBAR_WIDTH = 16;
@@ -514,6 +557,9 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
             dataErrorMessage={dataErrorMessage}
             focusedCell={focusedCell}
             isLoadingData={isLoadingData}
+            isSortingDisabled={!sourceShape || isSorting || sourceShape.props.isRunning}
+            sorting={sorting}
+            onSortColumn={handleSortColumn}
             rowTotalSize={rowVirtualizer.getTotalSize()}
             scrollArea={scrollArea}
             table={table}
