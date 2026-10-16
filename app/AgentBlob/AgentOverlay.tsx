@@ -442,7 +442,7 @@ function AgentChatOverlay() {
         inset: 0,
         pointerEvents: "none",
         position: "fixed",
-        zIndex: 100000,
+        zIndex: "calc(var(--layer-panels) - 1)",
       }}
     >
       <style>{`
