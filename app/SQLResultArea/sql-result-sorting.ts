@@ -53,7 +53,78 @@ function readOrderBy(sql: string) {
   const expressions = order
     ? tokens.filter((token) => token.from >= topLevel[orderIndex + 1].to && token.from < end)
     : [];
-  return { order, end, expressions, comments, isSingleQuery };
+  return { order, end, expressions, comments, isSingleQuery, tokens };
+}
+
+function isUnnamedResultColumn(
+  tokens: SQLToken[],
+  columnName: string,
+  columnIndex: number,
+  columnCount: number
+): boolean {
+  const selectIndex = tokens.findIndex((token) => token.depth === 0 && /^SELECT$/i.test(token.text));
+  if (selectIndex < 0) return false;
+  const projections: SQLToken[][] = [[]];
+  for (const token of tokens.slice(selectIndex + 1)) {
+    if (
+      token.depth === 0 &&
+      /^(FROM|WHERE|GROUP|HAVING|QUALIFY|WINDOW|ORDER|LIMIT|OFFSET|FETCH|UNION|EXCEPT|INTERSECT|;)$/i.test(token.text)
+    )
+      break;
+    if (token.depth === 0 && token.text === ",") projections.push([]);
+    else projections[projections.length - 1].push(token);
+  }
+
+  // A wildcard expands to named source columns. Account for its width when
+  // locating an unnamed expression before or after it in the SELECT list.
+  const wildcardIndexes = projections.flatMap((projection, index) =>
+    projection.some(
+      (token, tokenIndex) =>
+        token.depth === 0 &&
+        token.text === "*" &&
+        (tokenIndex === 0 ||
+          projection[tokenIndex - 1].text === "." ||
+          /^(DISTINCT|ALL)$/i.test(projection[tokenIndex - 1].text))
+    )
+      ? [index]
+      : []
+  );
+  let projectionIndex = columnIndex;
+  if (wildcardIndexes.length === 1) {
+    const wildcardIndex = wildcardIndexes[0];
+    const wildcardWidth = columnCount - projections.length + 1;
+    if (columnIndex >= wildcardIndex && columnIndex < wildcardIndex + wildcardWidth) return false;
+    if (columnIndex >= wildcardIndex + wildcardWidth) projectionIndex -= wildcardWidth - 1;
+  } else if (wildcardIndexes.length > 1 || projections.length !== columnCount) {
+    // Without source schemas, multiple expansions cannot be mapped reliably.
+    return false;
+  }
+  const projection = projections[projectionIndex];
+  const firstIndex = /^(DISTINCT|ALL)$/i.test(projection?.[0]?.text ?? "") ? 1 : 0;
+  // DuckDB also supports prefix aliases: SELECT total: amount * 2.
+  const hasPrefixAlias = projection?.[firstIndex + 1]?.text === ":" && projection?.[firstIndex + 2]?.text !== ":";
+  const last = hasPrefixAlias ? projection[firstIndex] : projection?.[projection.length - 1];
+  if (!last) return false;
+  if (
+    !hasPrefixAlias &&
+    projection.length - firstIndex === 1 &&
+    /^(NULL|TRUE|FALSE|CURRENT_DATE|CURRENT_TIME|CURRENT_TIMESTAMP|CURRENT_USER|LOCALTIME|LOCALTIMESTAMP)$/i.test(
+      last.text
+    )
+  )
+    return true;
+  // Both column references and explicit/implicit aliases end in an identifier
+  // matching the result name. Literals and unnamed calculations do not.
+  if (last.depth !== 0 || !/^(?:[A-Za-z_][A-Za-z0-9_$]*|"(?:""|[^"])*"|`(?:``|[^`])*`|'(?:''|[^'])*')$/.test(last.text))
+    return true;
+  const name = last.text.startsWith('"')
+    ? last.text.slice(1, -1).replace(/""/g, '"')
+    : last.text.startsWith("`")
+      ? last.text.slice(1, -1).replace(/``/g, "`")
+      : last.text.startsWith("'")
+        ? last.text.slice(1, -1).replace(/''/g, "'")
+        : last.text;
+  return name.toLowerCase() !== columnName.toLowerCase();
 }
 
 export function getSQLResultSort(sql: string, columnNames: string[]): SQLResultSort | null {
@@ -90,11 +161,16 @@ export function getSQLResultSort(sql: string, columnNames: string[]): SQLResultS
 }
 
 export function toggleSQLResultSort(sql: string, columnName: string, columnNames: string[]): string {
-  const { order, end, comments, isSingleQuery } = readOrderBy(sql);
+  const { order, end, comments, isSingleQuery, tokens } = readOrderBy(sql);
   if (!isSingleQuery) throw new Error("Column sorting requires a single SELECT query.");
+  const columnIndex = columnNames.indexOf(columnName);
+  if (columnIndex < 0) throw new Error("The selected column is no longer in the query result.");
   const current = getSQLResultSort(sql, columnNames);
   const direction = current?.columnName === columnName ? (current.direction === "desc" ? "asc" : null) : "desc";
-  const clause = direction ? `ORDER BY "${columnName.replace(/"/g, '""')}" ${direction.toUpperCase()}` : "";
+  const reference = isUnnamedResultColumn(tokens, columnName, columnIndex, columnNames.length)
+    ? String(columnIndex + 1)
+    : `"${columnName.replace(/"/g, '""')}"`;
+  const clause = direction ? `ORDER BY ${reference} ${direction.toUpperCase()}` : "";
   const start = order?.from ?? end;
   // Retain comments even when replacing the ordering expressions around them.
   const retainedComments = comments.filter((comment) => comment.from >= start && comment.from < end);
