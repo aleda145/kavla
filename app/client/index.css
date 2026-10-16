@@ -12,6 +12,36 @@ body.room-canvas-active {
   touch-action: none;
 }
 
+.kavla-lineage-highlight {
+  pointer-events: none;
+}
+
+.kavla-lineage-outline {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: clamp(calc(4px * var(--tl-scale)), 2.5px, calc(6px * var(--tl-scale)));
+  opacity: 0.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(
+    0 0 clamp(calc(3.5px * var(--tl-scale)), 2px, calc(5px * var(--tl-scale)))
+      color-mix(in srgb, currentColor 35%, transparent)
+  );
+}
+
+.kavla-lineage-arrow .kavla-lineage-outline {
+  stroke: #000;
+  opacity: 1;
+  filter: drop-shadow(
+      0 0 clamp(calc(1px * var(--tl-scale)), 1.5px, calc(2px * var(--tl-scale)))
+        color-mix(in srgb, currentColor 85%, transparent)
+    )
+    drop-shadow(
+      0 0 clamp(calc(1.75px * var(--tl-scale)), 2.25px, calc(3.5px * var(--tl-scale)))
+        color-mix(in srgb, currentColor 40%, transparent)
+    );
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
