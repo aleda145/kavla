@@ -1,6 +1,6 @@
 import { createShapeId, type Editor, type TLShapeId } from "tldraw";
 import type { KnobShape } from "../Knob/knob-types";
-import { getUniqueKnobName } from "../Knob/createKnobs";
+import { getKnobPlacement, getUniqueKnobName } from "../Knob/createKnobs";
 import { formatKnobTime, parseKnobTime, timeSteps } from "../Knob/knobTime";
 import { getAgentLayout, getAgentPlacement } from "./agentLayout";
 
@@ -133,8 +133,17 @@ export function runAgentKnobTool(editor: Editor, args: Record<string, unknown>, 
     if (typeof args.anchorShapeId !== "string" || !editor.getShape(args.anchorShapeId as TLShapeId))
       throw new Error("anchorShapeId must identify the nearby source or query.");
     const anchorId = args.anchorShapeId as TLShapeId;
-    const placement = getAgentPlacement(editor, getAgentLayout(args, anchorId, "above"), anchorId, { w: 240, h: 126 });
-    editor.createShape<KnobShape>({ id, type: "knob", x: placement.x, y: placement.y, props });
+    const placement = args.layout
+      ? getAgentPlacement(editor, getAgentLayout(args, anchorId, "above"), anchorId, { w: 240, h: 126 })
+      : getKnobPlacement(editor, anchorId);
+    editor.createShape<KnobShape>({
+      id,
+      type: "knob",
+      parentId: editor.getCurrentPageId(),
+      x: placement.x,
+      y: placement.y,
+      props,
+    });
   }
   const knob = editor.getShape<KnobShape>(id)!;
   return {
