@@ -282,6 +282,7 @@ export const LiveCodeMirror = ({
   readOnly = false,
 }: LiveCodeMirrorProps) => {
   const registry = useSchemaRegistry();
+  const currentTableName = registry[shapeId]?.tableName;
   const editor = useEditor();
   const macroSignature = useValue("SQL macro definitions", () => dbtMacroSignature(editor), [editor]);
   const { runRemoteQuery, cancelRemoteQuery } = useData();
@@ -666,7 +667,8 @@ export const LiveCodeMirror = ({
             upstreamTableNames,
             onTooltipActive,
             remoteSourceMap,
-            localTableLoaders
+            localTableLoaders,
+            currentTableName
           ),
           getSchemaHoverSource(fullSchemaConfig, onTooltipActive, remoteSourceMap),
         ],
@@ -786,6 +788,7 @@ export const LiveCodeMirror = ({
     editor,
     remoteSourceMap,
     localTableLoaders,
+    currentTableName,
     macroSignature,
     language,
   ]);

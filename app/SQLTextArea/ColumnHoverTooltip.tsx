@@ -1,3 +1,4 @@
+import type { DbtDocumentation } from "../Dbt/dbtTypes";
 import React, { useEffect, useRef, useState } from "react";
 import { Play, Square } from "lucide-react";
 
@@ -18,6 +19,7 @@ import {
 } from "./remote-column-stats";
 
 interface ColumnHoverTooltipProps {
+  documentation?: DbtDocumentation["columns"][number];
   columnName: string;
   type: string;
   tableName: string;
@@ -30,6 +32,7 @@ const ctaButtonClass =
   "h-9 px-4 text-xs font-black bg-orange-100 text-black border-2 border-black hover:bg-orange-200 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all tracking-tight flex items-center gap-2 justify-center rounded cursor-pointer";
 
 export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
+  documentation,
   columnName,
   type,
   tableName,
@@ -337,6 +340,16 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
         )}
       </div>
 
+      {documentation && (documentation.description || documentation.tests.length > 0) && (
+        <div className="p-2 border-b border-gray-200 text-xs leading-snug space-y-1 break-words">
+          {documentation.description && <p className="whitespace-pre-wrap">{documentation.description}</p>}
+          {documentation.tests.length > 0 && (
+            <p>
+              <span className="font-bold">Declared tests:</span> {documentation.tests.join(", ")}
+            </p>
+          )}
+        </div>
+      )}
       <div className="p-2 bg-white flex flex-col justify-center min-h-[60px]">
         {loading && (!isRemoteCliSource || !visibleStats) ? (
           isRemoteCliSource ? (

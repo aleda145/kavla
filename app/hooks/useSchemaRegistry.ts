@@ -1,3 +1,4 @@
+import type { SqlColumnDefinition } from "../SQLTextArea/sql-identifiers";
 import { dbtDocumentation } from "../Dbt/dbtCanvas";
 import { useEditor } from "tldraw";
 import { useEffect, useState } from "react";
@@ -11,7 +12,7 @@ const isSchemaNode = (shape: any): shape is SQLTextAreaShape | DataSourceShape =
 export interface SchemaRegistry {
   [nodeId: string]: {
     tableName: string;
-    columns: Array<{ name: string; type: string }>;
+    columns: Array<Omit<SqlColumnDefinition, "tableName">>;
     type: "sql-text-area" | "data-source";
   };
 }
@@ -35,9 +36,10 @@ export const useSchemaRegistry = () => {
             columns = shape.props.metadata;
           }
 
+          const documentation = dbtDocumentation(shape)?.columns;
           if (!columns.length) {
             columns =
-              dbtDocumentation(shape)?.columns.map((column) => ({
+              documentation?.map((column) => ({
                 name: column.name,
                 type: column.dataType || "unknown",
               })) ?? [];
@@ -45,7 +47,12 @@ export const useSchemaRegistry = () => {
           if (columns.length > 0) {
             newRegistry[shape.id] = {
               tableName: shape.props.name,
-              columns,
+              columns: columns.map((column) => ({
+                ...column,
+                documentation:
+                  documentation?.find((doc) => doc.name === column.name) ??
+                  documentation?.find((doc) => doc.name.toLowerCase() === column.name.toLowerCase()),
+              })),
               type: shape.type,
             };
           }

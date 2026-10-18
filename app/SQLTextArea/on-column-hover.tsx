@@ -8,7 +8,8 @@ import {
   findMentionedTables,
   findSqlIdentifierAt,
   getRelevantColumns,
-  shouldSuppressColumn,
+  isAliasDeclaration,
+  isFunctionCall,
   type SqlColumnDefinition,
 } from "./sql-identifiers";
 
@@ -18,7 +19,8 @@ export const getColumnHoverSource = (
   upstreamTableNames: string[],
   onTooltipActive?: (active: boolean) => void,
   remoteSourceMap?: Map<string, RemoteSourceInfo>,
-  localTableLoaders?: Map<string, () => Promise<void>>
+  localTableLoaders?: Map<string, () => Promise<void>>,
+  currentTableName?: string
 ): HoverSource => {
   const tableNames = createSqlNameLookup(validTableNames);
   const upstreamTables = new Set(upstreamTableNames);
@@ -38,14 +40,21 @@ export const getColumnHoverSource = (
     if (!candidates) return null;
 
     const docText = view.state.doc.toString();
-    if (shouldSuppressColumn(docText, { name: word, from: start, to: end })) return null;
+    if (isFunctionCall(docText, end)) return null;
+    const ownColumn = candidates.find(
+      (candidate) => candidate.tableName === currentTableName && candidate.documentation
+    );
+    const isAlias = isAliasDeclaration(docText, start);
+    if (isAlias && !ownColumn) return null;
 
     const mentionedTables = findMentionedTables(docText, tableNames);
-    const relevant = getRelevantColumns(candidates, upstreamTables, mentionedTables);
+    const qualified = /\.\s*$/.test(docText.slice(0, start));
+    const relevant =
+      ownColumn && !qualified ? [ownColumn] : getRelevantColumns(candidates, upstreamTables, mentionedTables);
 
-    // Deduplicate by type, keeping the candidate object
+    // Keep documentation from distinct tables separate.
     const unique = new Map<string, SqlColumnDefinition>();
-    relevant.forEach((c) => unique.set(c.type, c));
+    relevant.forEach((c) => unique.set(`${c.tableName}\0${c.type}`, c));
 
     if (unique.size === 0) return null;
 
@@ -65,11 +74,12 @@ export const getColumnHoverSource = (
 
         const TooltipList = () => (
           <div className="pointer-events-auto flex flex-col gap-2">
-            {Array.from(unique.entries()).map(([type, candidate]) => (
+            {Array.from(unique.entries()).map(([key, candidate]) => (
               <ColumnHoverTooltip
-                key={`${candidate.tableName}-${word}-${type}`}
+                key={key}
                 columnName={candidate.name}
-                type={type}
+                type={candidate.type}
+                documentation={candidate.documentation}
                 tableName={candidate.tableName}
                 remoteSource={remoteSourceMap?.get(candidate.tableName) ?? null}
                 prepareLocalTable={localTableLoaders?.get(candidate.tableName) ?? null}

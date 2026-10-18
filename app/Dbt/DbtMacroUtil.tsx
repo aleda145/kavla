@@ -89,14 +89,7 @@ export class DbtMacroUtil extends ShapeUtil<DbtMacroShape> {
               topOffset: 0,
               title: "dbt macro",
               onClick: openSettings,
-              details: [
-                `File: ${p.path}`,
-                `Folder: ${p.projectRoot}`,
-                `Functions: ${names.join(", ") || "No macro declaration yet"}`,
-                `Used by ${(p.downstreamShapeIds ?? []).length} queries`,
-                status,
-                "Edit the template here; run SQL nodes that use it.",
-              ],
+              details: [`Functions: ${names.join(", ") || "No macro declaration yet"}`],
             },
           ]}
           style={{ position: "absolute", top: -46, left: 0 }}

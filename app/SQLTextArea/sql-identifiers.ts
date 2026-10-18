@@ -1,4 +1,7 @@
+import type { DbtDocumentation } from "../Dbt/dbtTypes";
+
 export type SqlColumnDefinition = {
+  documentation?: DbtDocumentation["columns"][number];
   tableName: string;
   type: string;
   name: string;

@@ -7,6 +7,7 @@ import { getColumnTypeColor } from "../util/column-colors";
 
 export const SchemaTable: React.FC<SchemaTableProps> = ({
   metadata,
+  columnDocumentation,
   selectedColumns,
   onColumnClick,
   tableName,
@@ -68,6 +69,11 @@ export const SchemaTable: React.FC<SchemaTableProps> = ({
 
   if (!metadata || metadata.length === 0) return null;
 
+  const documentationFor = (name: string) =>
+    columnDocumentation?.find((column) => column.name === name) ??
+    columnDocumentation?.find((column) => column.name.toLowerCase() === name.toLowerCase());
+  const showDescriptions = metadata.some((column) => documentationFor(column.name)?.description);
+
   return (
     <>
       <div className="text-xs">
@@ -78,6 +84,9 @@ export const SchemaTable: React.FC<SchemaTableProps> = ({
               <th className="p-1.5 font-black w-1 whitespace-nowrap sticky top-0 z-10 bg-gray-100 border-b-2 border-black">
                 Type
               </th>
+              {showDescriptions && (
+                <th className="p-1.5 font-black sticky top-0 z-10 bg-gray-100 border-b-2 border-black">Description</th>
+              )}
             </tr>
           </thead>
           <tbody className="bg-white">
@@ -114,6 +123,11 @@ export const SchemaTable: React.FC<SchemaTableProps> = ({
                       {col.type}
                     </span>
                   </td>
+                  {showDescriptions && (
+                    <td className="p-1.5 font-sans text-xs leading-snug whitespace-pre-wrap break-words min-w-[140px]">
+                      {documentationFor(col.name)?.description}
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -141,6 +155,7 @@ export const SchemaTable: React.FC<SchemaTableProps> = ({
                 <ColumnHoverTooltip
                   columnName={hoveredColumn.name}
                   type={hoveredColumn.type}
+                  documentation={documentationFor(hoveredColumn.name)}
                   tableName={tableName}
                   precomputedStats={columnStats?.[hoveredColumn.name]}
                   remoteSource={remoteSource}
