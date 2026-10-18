@@ -1,3 +1,4 @@
+import { dbtColors } from "../Dbt/dbtColors";
 import React from "react";
 import { createPortal } from "react-dom";
 import { Database, FileJson, FileSpreadsheet, FileText, Folder, type LucideIcon } from "lucide-react";
@@ -24,7 +25,7 @@ type EngineAppearance = {
 
 export function getEngineAppearance(type: string | null | undefined): EngineAppearance {
   if (type === "dbt") {
-    return { label: "dbt", backgroundColor: "#ffedd5", iconSvg: null, IconComponent: Database };
+    return { label: "dbt", backgroundColor: dbtColors.surface, iconSvg: null, IconComponent: Database };
   }
   if (type === "duckdb") {
     return {

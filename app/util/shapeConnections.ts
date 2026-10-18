@@ -72,11 +72,16 @@ function getConnectorArrows(editor: Editor): ConnectorArrow[] {
 }
 
 function ensureConnectorArrow(editor: Editor, upstreamShapeId: TLShapeId, downstreamShapeId: TLShapeId) {
-  const exists = getConnectorArrows(editor).some(
+  const existing = getConnectorArrows(editor).find(
     (connector) => connector.startShapeId === upstreamShapeId && connector.endShapeId === downstreamShapeId
   );
-  if (!exists) {
+  if (!existing) {
     createArrowBetweenShapes(editor, upstreamShapeId, downstreamShapeId);
+  } else if (editor.getShape(upstreamShapeId)?.type === "dbt-macro") {
+    const arrow = editor.getShape<TLArrowShape>(existing.arrowId);
+    if (arrow?.props.color === "orange") {
+      editor.updateShape<TLArrowShape>({ id: arrow.id, type: "arrow", props: { color: "black" } });
+    }
   }
 }
 

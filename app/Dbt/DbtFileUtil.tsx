@@ -1,3 +1,4 @@
+import { dbtColors } from "./dbtColors";
 import { lazy, Suspense } from "react";
 import {
   HTMLContainer,
@@ -119,7 +120,7 @@ export class DbtFileUtil extends ShapeUtil<DbtFileShape> {
           style={{
             padding: "8px 12px",
             borderBottom: "4px solid #000",
-            background: p.kind === "model" ? "#fef08a" : p.kind === "properties" ? "#dbeafe" : "#ffedd5",
+            background: p.kind === "model" ? "#fef08a" : p.kind === "properties" ? "#dbeafe" : dbtColors.surface,
             display: "flex",
             alignItems: "center",
             gap: 8,

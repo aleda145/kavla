@@ -1,6 +1,8 @@
+import { getDbtRelationReferences } from "./dbtSQL";
+import { dbtColors } from "./dbtColors";
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import type { Editor, TLShapeId } from "tldraw";
-import { getDbtMacroReferences, navigateToDbtMacro } from "./dbtMacros";
+import { getDbtMacroReferences, navigateToDbtShape } from "./dbtMacros";
 
 export function createDbtMacroEditorExtensions(editor: Editor) {
   return [
@@ -15,15 +17,26 @@ export function createDbtMacroEditorExtensions(editor: Editor) {
         }
         build(view: EditorView) {
           return Decoration.set(
-            getDbtMacroReferences(editor, view.state.doc.toString()).map((reference) =>
-              Decoration.mark({
-                class: "cm-dbt-macro-reference",
-                attributes: {
-                  "data-macro-shape": reference.shapeId,
-                  title: `${reference.path} · Ctrl/Cmd+click to go to macro`,
-                },
-              }).range(reference.from, reference.to)
-            ),
+            [
+              ...getDbtMacroReferences(editor, view.state.doc.toString()).map((reference) =>
+                Decoration.mark({
+                  class: "cm-dbt-macro-reference",
+                  attributes: {
+                    "data-dbt-shape": reference.shapeId,
+                    title: `${reference.path} · Ctrl/Cmd+click to go to macro`,
+                  },
+                }).range(reference.from, reference.to)
+              ),
+              ...getDbtRelationReferences(editor, view.state.doc.toString()).map((reference) =>
+                Decoration.mark({
+                  class: reference.shapeType === "sql-text-area" ? "cm-spatial-link-query" : "cm-spatial-link",
+                  attributes: {
+                    "data-dbt-shape": reference.shapeId,
+                    title: `${reference.label} · Ctrl/Cmd+click to go to node`,
+                  },
+                }).range(reference.from, reference.to)
+              ),
+            ],
             true
           );
         }
@@ -33,11 +46,11 @@ export function createDbtMacroEditorExtensions(editor: Editor) {
         eventHandlers: {
           mousedown(event) {
             if (!event.ctrlKey && !event.metaKey) return false;
-            const element = (event.target as HTMLElement).closest<HTMLElement>("[data-macro-shape]");
-            if (!element?.dataset.macroShape) return false;
+            const element = (event.target as HTMLElement).closest<HTMLElement>("[data-dbt-shape]");
+            if (!element?.dataset.dbtShape) return false;
             event.preventDefault();
             event.stopPropagation();
-            navigateToDbtMacro(editor, element.dataset.macroShape as TLShapeId);
+            navigateToDbtShape(editor, element.dataset.dbtShape as TLShapeId);
             return true;
           },
         },
@@ -45,12 +58,12 @@ export function createDbtMacroEditorExtensions(editor: Editor) {
     ),
     EditorView.theme({
       ".cm-dbt-macro-reference": {
-        backgroundColor: "#ffedd5",
-        color: "#9a3412 !important",
-        borderBottom: "2px solid #f97316",
+        backgroundColor: dbtColors.surface,
+        color: `${dbtColors.text} !important`,
+        borderBottom: `2px solid ${dbtColors.accent}`,
         fontWeight: "700",
       },
-      ".cm-dbt-macro-reference *": { color: "#9a3412 !important" },
+      ".cm-dbt-macro-reference *": { color: `${dbtColors.text} !important` },
     }),
   ];
 }

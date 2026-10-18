@@ -46,6 +46,7 @@ import { LocalSaveDialog } from "./LocalSaveDialog";
 import { LocalSourcesDialog } from "./LocalSourcesDialog";
 import { DbtDialog } from "../../Dbt/DbtDialog";
 import { DbtLogo } from "../../Dbt/DbtFileUtil";
+import { dbtColors } from "../../Dbt/dbtColors";
 import { dbtState } from "../../Dbt/dbtRuntime";
 import type { TLShapeId } from "tldraw";
 import type { SaveLocalSessionOptions, SaveLocalSessionResult } from "./localSession";
@@ -198,8 +199,8 @@ function LocalDocumentControls({
           .kavla-document-control[data-action="history"] { background: var(--color-orange-100, #ffedd5); }
           .kavla-document-control[data-action="sources"] { background: #dbeafe; }
           .kavla-document-control[data-action="agent"] { background: #ede9fe; }
-          .kavla-document-control[data-action="dbt"] { background: #ffedd5; }
-          .kavla-document-control[data-action="dbt"]:hover { background: #fed7aa; }
+          .kavla-document-control[data-action="dbt"] { background: ${dbtColors.surface}; }
+          .kavla-document-control[data-action="dbt"]:hover { background: ${dbtColors.accent}; }
           .kavla-document-control[data-action="new"]:hover { background: #fde68a; }
           .kavla-document-control[data-action="save"]:hover { background: #fbcfe8; }
           .kavla-document-control[data-action="load"]:hover { background: #bbf7d0; }

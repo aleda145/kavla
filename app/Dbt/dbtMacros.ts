@@ -110,7 +110,7 @@ export function getDbtMacroInputs(editor: Editor, text: string): TLShapeId[] {
   return [...inputs];
 }
 
-export function navigateToDbtMacro(editor: Editor, id: TLShapeId) {
+export function navigateToDbtShape(editor: Editor, id: TLShapeId) {
   const bounds = editor.getShapePageBounds(id);
   if (!bounds) return;
   editor.select(id);

@@ -1,3 +1,4 @@
+import { dbtColors } from "./dbtColors";
 import { useEffect, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { FolderOpen, RefreshCw, X } from "lucide-react";
@@ -141,7 +142,7 @@ export function DbtDialog({ onClose, initialShapeId }: { onClose: () => void; in
             zIndex: 1,
             padding: "14px 18px",
             borderBottom: "3px solid #000",
-            background: "#ffedd5",
+            background: dbtColors.surface,
             display: "flex",
             alignItems: "center",
             gap: 10,
@@ -280,7 +281,7 @@ export function DbtDialog({ onClose, initialShapeId }: { onClose: () => void; in
               )}
             </div>
           ) : (
-            <div style={{ padding: 12, border: "2px solid #000", borderRadius: 6, background: "#fff7ed" }}>
+            <div style={{ padding: 12, border: "2px solid #000", borderRadius: 6, background: dbtColors.subtle }}>
               <strong>{state.project?.name}</strong>
               <div style={{ fontSize: 11, overflowWrap: "anywhere", marginTop: 4 }}>{binding.root}</div>
               <p role="status" style={{ fontSize: 12, margin: "10px 0" }}>
@@ -406,7 +407,7 @@ export function DbtDialog({ onClose, initialShapeId }: { onClose: () => void; in
                         width: "100%",
                         border: 0,
                         borderBottom: "1px solid #ddd",
-                        background: selected === shape.id ? "#ffedd5" : "white",
+                        background: selected === shape.id ? dbtColors.surface : "white",
                         padding: "8px 10px",
                         textAlign: "left",
                         cursor: "pointer",

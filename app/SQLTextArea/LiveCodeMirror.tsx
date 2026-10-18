@@ -1,3 +1,4 @@
+import { dbtReferenceSignature } from "../Dbt/dbtSQL";
 import { useMemo, useRef, useCallback, useEffect } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
@@ -284,6 +285,7 @@ export const LiveCodeMirror = ({
   const registry = useSchemaRegistry();
   const currentTableName = registry[shapeId]?.tableName;
   const editor = useEditor();
+  const referenceSignature = useValue("SQL dbt references", () => dbtReferenceSignature(editor), [editor]);
   const macroSignature = useValue("SQL macro definitions", () => dbtMacroSignature(editor), [editor]);
   const { runRemoteQuery, cancelRemoteQuery } = useData();
   const isFormattingRef = useRef(false);
@@ -655,7 +657,7 @@ export const LiveCodeMirror = ({
       }),
       createSpatialPlugin(tableNames, sources, queries, onNavigate),
       createKnobEditorExtensions(editor),
-      createDbtMacroEditorExtensions(editor),
+      Prec.highest(createDbtMacroEditorExtensions(editor)),
       createColumnHighlightPlugin(columnMapping, upstreamTableNames, tableNames), // Add column highlighting
       gracePeriodHoverTooltip(
         [
@@ -790,6 +792,7 @@ export const LiveCodeMirror = ({
     localTableLoaders,
     currentTableName,
     macroSignature,
+    referenceSignature,
     language,
   ]);
 
@@ -821,6 +824,12 @@ export const LiveCodeMirror = ({
         .cm-editor .cm-sql-column,
         .cm-editor .cm-sql-column * {
           color: black;
+        }
+        .cm-spatial-link,
+        .cm-spatial-link *,
+        .cm-spatial-link-query,
+        .cm-spatial-link-query * {
+          color: #000 !important;
         }
         /* Hover pointer only when ctrl is pressed */
         .cm-ctrl-pressed .cm-spatial-link:hover,

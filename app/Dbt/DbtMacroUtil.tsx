@@ -1,3 +1,4 @@
+import { dbtColors } from "./dbtColors";
 import {
   HTMLContainer,
   Rectangle2d,
@@ -112,7 +113,7 @@ export class DbtMacroUtil extends ShapeUtil<DbtMacroShape> {
             style={{
               padding: "8px 12px",
               borderBottom: "4px solid #000",
-              background: "#ffedd5",
+              background: dbtColors.surface,
               display: "flex",
               alignItems: "center",
               gap: 8,
@@ -145,7 +146,7 @@ export class DbtMacroUtil extends ShapeUtil<DbtMacroShape> {
             style={{
               border: 0,
               borderTop: "2px solid #000",
-              background: issue ? "#fee2e2" : "#fff7ed",
+              background: issue ? "#fee2e2" : dbtColors.subtle,
               padding: "6px 10px",
               fontSize: 11,
               textAlign: "left",
