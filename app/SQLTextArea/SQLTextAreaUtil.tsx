@@ -18,6 +18,8 @@ import { useData } from "../client/useLocalServer";
 import { useEffect, useState } from "react";
 import { validateBackendQuery } from "../client/backendCompute";
 import { ShapeEngineTabs } from "../util/ShapeEngineTabs";
+import { ShapeStatusTabs } from "../util/ShapeStatusTabs";
+import { markDownstreamQueriesStale } from "../util/shapeQueryStatus";
 import {
   type EditorValidationIssue,
   issueFromMessage,
@@ -245,11 +247,6 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         return { success: false, error };
       }
       const runnerName = "CLI";
-      setShapeUpstreamConnections(
-        this.editor,
-        shape.id,
-        nextUpstreamShapeIds.map((shapeId) => shapeId as TLShapeId)
-      );
 
       if (markRunning) {
         update({
@@ -285,6 +282,12 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         }
 
         const executionTime = Date.now() - startTime;
+        const currentShape = this.editor.getShape<SQLTextAreaShape>(shape.id);
+        if (!currentShape) throw new Error("The query shape was removed.");
+        if (currentShape.props.text !== sqlText)
+          throw new Error("The query was edited while it was running; run the edited query again.");
+        setShapeUpstreamConnections(this.editor, shape.id, nextUpstreamShapeIds as TLShapeId[]);
+        markDownstreamQueriesStale(this.editor, shape.id);
         update({
           isRunning: false,
           queryStartTime: null,
@@ -470,6 +473,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
             right: 0,
           }}
         />
+        <ShapeStatusTabs editor={this.editor} shapeId={shape.id} />
         <div
           style={{
             display: "flex",

@@ -24,7 +24,7 @@ export function handleLocalShapeDeleted(
     deletedShape.type === "lens-shape" ||
     deletedShape.type === "sql-result-table"
   ) {
-    removeShapeFromConnections(editor, deletedShape.id);
+    removeShapeFromConnections(editor, deletedShape.id, deletedShape.type === "sql-text-area");
   }
 
   if (deletedShape.type === "sql-text-area") {

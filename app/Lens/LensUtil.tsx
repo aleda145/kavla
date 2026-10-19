@@ -14,6 +14,7 @@ import { restoreRemoteQueryView } from "../SQLTextArea/restoreRemoteQueryView";
 import { validateDuckDBSyntax } from "../SQLTextArea/editor-validation";
 import { quoteIdentifier } from "../src/duckdb/sql";
 import { normalizeChartRow } from "../Chart/chartOptions";
+import { ShapeStatusTabs } from "../util/ShapeStatusTabs";
 
 export class LensUtil extends ShapeUtil<LensShape> {
   static override type = "lens-shape" as const;
@@ -122,69 +123,87 @@ export class LensUtil extends ShapeUtil<LensShape> {
           display: "flex",
           flexDirection: "column",
           pointerEvents: "all",
-          border: "4px solid #000",
-          borderRadius: 12,
-          overflow: "hidden",
-          background: "#fff",
           boxSizing: "border-box",
+          overflow: "visible",
           fontFamily: "Inter, sans-serif",
         }}
       >
-        <LensHeader
-          title={shape.props.title || shape.props.name}
-          description={shape.props.description}
-          hasRetryStatus={generating}
-        />
-        <LensBody
-          isSampled={rows.isTruncated}
-          code={shape.props.code}
-          dataSql={shape.props.dataSql}
-          defaultDataSql={`SELECT * FROM ${quoteIdentifier(source?.props.name || "data")}`}
-          shapeId={shape.id}
-          sourceName={source?.props.name || "data"}
-          data={rows.data}
-          columns={rows.columns}
-          columnTypes={rows.columnTypes}
-          widgetKey={widgetKey}
-          widgetWidth={Math.max(1, shape.props.w - 48)}
-          widgetHeight={Math.max(1, shape.props.h - 74)}
-          viewMode={viewMode}
-          statusMessage={status}
-          isStatusError={Boolean(rows.error || shape.props.error)}
-          onShowCode={() => setViewMode("code")}
-          onShowLens={() => setViewMode("lens")}
-          onShowSql={() => setViewMode("sql")}
-          onCodeChange={(code) => update({ code, error: null, generationStatus: "ready", retryCount: 0 })}
-          onDataSqlChange={(dataSql) =>
-            update({ dataSql: dataSql.trim() ? dataSql : null, error: null, generationStatus: "ready", retryCount: 0 })
-          }
-          onDataSqlFormat={(sql) => {
-            try {
-              update({
-                dataSql: format(
-                  sql || shape.props.dataSql || `SELECT * FROM ${quoteIdentifier(source?.props.name || "data")}`,
-                  { language: "duckdb" }
-                ),
-              });
-            } catch (error) {
-              update({ error: String(error) });
-            }
-          }}
-          onDataSqlValidate={async (sql) => (sql.trim() ? validateDuckDBSyntax(sql) : { message: "SQL is required." })}
-          onWidgetError={reportError}
-          onDataSqlError={reportError}
-        />
+        <ShapeStatusTabs editor={editor} shapeId={shape.id} />
         <div
           style={{
-            fontSize: 10,
-            padding: "4px 8px",
-            borderTop: "1px solid #d6d3d1",
-            color: shape.props.error ? "#991b1b" : "#57534e",
+            display: "flex",
+            flexDirection: "column",
+            flex: 1,
+            minHeight: 0,
+            border: "4px solid #000",
+            borderRadius: 12,
+            overflow: "hidden",
+            background: "#fff",
           }}
         >
-          {generating ? "Generating Lens… " : shape.props.error ? `${shape.props.error} ` : ""}
-          {`${rows.data.length.toLocaleString()} rows from ${source?.props.name || "query"}.`} Presentation SQL uses
-          these rows.
+          <LensHeader
+            title={shape.props.title || shape.props.name}
+            description={shape.props.description}
+            hasRetryStatus={generating}
+          />
+          <LensBody
+            isSampled={rows.isTruncated}
+            code={shape.props.code}
+            dataSql={shape.props.dataSql}
+            defaultDataSql={`SELECT * FROM ${quoteIdentifier(source?.props.name || "data")}`}
+            shapeId={shape.id}
+            sourceName={source?.props.name || "data"}
+            data={rows.data}
+            columns={rows.columns}
+            columnTypes={rows.columnTypes}
+            widgetKey={widgetKey}
+            widgetWidth={Math.max(1, shape.props.w - 48)}
+            widgetHeight={Math.max(1, shape.props.h - 74)}
+            viewMode={viewMode}
+            statusMessage={status}
+            isStatusError={Boolean(rows.error || shape.props.error)}
+            onShowCode={() => setViewMode("code")}
+            onShowLens={() => setViewMode("lens")}
+            onShowSql={() => setViewMode("sql")}
+            onCodeChange={(code) => update({ code, error: null, generationStatus: "ready", retryCount: 0 })}
+            onDataSqlChange={(dataSql) =>
+              update({
+                dataSql: dataSql.trim() ? dataSql : null,
+                error: null,
+                generationStatus: "ready",
+                retryCount: 0,
+              })
+            }
+            onDataSqlFormat={(sql) => {
+              try {
+                update({
+                  dataSql: format(
+                    sql || shape.props.dataSql || `SELECT * FROM ${quoteIdentifier(source?.props.name || "data")}`,
+                    { language: "duckdb" }
+                  ),
+                });
+              } catch (error) {
+                update({ error: String(error) });
+              }
+            }}
+            onDataSqlValidate={async (sql) =>
+              sql.trim() ? validateDuckDBSyntax(sql) : { message: "SQL is required." }
+            }
+            onWidgetError={reportError}
+            onDataSqlError={reportError}
+          />
+          <div
+            style={{
+              fontSize: 10,
+              padding: "4px 8px",
+              borderTop: "1px solid #d6d3d1",
+              color: shape.props.error ? "#991b1b" : "#57534e",
+            }}
+          >
+            {generating ? "Generating Lens… " : shape.props.error ? `${shape.props.error} ` : ""}
+            {`${rows.data.length.toLocaleString()} rows from ${source?.props.name || "query"}.`} Presentation SQL uses
+            these rows.
+          </div>
         </div>
       </HTMLContainer>
     );

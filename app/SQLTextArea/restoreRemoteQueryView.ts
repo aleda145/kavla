@@ -5,6 +5,7 @@ import { MissingQueryResultError } from "../client/localServer/types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
+import { getShapeQueryStatus } from "../util/shapeQueryStatus";
 
 export interface RestoredRemoteQueryMetadata {
   rowCount: number;
@@ -37,7 +38,11 @@ export function restoreRemoteQueryView(
     if (!currentShape) {
       throw new Error("The query for this result no longer exists.");
     }
-    if (currentShape.props.isDirty || !currentShape.props.lastRunStats) {
+    if (
+      currentShape.props.isDirty ||
+      getShapeQueryStatus(editor, currentShape.id) ||
+      !currentShape.props.lastRunStats
+    ) {
       throw new MissingQueryResultError(
         "This result is not loaded, and its query has changed since the last run. Run the query manually to load it."
       );

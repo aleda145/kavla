@@ -34,11 +34,6 @@ export function SQLTextAreaHeader({ editor, shape, onNameChange }: SQLTextAreaHe
             <Asterisk size={12} />
           </span>
         )}
-        {shape.props.stale && (
-          <span title="Upstream source changed" style={{ color: "#d97706", fontSize: 12, fontWeight: "bold" }}>
-            ⚠️ STALE
-          </span>
-        )}
       </div>
     </div>
   );

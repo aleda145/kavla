@@ -27,6 +27,7 @@ import { ChartHeader } from "./ChartHeader";
 import { buildChartOption, normalizeChartRow } from "./chartOptions";
 import { restoreRemoteQueryView } from "../SQLTextArea/restoreRemoteQueryView";
 import { useData } from "../client/useLocalServer";
+import { ShapeStatusTabs } from "../util/ShapeStatusTabs";
 
 function canUseStackedLayout(chartType: string | null) {
   return chartType === "bar" || chartType === "area";
@@ -323,6 +324,7 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
         }}
         onPointerDown={() => {}}
       >
+        <ShapeStatusTabs editor={this.editor} shapeId={shape.id} />
         <ChartHeader sourceName={sourceName || "..."} />
 
         <div style={{ display: "flex", flex: 1, minHeight: 0, minWidth: 0 }}>

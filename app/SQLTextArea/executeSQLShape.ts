@@ -6,6 +6,7 @@ import { walkSQLDag, buildRemoteSQLFromDag } from "./walkSQLDag";
 import { connectShapes, setShapeUpstreamConnections } from "../util/shapeConnections";
 import { dispatchSQLShapeRunStarted, dispatchSQLShapeRunFinished, type SQLShapeRunResult } from "./sqlShapeRun";
 import { ensureQueryKnobs } from "../Knob/createKnobs";
+import { markDownstreamQueriesStale } from "../util/shapeQueryStatus";
 
 export async function executeSQLShape(
   editor: Editor,
@@ -28,7 +29,6 @@ export async function executeSQLShape(
   if (nextUpstreamShapeIds.includes(id))
     throw new Error("A query cannot read from its own output. Reference an upstream source or query instead.");
   const runnerName = "CLI";
-  setShapeUpstreamConnections(editor, id, nextUpstreamShapeIds as TLShapeId[]);
   editor.updateShape<SQLTextAreaShape>({
     id,
     type: "sql-text-area",
@@ -53,6 +53,8 @@ export async function executeSQLShape(
     if (!current) throw new Error("The query shape was removed.");
     if (current.props.text !== sql)
       throw new Error("The query was edited while it was running; run the edited query again.");
+    setShapeUpstreamConnections(editor, id, nextUpstreamShapeIds as TLShapeId[]);
+    markDownstreamQueriesStale(editor, id);
     editor.updateShape<SQLTextAreaShape>({
       id,
       type: "sql-text-area",

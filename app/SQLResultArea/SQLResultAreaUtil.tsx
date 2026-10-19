@@ -32,6 +32,7 @@ import { getBriefErrorMessage } from "../util/error-message";
 import { confirmLargeTableDownload, estimateTableDownloadBytesFromRows } from "../util/largeTableDownload";
 import { requestSQLShapeRun } from "../SQLTextArea/sqlShapeRun";
 import { getSQLResultSort, toggleSQLResultSort } from "./sql-result-sorting";
+import { ShapeStatusTabs } from "../util/ShapeStatusTabs";
 
 const TABLE_ROW_HEIGHT = 35;
 const TABLE_PAGE_SIZE = 1000;
@@ -533,63 +534,74 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
         onWheel={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.stopPropagation()}
         style={{
-          border: "4px solid #000",
-          borderRadius: 12,
           display: "flex",
           flexDirection: "column", // Column layout mostly
           pointerEvents: "all",
           padding: 0,
-          backgroundColor: "#fff",
           color: theme.black.solid,
           height: "100%",
           boxSizing: "border-box",
-          overflow: "hidden",
+          overflow: "visible",
           fontFamily: "Inter, sans-serif",
         }}
       >
-        <SQLResultAreaHeader resultName={sourceShape?.props.name || "Result"} />
+        <ShapeStatusTabs editor={this.editor} shapeId={shape.id} />
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            flex: 1,
+            minHeight: 0,
+            border: "4px solid #000",
+            borderRadius: 12,
+            overflow: "hidden",
+            backgroundColor: "#fff",
+          }}
+        >
+          <SQLResultAreaHeader resultName={sourceShape?.props.name || "Result"} />
 
-        <div style={{ display: "flex", flex: 1, flexDirection: "row", minHeight: 0 }}>
-          <SQLResultAreaBody
-            boundaryKey={`${shape.id}:${sourceShape?.props.lastRunStats?.rowCount ?? "no-run"}:${sourceShape?.props.lastRunStats?.executionTime ?? "no-time"}:local`}
-            columnTotalSize={columnVirtualizer.getTotalSize()}
-            data={data}
-            dataErrorMessage={dataErrorMessage}
-            focusedCell={focusedCell}
-            isLoadingData={isLoadingData}
-            isSortingDisabled={!sourceShape || isSorting || sourceShape.props.isRunning}
-            sorting={sorting}
-            onSortColumn={handleSortColumn}
-            rowTotalSize={rowVirtualizer.getTotalSize()}
-            scrollArea={scrollArea}
-            table={table}
-            virtualColumns={virtualColumns}
-            virtualPaddingLeft={virtualPaddingLeft}
-            virtualPaddingRight={virtualPaddingRight}
-            virtualRows={virtualRows}
-            onFocusedCellChange={setFocusedCell}
-            onScroll={onScroll}
-            setScrollContainerRef={setParentRef}
-          />
+          <div style={{ display: "flex", flex: 1, flexDirection: "row", minHeight: 0 }}>
+            <SQLResultAreaBody
+              boundaryKey={`${shape.id}:${sourceShape?.props.lastRunStats?.rowCount ?? "no-run"}:${sourceShape?.props.lastRunStats?.executionTime ?? "no-time"}:local`}
+              columnTotalSize={columnVirtualizer.getTotalSize()}
+              data={data}
+              dataErrorMessage={dataErrorMessage}
+              focusedCell={focusedCell}
+              isLoadingData={isLoadingData}
+              isSortingDisabled={!sourceShape || isSorting || sourceShape.props.isRunning}
+              sorting={sorting}
+              onSortColumn={handleSortColumn}
+              rowTotalSize={rowVirtualizer.getTotalSize()}
+              scrollArea={scrollArea}
+              table={table}
+              virtualColumns={virtualColumns}
+              virtualPaddingLeft={virtualPaddingLeft}
+              virtualPaddingRight={virtualPaddingRight}
+              virtualRows={virtualRows}
+              onFocusedCellChange={setFocusedCell}
+              onScroll={onScroll}
+              setScrollContainerRef={setParentRef}
+            />
 
-          <SQLResultAreaActionBar
-            isCopied={isCopied}
-            isDisabled={false}
-            onCopy={handleCopyTSV}
-            onDownload={handleDownload}
+            <SQLResultAreaActionBar
+              isCopied={isCopied}
+              isDisabled={false}
+              onCopy={handleCopyTSV}
+              onDownload={handleDownload}
+            />
+          </div>
+          <SQLResultAreaFooter
+            isLoading={isLoadingData}
+            pageCount={pageCount}
+            pageEndRow={pageEndRow}
+            pageIndex={pageIndex}
+            pageSize={TABLE_PAGE_SIZE}
+            pageStartRow={pageStartRow}
+            totalRows={totalRows}
+            onNextPage={() => setPageIndex((page) => Math.min(pageCount - 1, page + 1))}
+            onPreviousPage={() => setPageIndex((page) => Math.max(0, page - 1))}
           />
         </div>
-        <SQLResultAreaFooter
-          isLoading={isLoadingData}
-          pageCount={pageCount}
-          pageEndRow={pageEndRow}
-          pageIndex={pageIndex}
-          pageSize={TABLE_PAGE_SIZE}
-          pageStartRow={pageStartRow}
-          totalRows={totalRows}
-          onNextPage={() => setPageIndex((page) => Math.min(pageCount - 1, page + 1))}
-          onPreviousPage={() => setPageIndex((page) => Math.max(0, page - 1))}
-        />
       </HTMLContainer>
     );
   }

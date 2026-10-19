@@ -174,7 +174,7 @@ export function setShapeUpstreamConnections(editor: Editor, shapeId: TLShapeId, 
   });
 }
 
-export function removeShapeFromConnections(editor: Editor, shapeId: TLShapeId) {
+export function removeShapeFromConnections(editor: Editor, shapeId: TLShapeId, preserveQueryInputs = false) {
   editor.run(() => {
     for (const shape of editor.getCurrentPageShapes()) {
       if (!isConnectionShape(shape)) {
@@ -182,7 +182,11 @@ export function removeShapeFromConnections(editor: Editor, shapeId: TLShapeId) {
       }
 
       const downstreamShapeIds = removeId(shape.props.downstreamShapeIds, shapeId);
-      const upstreamShapeIds = removeId(shape.props.upstreamShapeIds, shapeId);
+      // Keep deleted query inputs so orphans remain identifiable across saves and undo.
+      const upstreamShapeIds =
+        preserveQueryInputs && shape.type === "sql-text-area"
+          ? (shape.props.upstreamShapeIds ?? [])
+          : removeId(shape.props.upstreamShapeIds, shapeId);
       if (
         downstreamShapeIds.length !== (shape.props.downstreamShapeIds ?? []).length ||
         upstreamShapeIds.length !== (shape.props.upstreamShapeIds ?? []).length
