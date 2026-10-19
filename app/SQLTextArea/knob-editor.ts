@@ -4,7 +4,6 @@ import { Decoration, EditorView, ViewPlugin, showPanel, type DecorationSet, type
 import type { Editor } from "tldraw";
 import { describeKnob, findKnob, getKnobReferences, isKnobCodePosition, navigateToKnob } from "../Knob/knobReferences";
 import { INTERACTIVE_HOVER_TOOLTIP_CLASS, type HoverSource } from "./grace-period-hover";
-import { applyTooltipPlacementStyle } from "./tooltip-position";
 
 type KnobClause = "WHERE" | "HAVING" | "ORDER BY" | "GROUP BY" | "LIMIT" | "OFFSET";
 
@@ -176,29 +175,34 @@ export function getKnobHoverSource(editor: Editor, onTooltipActive?: (active: bo
       pos: reference.from,
       end: reference.to,
       above: true,
+      strictSide: true,
       create() {
         onTooltipActive?.(true);
         const dom = document.createElement("div");
-        dom.className = `${INTERACTIVE_HOVER_TOOLTIP_CLASS} border-2 border-black rounded bg-teal-100 p-2 text-xs shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] pointer-events-auto`;
+        dom.className = INTERACTIVE_HOVER_TOOLTIP_CLASS;
+        dom.setAttribute("role", "tooltip");
+        Object.assign(dom.style, {
+          border: "2px solid #000",
+          borderRadius: "0",
+          background: "#fff",
+          color: "#000",
+          padding: "8px",
+          boxShadow: "4px 4px 0 #000",
+          fontFamily: "monospace",
+          fontSize: "12px",
+          fontWeight: "700",
+          lineHeight: "18px",
+          maxWidth: "320px",
+          overflowWrap: "anywhere",
+          pointerEvents: "auto",
+        });
         const knob = findKnob(editor, reference.name);
-        const label = document.createElement("div");
-        label.textContent = knob
-          ? `{${knob.props.name}} = ${describeKnob(knob)}`
+        dom.textContent = knob
+          ? `{${knob.props.name}}=${describeKnob(knob)}`
           : reference.name
-            ? `Knob {${reference.name}} will be created after you pause typing or click Run.`
+            ? `{${reference.name}} — pending creation`
             : "Type a name inside {} to create a knob.";
-        dom.append(label);
-        if (knob) {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = "Go to knob · Ctrl/Cmd+click";
-          button.style.cssText = "margin-top:6px;color:#115e59;cursor:pointer;font-weight:700";
-          button.onpointerdown = (event) => event.stopPropagation();
-          button.onclick = () => navigateToKnob(editor, reference.name);
-          dom.append(button);
-        }
-        requestAnimationFrame(() => applyTooltipPlacementStyle(view, reference.from, dom));
-        return { dom, destroy: () => onTooltipActive?.(false) };
+        return { dom, offset: { x: 0, y: 8 }, destroy: () => onTooltipActive?.(false) };
       },
     };
   };
