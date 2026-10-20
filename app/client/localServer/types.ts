@@ -52,6 +52,7 @@ export interface LocalServerContextType {
   updateSourceName: (payload: { prevName: string; nextName: string }) => void;
   deleteShapes: (ids: TLShapeId[]) => void;
   getSourceTables: (payload: { sourceName: string }) => Promise<{ tables: string[] }>;
+  exploreSource: (payload: { sourceName: string; signal?: AbortSignal }) => Promise<SourceExploration>;
   getSourceSchema: (payload: { tableRef: string }) => Promise<{ columns: { name: string; type: string }[] }>;
   getSourceStats: (payload: { tableRef: string }) => Promise<{ rowCount: number }>;
   prepareSourceDownload: (payload: {
@@ -76,4 +77,20 @@ export interface LocalServerContextType {
   sendAgentToolResult: (payload: AgentToolResultPayload) => void;
   cancelAgent: () => void;
   retryAgent: () => void;
+}
+
+export interface SourceExploration {
+  tables: {
+    tableRef: string;
+    schema: string;
+    name: string;
+    columns: { name: string; type: string }[];
+  }[];
+  relationships: {
+    name: string;
+    fromTable: string;
+    toTable: string;
+    columns: string[];
+    referencedColumns: string[];
+  }[];
 }

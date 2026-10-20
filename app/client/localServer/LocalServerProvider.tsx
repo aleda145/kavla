@@ -169,6 +169,16 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
     return (await response.json()) as { tables: string[] };
   }, []);
 
+  const exploreSource = useCallback<LocalServerContextType["exploreSource"]>(async ({ sourceName, signal }) => {
+    const response = await sessionFetch(`/api/cli/sources/${encodeURIComponent(sourceName)}/explore`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+      signal,
+    });
+    if (!response.ok) throw await responseError(response);
+    return response.json();
+  }, []);
+
   const getSourceSchema = useCallback<LocalServerContextType["getSourceSchema"]>(
     (payload) => postJSON("/api/cli/source-schema", payload),
     []
@@ -315,6 +325,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       updateSourceName: () => undefined,
       deleteShapes,
       getSourceTables,
+      exploreSource,
       getSourceSchema,
       getSourceStats,
       prepareSourceDownload,
@@ -334,6 +345,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
       getSourceSchema,
       getSourceStats,
       getSourceTables,
+      exploreSource,
       prepareQueryResultDownload,
       prepareSourceDownload,
       runRemoteQuery,

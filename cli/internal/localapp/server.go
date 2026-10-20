@@ -370,6 +370,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/session/new", s.sameOriginMutation(s.handleNew))
 	mux.HandleFunc("GET /api/cli/sources", s.handleGetCLISources)
 	mux.HandleFunc("GET /api/cli/sources/{name}/tables", s.handleGetSourceTables)
+	mux.HandleFunc("GET /api/cli/sources/{name}/explore", s.handleExploreSource)
 	mux.HandleFunc("POST /api/cli/source-schema", s.sameOriginMutation(s.handleGetSourceSchema))
 	mux.HandleFunc("POST /api/cli/source-stats", s.sameOriginMutation(s.handleGetSourceStats))
 	mux.HandleFunc("POST /api/cli/source-export", s.sameOriginMutation(s.handleExportSourceTable))
@@ -1019,6 +1020,21 @@ func (s *Server) handleGetSourceTables(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"tables": tables})
+}
+
+func (s *Server) handleExploreSource(w http.ResponseWriter, r *http.Request) {
+	querySession, done, err := s.beginQueryOperation()
+	if err != nil {
+		writeAPIError(w, http.StatusServiceUnavailable, err)
+		return
+	}
+	defer done()
+	result, err := querySession.ExploreSource(r.Context(), r.PathValue("name"))
+	if err != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func decodeTableReference(w http.ResponseWriter, r *http.Request) (string, bool) {

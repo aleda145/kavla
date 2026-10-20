@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { Editor } from "tldraw";
 import { useData, type CliSource } from "../client/useLocalServer";
@@ -11,6 +11,7 @@ import type { RemoteSourceMetadata } from "./remote-source-metadata";
 import type { DataSourceShape } from "./data-source-types";
 import type { useTldrawScrollArea } from "./useTldrawScrollArea";
 import { TldrawScrollAreaIndicator } from "./TldrawScrollAreaIndicator";
+import { exploreSourceOnCanvas } from "./exploreSourceOnCanvas";
 
 const buttonClass =
   "h-9 px-3 border-2 border-black text-black font-bold text-xs flex items-center justify-center gap-2 rounded cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all active:translate-y-[1px]";
@@ -61,11 +62,20 @@ export function LocalDataSourceBody({
   const [tableError, setTableError] = useState<string | null>(null);
   const [loadingTables, setLoadingTables] = useState(false);
   const [isSelectingSource, setIsSelectingSource] = useState(false);
-  const { getSourceTables } = useData();
+  const [isExploring, setIsExploring] = useState(false);
+  const [exploreError, setExploreError] = useState<string | null>(null);
+  const explorationRequest = useRef<AbortController | null>(null);
+  const tableRequest = useRef(0);
+  const { getSourceTables, exploreSource } = useData();
   const hasSource = Boolean(shape.props.filename);
   const showSourcePicker = isSelectingSource || !hasSource;
 
   const resetPicker = () => {
+    tableRequest.current++;
+    explorationRequest.current?.abort();
+    explorationRequest.current = null;
+    setIsExploring(false);
+    setExploreError(null);
     setShowDemoData(false);
     setSelectedSource(null);
     setTables(null);
@@ -77,18 +87,30 @@ export function LocalDataSourceBody({
     resetPicker();
   }, [shape.props.filename, shape.props.remoteTableRef, shape.props.sourceName]);
 
+  useEffect(
+    () => () => {
+      tableRequest.current++;
+      explorationRequest.current?.abort();
+    },
+    []
+  );
+
   const openSource = async (sourceName: string) => {
+    const request = ++tableRequest.current;
     setSelectedSource(sourceName);
+    setTables(null);
     setLoadingTables(true);
     setTableError(null);
     try {
       const result = await getSourceTables({ sourceName });
+      if (request !== tableRequest.current) return;
       setTables(result.tables);
     } catch (error) {
+      if (request !== tableRequest.current) return;
       setTables([]);
       setTableError(error instanceof Error ? error.message : String(error));
     } finally {
-      setLoadingTables(false);
+      if (request === tableRequest.current) setLoadingTables(false);
     }
   };
 
@@ -98,6 +120,31 @@ export function LocalDataSourceBody({
     setIsSelectingSource(false);
     resetPicker();
     onRemoteTableSelect(sourceName, table);
+  };
+
+  const handleExplore = async () => {
+    if (!selectedSource || explorationRequest.current) return;
+    const controller = new AbortController();
+    explorationRequest.current = controller;
+    const pageId = editor.getCurrentPageId();
+    setIsExploring(true);
+    setExploreError(null);
+    try {
+      const result = await exploreSource({ sourceName: selectedSource, signal: controller.signal });
+      if (controller.signal.aborted || editor.getCurrentPageId() !== pageId || !editor.getShape(shape.id)) return;
+      exploreSourceOnCanvas(editor, shape.id, selectedSource, result);
+      setIsSelectingSource(false);
+      resetPicker();
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setExploreError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (explorationRequest.current === controller) {
+        explorationRequest.current = null;
+        setIsExploring(false);
+      }
+    }
   };
 
   return (
@@ -111,12 +158,15 @@ export function LocalDataSourceBody({
               <div className="flex min-h-0 flex-1 flex-col px-3">
                 <RemoteTablesList
                   isLoading={loadingTables}
-                  onBack={() => setSelectedSource(null)}
+                  onBack={resetPicker}
                   onTableSelect={selectRemoteTable}
                   selectedRemoteSource={selectedSource}
                   remoteTables={tables}
                   sourceError={tableError}
                   cliSources={cliSources}
+                  onExplore={() => void handleExplore()}
+                  isExploring={isExploring}
+                  exploreError={exploreError}
                 />
               </div>
             ) : (
