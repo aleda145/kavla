@@ -1,0 +1,101 @@
+{
+  "method": "DuckDB-WASM MVP in Node; existing connection reused; no browser, no worker, no rendering.",
+  "duckdbVersion": "v1.5.4",
+  "rows": [
+    {
+      "n": 1000,
+      "plotMs": 14.280271999999968,
+      "selectionMs": 68.598796,
+      "marks": 1000,
+      "selected": 501,
+      "wasmHeapBytes": 20185088,
+      "cpuMicroseconds": {
+        "user": 174320,
+        "system": 14991
+      },
+      "processMemory": {
+        "rss": 316538880,
+        "heapTotal": 132378624,
+        "heapUsed": 106573704,
+        "external": 28138056,
+        "arrayBuffers": 463457
+      }
+    },
+    {
+      "n": 10000,
+      "plotMs": 7.470014999999876,
+      "selectionMs": 42.83493199999998,
+      "marks": 10000,
+      "selected": 4560,
+      "wasmHeapBytes": 24248320,
+      "cpuMicroseconds": {
+        "user": 200916,
+        "system": 12028
+      },
+      "processMemory": {
+        "rss": 337772544,
+        "heapTotal": 132378624,
+        "heapUsed": 109863376,
+        "external": 32445258,
+        "arrayBuffers": 707387
+      }
+    },
+    {
+      "n": 100000,
+      "plotMs": 78.86365699999988,
+      "selectionMs": 127.26116100000013,
+      "marks": 1550,
+      "selected": 12801,
+      "wasmHeapBytes": 29097984,
+      "cpuMicroseconds": {
+        "user": 480509,
+        "system": 19766
+      },
+      "processMemory": {
+        "rss": 378777600,
+        "heapTotal": 126889984,
+        "heapUsed": 92306672,
+        "external": 37323570,
+        "arrayBuffers": 736035
+      }
+    },
+    {
+      "n": 1000000,
+      "plotMs": 601.659134,
+      "selectionMs": 322.7646050000001,
+      "marks": 1550,
+      "selected": 128010,
+      "wasmHeapBytes": 41943040,
+      "cpuMicroseconds": {
+        "user": 955740,
+        "system": 8693
+      },
+      "processMemory": {
+        "rss": 396472320,
+        "heapTotal": 126889984,
+        "heapUsed": 99865832,
+        "external": 50207557,
+        "arrayBuffers": 774966
+      }
+    },
+    {
+      "n": 10000000,
+      "plotMs": 5954.782700000001,
+      "selectionMs": 2384.4586450000006,
+      "marks": 1550,
+      "selected": 1280100,
+      "wasmHeapBytes": 216858624,
+      "cpuMicroseconds": {
+        "user": 9171095,
+        "system": 37978
+      },
+      "processMemory": {
+        "rss": 539201536,
+        "heapTotal": 114147328,
+        "heapUsed": 78022600,
+        "external": 225153611,
+        "arrayBuffers": 809520
+      }
+    }
+  ]
+}

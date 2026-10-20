@@ -72,6 +72,7 @@ import { localAssetStore } from "./localAssetStore";
 import { handleLocalShapeDeleted } from "./handleLocalShapeDeleted";
 import { getUniqueName } from "../../util/getUniqueName";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
+import { VisualizationProvider } from "../../Chart/native/VisualizationProvider";
 
 const customShapeUtils = [
   KnobUtil,
@@ -710,20 +711,22 @@ function LocalCanvasMount({
 
   return (
     <AgentChatLayout>
-      <Tldraw
-        persistenceKey={canvasPersistenceKey()}
-        onMount={(editor) => void onMount(editor)}
-        shapeUtils={localShapeUtils}
-        bindingUtils={bindingUtils}
-        tools={customTools}
-        overrides={localUiOverrides}
-        components={components}
-        assetUrls={customAssetUrls}
-        assets={localAssetStore}
-        options={{ actionShortcutsLocation: "menu", maxPages: 1 }}
-      >
-        <KnobRuntime />
-      </Tldraw>
+      <VisualizationProvider documentId={session?.documentId ?? null}>
+        <Tldraw
+          persistenceKey={canvasPersistenceKey()}
+          onMount={(editor) => void onMount(editor)}
+          shapeUtils={localShapeUtils}
+          bindingUtils={bindingUtils}
+          tools={customTools}
+          overrides={localUiOverrides}
+          components={components}
+          assetUrls={customAssetUrls}
+          assets={localAssetStore}
+          options={{ actionShortcutsLocation: "menu", maxPages: 1 }}
+        >
+          <KnobRuntime />
+        </Tldraw>
+      </VisualizationProvider>
     </AgentChatLayout>
   );
 }

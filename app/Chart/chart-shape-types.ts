@@ -1,4 +1,4 @@
-import { TLBaseShape } from "tldraw";
+import type { TLBaseShape } from "tldraw";
 
 export type ChartShape = TLBaseShape<
   "chart-shape",

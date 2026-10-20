@@ -27,6 +27,7 @@ import { ChartHeader } from "./ChartHeader";
 import { buildChartOption, normalizeChartRow } from "./chartOptions";
 import { restoreRemoteQueryView } from "../SQLTextArea/restoreRemoteQueryView";
 import { useData } from "../client/useLocalServer";
+import { NativeScatter } from "./native/NativeScatter";
 
 function canUseStackedLayout(chartType: string | null) {
   return chartType === "bar" || chartType === "area";
@@ -110,6 +111,14 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
   }
 
   component(shape: ChartShape) {
+    return shape.meta.nativeVisualization === true && shape.props.chartType === "scatter" ? (
+      <NativeScatter editor={this.editor} shape={shape} />
+    ) : (
+      <this.LegacyComponent shape={shape} />
+    );
+  }
+
+  LegacyComponent = ({ shape }: { shape: ChartShape }) => {
     const { sourceShapeId, chartType, x, y, color, yAxisScale, isStacked, limit } = shape.props;
     const resolvedLimit = Math.max(1, Math.min(10000, Math.round(limit ?? 10000)));
 
@@ -324,6 +333,28 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
         onPointerDown={() => {}}
       >
         <ChartHeader sourceName={sourceName || "..."} />
+        {chartType === "scatter" && x && y && (
+          <button
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              background: "#fce7f3",
+              border: "none",
+              borderBottom: "2px solid black",
+              cursor: "pointer",
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() =>
+              editor.updateShape({
+                id: shape.id,
+                type: "chart-shape",
+                meta: { ...shape.meta, nativeVisualization: true },
+              })
+            }
+          >
+            Try native scatter + lasso to SQL
+          </button>
+        )}
 
         <div style={{ display: "flex", flex: 1, minHeight: 0, minWidth: 0 }}>
           <ChartBody
@@ -378,7 +409,7 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
         />
       </HTMLContainer>
     );
-  }
+  };
 
   indicator(shape: ChartShape) {
     return <rect width={shape.props.w} height={shape.props.h} rx={12} ry={12} />;
@@ -392,6 +423,8 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
   }
 
   override onResize(shape: ChartShape, info: TLResizeInfo<ChartShape>) {
+    if (shape.meta.nativeVisualization === true && shape.props.chartType === "scatter")
+      return resizeBox(shape, info, { minWidth: 320, minHeight: 320 });
     const { scaleX, scaleY } = info;
     const newShape = resizeBox(shape, info);
 

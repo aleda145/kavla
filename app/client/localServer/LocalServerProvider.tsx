@@ -31,7 +31,7 @@ import {
 } from "./runtimeStore";
 import { MissingQueryResultError, type LocalServerContextType, type RunRemoteQueryPayload } from "./types";
 
-const LocalServerContext = createContext<LocalServerContextType | null>(null);
+export const LocalServerContext = createContext<LocalServerContextType | null>(null);
 
 export function useLocalServer(): LocalServerContextType {
   const context = useContext(LocalServerContext);

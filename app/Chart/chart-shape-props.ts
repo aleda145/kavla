@@ -1,5 +1,5 @@
-import { RecordProps, T } from "tldraw";
-import { ChartShape } from "./chart-shape-types";
+import { type RecordProps, T } from "tldraw";
+import type { ChartShape } from "./chart-shape-types";
 
 export const ChartShapeProps: RecordProps<ChartShape> = {
   sourceShapeId: T.string.nullable(),

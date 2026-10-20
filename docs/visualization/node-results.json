@@ -1,0 +1,247 @@
+{
+  "environment": {
+    "node": "v22.12.0",
+    "platform": "linux",
+    "architecture": "x64"
+  },
+  "method": "Single warm process; one timing per case. SVG string generation only, no browser. Native uses all observations through bins; ECharts uses its current first-10000-row limit.",
+  "memory": {
+    "rss": 589328384,
+    "heapTotal": 299290624,
+    "heapUsed": 264275112,
+    "external": 22381258,
+    "arrayBuffers": 1863428
+  },
+  "rows": [
+    {
+      "n": 1000,
+      "marks": 1000,
+      "mode": "points",
+      "statsMs": 3.834703999999988,
+      "planningMs": 0.1789810000000216,
+      "plotRoundtripMs": 2.8353009999999585,
+      "queryMs": 1.907,
+      "serializationMs": 0.084,
+      "arrowBytes": 24480,
+      "pipeDecodeScheduleMs": 0.8443009999999586,
+      "cacheMs": 0.03058299999997871,
+      "highlightMs": 0.5224609999999075,
+      "highlightedMarks": 501,
+      "selected": 501,
+      "selectionRoundtripMs": 11.118614999999977,
+      "selectionQueryMs": 10.263,
+      "legacyRows": 1000,
+      "legacyQueryMs": 0.571,
+      "legacySerializationMs": 0.038,
+      "legacyBytes": 24472,
+      "legacyDecodeMs": 6.3393440000000965,
+      "render": [
+        {
+          "copies": 1,
+          "nativeSvgMs": 9.328505999999948,
+          "legacySvgMs": 62.77901600000007,
+          "nativeChars": 63734,
+          "legacyChars": 282566
+        },
+        {
+          "copies": 10,
+          "nativeSvgMs": 19.711390999999935,
+          "legacySvgMs": 233.4419939999999,
+          "nativeChars": 637340,
+          "legacyChars": 2832772
+        },
+        {
+          "copies": 30,
+          "nativeSvgMs": 24.548118999999815,
+          "legacySvgMs": 525.0984600000002,
+          "nativeChars": 1912020,
+          "legacyChars": 8537940
+        }
+      ]
+    },
+    {
+      "n": 10000,
+      "marks": 10000,
+      "mode": "points",
+      "statsMs": 2.521543999999949,
+      "planningMs": 0.040970000000015716,
+      "plotRoundtripMs": 13.046075999999857,
+      "queryMs": 2.43,
+      "serializationMs": 7.873,
+      "arrowBytes": 240480,
+      "pipeDecodeScheduleMs": 2.7430759999998573,
+      "cacheMs": 0.02413699999988239,
+      "highlightMs": 4.520215000000007,
+      "highlightedMarks": 4560,
+      "selected": 4560,
+      "selectionRoundtripMs": 13.155160999999907,
+      "selectionQueryMs": 11.515,
+      "legacyRows": 10000,
+      "legacyQueryMs": 4.047,
+      "legacySerializationMs": 0.107,
+      "legacyBytes": 240472,
+      "legacyDecodeMs": 9.870366000000104,
+      "render": [
+        {
+          "copies": 1,
+          "nativeSvgMs": 12.900299000000132,
+          "legacySvgMs": 136.82544299999995,
+          "nativeChars": 676901,
+          "legacyChars": 2809559
+        },
+        {
+          "copies": 10,
+          "nativeSvgMs": 138.02451199999996,
+          "legacySvgMs": 1344.795413,
+          "nativeChars": 6769010,
+          "legacyChars": 28115622
+        },
+        {
+          "copies": 30,
+          "nativeSvgMs": 309.44058700000005,
+          "legacySvgMs": 3875.3214639999997,
+          "nativeChars": 20307030,
+          "legacyChars": 84587250
+        }
+      ]
+    },
+    {
+      "n": 100000,
+      "marks": 1550,
+      "mode": "density",
+      "statsMs": 7.5808139999999185,
+      "planningMs": 0.0825699999995777,
+      "plotRoundtripMs": 11.703816000000188,
+      "queryMs": 10.972,
+      "serializationMs": 0.029,
+      "arrowBytes": 37680,
+      "pipeDecodeScheduleMs": 0.7028160000001885,
+      "cacheMs": 0.01842800000031275,
+      "highlightMs": 0.14715900000010151,
+      "highlightedMarks": 192,
+      "selected": 12801,
+      "selectionRoundtripMs": 22.52099199999975,
+      "selectionQueryMs": 21.658,
+      "legacyRows": 10000,
+      "legacyQueryMs": 1.438,
+      "legacySerializationMs": 0.08,
+      "legacyBytes": 240472,
+      "legacyDecodeMs": 14.847697000000153,
+      "render": [
+        {
+          "copies": 1,
+          "nativeSvgMs": 7.990759999999682,
+          "legacySvgMs": 123.65034199999991,
+          "nativeChars": 213574,
+          "legacyChars": 2819575
+        },
+        {
+          "copies": 10,
+          "nativeSvgMs": 17.914174000000457,
+          "legacySvgMs": 1286.4469989999998,
+          "nativeChars": 2135740,
+          "legacyChars": 28195750
+        },
+        {
+          "copies": 30,
+          "nativeSvgMs": 47.486251000000266,
+          "legacySvgMs": 4001.1333400000003,
+          "nativeChars": 6407220,
+          "legacyChars": 84817618
+        }
+      ]
+    },
+    {
+      "n": 1000000,
+      "marks": 1550,
+      "mode": "density",
+      "statsMs": 28.436666999999943,
+      "planningMs": 0.08572499999900174,
+      "plotRoundtripMs": 74.284364000001,
+      "queryMs": 73.508,
+      "serializationMs": 0.031,
+      "arrowBytes": 37680,
+      "pipeDecodeScheduleMs": 0.7453640000010099,
+      "cacheMs": 0.013003999998545623,
+      "highlightMs": 0.10954700000002049,
+      "highlightedMarks": 192,
+      "selected": 128010,
+      "selectionRoundtripMs": 72.64664400000038,
+      "selectionQueryMs": 71.872,
+      "legacyRows": 10000,
+      "legacyQueryMs": 2.352,
+      "legacySerializationMs": 0.54,
+      "legacyBytes": 240472,
+      "legacyDecodeMs": 14.513468999999532,
+      "render": [
+        {
+          "copies": 1,
+          "nativeSvgMs": 1.7472649999999703,
+          "legacySvgMs": 159.57008999999925,
+          "nativeChars": 213374,
+          "legacyChars": 2829591
+        },
+        {
+          "copies": 10,
+          "nativeSvgMs": 19.177277999999205,
+          "legacySvgMs": 1308.4795350000004,
+          "nativeChars": 2133740,
+          "legacyChars": 28295910
+        },
+        {
+          "copies": 30,
+          "nativeSvgMs": 55.70811099999992,
+          "legacySvgMs": 4044.004952000001,
+          "nativeChars": 6401220,
+          "legacyChars": 84887730
+        }
+      ]
+    },
+    {
+      "n": 10000000,
+      "marks": 1550,
+      "mode": "density",
+      "statsMs": 309.1345939999992,
+      "planningMs": 0.07607099999950151,
+      "plotRoundtripMs": 677.2404959999985,
+      "queryMs": 676.509,
+      "serializationMs": 0.083,
+      "arrowBytes": 37680,
+      "pipeDecodeScheduleMs": 0.6484959999985149,
+      "cacheMs": 0.013979000003018882,
+      "highlightMs": 0.13324800000191317,
+      "highlightedMarks": 192,
+      "selected": 1280100,
+      "selectionRoundtripMs": 456.23258799999894,
+      "selectionQueryMs": 455.423,
+      "legacyRows": 10000,
+      "legacyQueryMs": 2.081,
+      "legacySerializationMs": 0.071,
+      "legacyBytes": 240472,
+      "legacyDecodeMs": 9.536847999999736,
+      "render": [
+        {
+          "copies": 1,
+          "nativeSvgMs": 1.9976580000002286,
+          "legacySvgMs": 123.32937799999854,
+          "nativeChars": 213574,
+          "legacyChars": 2829591
+        },
+        {
+          "copies": 10,
+          "nativeSvgMs": 19.162951000002067,
+          "legacySvgMs": 1307.992986000001,
+          "nativeChars": 2135740,
+          "legacyChars": 28295910
+        },
+        {
+          "copies": 30,
+          "nativeSvgMs": 48.546722999999474,
+          "legacySvgMs": 4036.426134000001,
+          "nativeChars": 6407220,
+          "legacyChars": 84887730
+        }
+      ]
+    }
+  ]
+}
