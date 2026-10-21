@@ -35,7 +35,11 @@ export function planScatter(
 ): ScatterPlan {
   const columns = Math.max(1, Math.min(256, Math.floor(width / 4)));
   const rows = Math.max(1, Math.min(256, Math.floor(height / 4)));
-  const coordinates = `SELECT ${coordinateSQL(x)} AS x, ${coordinateSQL(y)} AS y FROM (${source}) AS observation`;
+  const values =
+    count <= pointBudget
+      ? `, CAST(observation.${identifier(x.field)} AS VARCHAR) AS value_x, CAST(observation.${identifier(y.field)} AS VARCHAR) AS value_y`
+      : "";
+  const coordinates = `SELECT ${coordinateSQL(x)} AS x, ${coordinateSQL(y)} AS y${values} FROM (${source}) AS observation`;
   const visible = `SELECT * FROM (${coordinates}) WHERE isfinite(x) AND isfinite(y) AND x BETWEEN 0 AND 1 AND y BETWEEN 0 AND 1`;
   if (count <= pointBudget)
     return {
@@ -44,7 +48,7 @@ export function planScatter(
       rows,
       // LIMIT is a safety check, not sampling: the client rejects overflow. Live
       // sources can grow between the statistics and plot queries.
-      sql: `SELECT x, y, 1::BIGINT AS count FROM (${visible}) LIMIT ${pointBudget + 1}`,
+      sql: `SELECT x, y, value_x, value_y, 1::BIGINT AS count FROM (${visible}) LIMIT ${pointBudget + 1}`,
     };
   return {
     mode: "density",

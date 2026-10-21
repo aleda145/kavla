@@ -246,3 +246,49 @@
     }
   }
 }
+.kavla-scatter__tooltip {
+  position: absolute;
+  width: min(220px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 2px solid #000;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 4px 4px 0 #000;
+  pointer-events: none;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.kavla-scatter__tooltip > strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+.kavla-scatter__tooltip dl {
+  margin: 0;
+}
+.kavla-scatter__tooltip dt {
+  color: #52525b;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kavla-scatter__tooltip dd {
+  margin: 1px 0 6px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.kavla-scatter__tooltip dd:last-child {
+  margin-bottom: 0;
+}
+.kavla-scatter__tooltip p {
+  margin: 8px 0 0;
+  font-size: 10px;
+  color: #52525b;
+}

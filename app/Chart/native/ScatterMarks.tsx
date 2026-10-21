@@ -4,7 +4,7 @@ import type { chartGeometry } from "./geometry";
 import type { ScatterPlan } from "./planner";
 import { densityScale, pointStyle } from "./appearance";
 
-export type Mark = Point & { count: number };
+export type Mark = Point & { count: number; xValue?: string; yValue?: string };
 export const ScatterMarks = memo(function ScatterMarks({
   marks,
   geometry,
