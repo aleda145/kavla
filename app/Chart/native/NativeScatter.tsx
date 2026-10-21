@@ -23,6 +23,7 @@ import {
 import { scatterSource } from "./source";
 import { ScatterMarks, type Mark } from "./ScatterMarks";
 import { ScatterAxes } from "./ScatterAxes";
+import { ScatterTooltip } from "./ScatterTooltip";
 import { useVisualizationSession } from "./VisualizationProvider";
 
 const headerHeight = 42;
@@ -207,7 +208,12 @@ export function NativeScatter({ editor, shape }: { editor: Editor; shape: ChartS
         plan,
         total: Number(stats.total),
         valid,
-        marks: result.toArray().map((row) => ({ x: Number(row.x), y: Number(row.y), count: Number(row.count) })),
+        marks: result.toArray().map((row) => ({
+          x: Number(row.x),
+          y: Number(row.y),
+          count: Number(row.count),
+          ...(plan.mode === "points" ? { xValue: String(row.value_x), yValue: String(row.value_y) } : {}),
+        })),
       });
     })()
       .catch((error) => {
@@ -492,6 +498,20 @@ export function NativeScatter({ editor, shape }: { editor: Editor; shape: ChartS
               yLabel={currentPlot.y.field + (yLog ? " · log" : "")}
               polygon={visiblePolygon}
             />
+            {!errorText && !settingsOpen && (
+              <ScatterTooltip
+                editor={editor}
+                shapeId={shape.id}
+                marks={currentPlot.marks}
+                geometry={geometry}
+                plan={currentPlot.plan}
+                width={width}
+                height={height}
+                plotOffset={{ x: 4, y: 4 + headerHeight }}
+                xLabel={currentPlot.x.field}
+                yLabel={currentPlot.y.field}
+              />
+            )}
           </>
         )}
         {(!currentPlot || errorText) && (
