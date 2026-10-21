@@ -352,7 +352,7 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
               })
             }
           >
-            Try native scatter + lasso to SQL
+            Open full-data scatter
           </button>
         )}
 

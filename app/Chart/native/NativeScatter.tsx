@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { HTMLContainer, createShapeId, useValue, type Editor, type TLDrawShape, type TLShapeId } from "tldraw";
+import { ArrowUpRight, CircleAlert, Lasso, RefreshCw, ScatterChart, Settings2, X } from "lucide-react";
+import { densityScale } from "./appearance";
+import "./native-scatter.css";
 import { Priority } from "@uwdata/mosaic-core";
 import type { ChartShape } from "../chart-shape-types";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
@@ -24,14 +27,6 @@ import { useVisualizationSession } from "./VisualizationProvider";
 
 const headerHeight = 42;
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
-const buttonStyle = {
-  border: "2px solid black",
-  borderRadius: 4,
-  background: "#fff",
-  padding: "3px 7px",
-  fontWeight: 700,
-  cursor: "pointer",
-} as const;
 type Loaded = { revision: string; x: Axis; y: Axis; marks: Mark[]; plan: ScatterPlan; total: number; valid: number };
 
 function readSelection(value: unknown): ScatterSelection | null {
@@ -85,16 +80,46 @@ export function NativeScatter({ editor, shape }: { editor: Editor; shape: ChartS
     [sourceState]
   );
   const source = sourceInfo.source;
-  const controlsHeight = shape.props.w < 500 ? 126 : 82;
+  const controlsHeight = 66;
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsId = useId();
+  const settingsRef = useRef<HTMLDivElement>(null);
+  const settingsButton = useRef<HTMLButtonElement>(null);
+  const zoomLevel = useValue("native scatter zoom", () => editor.getZoomLevel(), [editor]);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    settingsRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const closeOutside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!settingsRef.current?.contains(target) && !settingsButton.current?.contains(target)) setSettingsOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        setSettingsOpen(false);
+        settingsButton.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", escape, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", escape, true);
+    };
+  }, [settingsOpen]);
   const width = Math.max(150, shape.props.w - 8),
     height = Math.max(100, shape.props.h - headerHeight - controlsHeight - 8);
   const xLog = shape.meta.nativeXLog === true,
     yLog = shape.meta.nativeYLog === true;
   const [size, setSize] = useState({ width, height });
+  const [pixelRatio, setPixelRatio] = useState(zoomLevel);
   useEffect(() => {
-    const timer = setTimeout(() => setSize({ width, height }), 150);
+    const timer = setTimeout(() => {
+      setSize({ width, height });
+      setPixelRatio(zoomLevel);
+    }, 150);
     return () => clearTimeout(timer);
-  }, [width, height]);
+  }, [width, height, zoomLevel]);
   const [refresh, setRefresh] = useState(0);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +167,7 @@ export function NativeScatter({ editor, shape }: { editor: Editor; shape: ChartS
       )
     ) {
       setLoaded(null);
-      setError("The prototype requires two numeric columns. Choose them in ECharts, then reopen the prototype.");
+      setError("Choose two numeric columns in chart settings to plot this data.");
       return;
     }
     let current = true;
@@ -381,9 +406,28 @@ export function NativeScatter({ editor, shape }: { editor: Editor; shape: ChartS
         : (currentPlot?.marks.length ?? 0) < 1000
           ? "svg"
           : "canvas";
+  const maximum = useMemo(
+    () => currentPlot?.marks.reduce((max, mark) => Math.max(max, mark.count), 1) ?? 1,
+    [currentPlot]
+  );
+  const legendColor = densityScale(maximum);
+  const legendGradient = `linear-gradient(to right, ${[0, 0.25, 0.5, 0.75, 1].map((t) => legendColor(Math.pow(maximum, t))).join(", ")})`;
+  const numericColumns =
+    source?.schema.filter((column) =>
+      /^(U?INT|U?BIGINT|HUGEINT|SMALLINT|TINYINT|FLOAT|DOUBLE|REAL|DECIMAL|NUMERIC)/i.test(column.type)
+    ) ?? [];
+  const excluded = currentPlot ? currentPlot.total - currentPlot.valid : 0;
+  const retryDrawing = () => {
+    const drawing =
+      editor.getSelectedShapes().find((s) => s.type === "draw") ??
+      editor.getShape(shape.meta.nativeLassoDrawing as TLShapeId);
+    if (drawing?.type === "draw") acceptDrawing(drawing as TLDrawShape, true);
+    else setSelectionError("Select a freehand drawing, then retry.");
+  };
   return (
     <HTMLContainer
       id={shape.id}
+      className="kavla-scatter"
       style={{
         width: shape.props.w,
         height: shape.props.h,
@@ -391,34 +435,43 @@ export function NativeScatter({ editor, shape }: { editor: Editor; shape: ChartS
         borderRadius: 12,
         background: "white",
         boxSizing: "border-box",
-        fontFamily: "Inter, sans-serif",
         pointerEvents: "all",
       }}
     >
-      <div
-        style={{
-          height: headerHeight,
-          boxSizing: "border-box",
-          borderBottom: "4px solid black",
-          background: "#fce7f3",
-          borderRadius: "8px 8px 0 0",
-          padding: "5px 8px",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          fontSize: 12,
-        }}
-      >
-        <strong style={{ flex: 1 }}>SCATTER · NATIVE PROTOTYPE</strong>
+      <div className="kavla-scatter__header" style={{ height: headerHeight }}>
+        <ScatterChart size={18} strokeWidth={2.5} aria-hidden="true" style={{ flexShrink: 0 }} />
+        <strong className="kavla-scatter__title" title={source?.name ?? "Scatter"}>
+          {source?.name ?? "SCATTER"}
+        </strong>
         <button
-          style={buttonStyle}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => setMeta({ nativeVisualization: false })}
+          type="button"
+          className="kavla-scatter__button kavla-scatter__button--icon"
+          title="Refresh data"
+          aria-label="Refresh data"
+          disabled={busy}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => {
+            setSelectionError(null);
+            setRefresh((n) => n + 1);
+          }}
         >
-          ECharts
+          <RefreshCw size={14} className={busy ? "kavla-scatter__busy" : undefined} />
+        </button>
+        <button
+          ref={settingsButton}
+          type="button"
+          className="kavla-scatter__button kavla-scatter__button--icon"
+          title="Chart settings"
+          aria-label="Chart settings"
+          aria-expanded={settingsOpen}
+          aria-controls={settingsId}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => setSettingsOpen((open) => !open)}
+        >
+          <Settings2 size={16} />
         </button>
       </div>
-      <div style={{ position: "relative", width, height, overflow: "hidden" }}>
+      <div style={{ position: "relative", width, height, overflow: "hidden" }} aria-busy={busy}>
         {geometry && currentPlot && (
           <>
             <ScatterMarks
@@ -429,114 +482,234 @@ export function NativeScatter({ editor, shape }: { editor: Editor; shape: ChartS
               width={width}
               height={height}
               renderer={renderer}
+              pixelRatio={pixelRatio}
             />
             <ScatterAxes
               geometry={geometry}
               width={width}
               height={height}
-              xLabel={currentPlot.x.field}
-              yLabel={currentPlot.y.field}
+              xLabel={currentPlot.x.field + (xLog ? " · log" : "")}
+              yLabel={currentPlot.y.field + (yLog ? " · log" : "")}
               polygon={visiblePolygon}
             />
           </>
         )}
         {(!currentPlot || errorText) && (
-          <div
-            role="status"
-            style={{
-              position: "absolute",
-              inset: 10,
-              background: "#fffef0",
-              padding: 10,
-              fontSize: 12,
-              height: "fit-content",
-              pointerEvents: "none",
-            }}
-          >
-            {errorText || "Loading plot through Mosaic…"}
+          <div role="status" className="kavla-scatter__message">
+            <strong>
+              {errorText ? <CircleAlert size={17} /> : <ScatterChart size={17} />}
+              {errorText ? "Chart needs attention" : busy ? "Plotting your data" : "Choose your axes"}
+            </strong>
+            <p>
+              {errorText ||
+                (busy ? "Reading the full dataset…" : "Open chart settings and choose a numeric column for each axis.")}
+            </p>
           </div>
         )}
       </div>
       <div
-        style={{
-          height: controlsHeight,
-          boxSizing: "border-box",
-          borderTop: "2px solid black",
-          padding: 5,
-          fontSize: 10,
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
-        }}
-        onPointerDown={(e) => e.stopPropagation()}
+        className="kavla-scatter__footer"
+        style={{ height: controlsHeight }}
+        onPointerDown={(event) => event.stopPropagation()}
       >
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          <button style={buttonStyle} onClick={() => editor.setCurrentTool("draw")}>
-            Draw lasso
-          </button>
-          <button
-            style={buttonStyle}
-            onClick={() => {
-              const drawing =
-                editor.getSelectedShapes().find((s) => s.type === "draw") ??
-                editor.getShape(shape.meta.nativeLassoDrawing as TLShapeId);
-              if (drawing?.type === "draw") acceptDrawing(drawing as TLDrawShape, true);
-              else setSelectionError("Select a freehand drawing, then retry.");
-            }}
+        <div className="kavla-scatter__status">
+          <span
+            className="kavla-scatter__rows"
+            title={
+              currentPlot
+                ? `${currentPlot.total.toLocaleString()} source rows. ${excluded.toLocaleString()} rows excluded because coordinates are missing, non-finite, or not positive on a log axis. All eligible rows contribute to the plot.`
+                : undefined
+            }
           >
-            Use drawing / retry
-          </button>
-          <button
-            style={buttonStyle}
-            disabled={count === null || !selectionCurrent || exploring}
-            onClick={() => void explore()}
-          >
-            {exploring ? "Running…" : "Explore selected data"}
-          </button>
-          <button
-            style={buttonStyle}
-            onClick={() => {
-              setSelectionError(null);
-              setRefresh((n) => n + 1);
-            }}
-          >
-            Refresh
-          </button>
-          <label>
-            <input type="checkbox" checked={xLog} onChange={(e) => setMeta({ nativeXLog: e.target.checked })} />
-            Log X
-          </label>
-          <label>
-            <input type="checkbox" checked={yLog} onChange={(e) => setMeta({ nativeYLog: e.target.checked })} />
-            Log Y
-          </label>
-          <select
-            aria-label="Native renderer"
-            value={(shape.meta.nativeRenderer as string) ?? "auto"}
-            onChange={(e) => setMeta({ nativeRenderer: e.target.value })}
-          >
-            <option value="auto">Auto</option>
-            <option value="svg">SVG</option>
-            <option value="canvas">Canvas</option>
-          </select>
+            {currentPlot ? (
+              <>
+                <b>{currentPlot.valid.toLocaleString()}</b> rows
+                {excluded > 0 && <span className="kavla-scatter__notice"> · {excluded.toLocaleString()} excluded</span>}
+              </>
+            ) : (
+              "No plot yet"
+            )}
+            {busy && " · Updating…"}
+          </span>
+          {shape.props.color && (
+            <span
+              className="kavla-scatter__notice"
+              title={`Color grouping by ${shape.props.color} is not applied in this view. Switch to the standard chart in settings to see groups.`}
+            >
+              Color not applied
+            </span>
+          )}
+          {currentPlot?.plan.mode === "density" && (
+            <span
+              className="kavla-scatter__legend"
+              title={`Rows per bin, logarithmic color scale from 1 to ${maximum.toLocaleString()}. Bin size adapts to chart size. Yellow bins preview the selection; the selected row count is exact.`}
+            >
+              <span className="kavla-scatter__optional">Rows / bin</span>
+              <span>1</span>
+              <span className="kavla-scatter__ramp" style={{ background: legendGradient }} />
+              {maximum > 1 && (
+                <span>
+                  {new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(maximum)}
+                </span>
+              )}
+              <span className="kavla-scatter__optional">log</span>
+            </span>
+          )}
         </div>
-        <span>
-          {currentPlot
-            ? `${currentPlot.total.toLocaleString()} source rows · ${currentPlot.marks.length.toLocaleString()} ${currentPlot.plan.mode === "density" ? "density bins (reduced; highlighted bin centers are a preview)" : "points"} · ${currentPlot.total - currentPlot.valid} invalid/log-ineligible rows excluded`
-            : ""}
-          {busy ? " · Updating…" : ""}
-          {shape.props.color ? " · Color grouping is not applied in this prototype." : ""}
-        </span>
-        <strong>
-          {selection
-            ? selectionCurrent
-              ? count === null
-                ? "Evaluating exact live selection…"
-                : `${count.toLocaleString()} observations selected · live predicate, including duplicate coordinates`
-              : "The source or axes changed. Draw a new selection."
-            : "Draw a closed outline over the plot. Self intersections use even-odd fill."}
-        </strong>
+        <div className="kavla-scatter__actions">
+          <button
+            type="button"
+            className="kavla-scatter__button"
+            disabled={!currentPlot}
+            title="Draw a closed outline over the plot to select rows"
+            onClick={() => editor.setCurrentTool("draw")}
+          >
+            <Lasso size={14} />
+            <span>{selection ? "Redraw" : "Select"}</span>
+          </button>
+          {selection ? (
+            <>
+              <span
+                className="kavla-scatter__hint kavla-scatter__selection"
+                role="status"
+                title="Exact count from the original rows, including duplicate coordinates. Density highlights are a preview."
+              >
+                {selectionCurrent
+                  ? count === null
+                    ? "Counting…"
+                    : `${count.toLocaleString()} selected`
+                  : "Selection out of date"}
+              </span>
+              {selectionCurrent && (
+                <button
+                  type="button"
+                  className="kavla-scatter__button kavla-scatter__button--primary"
+                  title="Explore selected rows in a new SQL query"
+                  disabled={count === null || exploring}
+                  onClick={() => void explore()}
+                >
+                  {exploring ? "Running…" : "Explore"}
+                  <ArrowUpRight size={14} />
+                </button>
+              )}
+              <button
+                type="button"
+                className="kavla-scatter__button kavla-scatter__button--icon"
+                title="Clear selection"
+                aria-label="Clear selection"
+                onClick={() => {
+                  setSelectionError(null);
+                  setCount(null);
+                  setMeta({ nativeSelection: null, nativeLassoError: null });
+                }}
+              >
+                <X size={14} />
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="kavla-scatter__hint">Draw an outline to explore a subset.</span>
+              {(selectionError || shape.meta.nativeLassoError) && (
+                <button type="button" className="kavla-scatter__button" onClick={retryDrawing}>
+                  Retry drawing
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
+      {settingsOpen && (
+        <div
+          ref={settingsRef}
+          id={settingsId}
+          role="dialog"
+          aria-label="Chart settings"
+          className="kavla-scatter__settings"
+          onPointerDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+          onWheel={(event) => event.stopPropagation()}
+        >
+          <div className="kavla-scatter__settings-heading">
+            Chart settings
+            <button
+              type="button"
+              className="kavla-scatter__button kavla-scatter__button--icon"
+              aria-label="Close settings"
+              onClick={() => {
+                setSettingsOpen(false);
+                settingsButton.current?.focus();
+              }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+          {(["x", "y"] as const).map((axis) => (
+            <div key={axis} className="kavla-scatter__field">
+              <label className="kavla-scatter__field">
+                <span>{axis.toUpperCase()} axis</span>
+                <select
+                  value={shape.props[axis] ?? ""}
+                  disabled={!numericColumns.length}
+                  onChange={(event) =>
+                    editor.updateShape<ChartShape>({
+                      id: shape.id,
+                      type: "chart-shape",
+                      props: { [axis]: event.target.value },
+                    })
+                  }
+                >
+                  <option value="" disabled>
+                    Choose a numeric column
+                  </option>
+                  {shape.props[axis] && !numericColumns.some((column) => column.name === shape.props[axis]) && (
+                    <option value={shape.props[axis]!} disabled>
+                      {shape.props[axis]} (unavailable)
+                    </option>
+                  )}
+                  {numericColumns.map((column) => (
+                    <option key={column.name} value={column.name}>
+                      {column.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="kavla-scatter__scales" role="group" aria-label={`${axis.toUpperCase()} axis scale`}>
+                {([false, true] as const).map((log) => (
+                  <button
+                    key={String(log)}
+                    type="button"
+                    className="kavla-scatter__button"
+                    aria-pressed={(axis === "x" ? xLog : yLog) === log}
+                    onClick={() => setMeta({ [axis === "x" ? "nativeXLog" : "nativeYLog"]: log })}
+                  >
+                    {log ? "Log" : "Linear"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="kavla-scatter__button"
+            onClick={() => {
+              retryDrawing();
+              setSettingsOpen(false);
+            }}
+          >
+            Use existing drawing
+          </button>
+          <p className="kavla-scatter__settings-note">
+            Large datasets appear as density bins. Every eligible row contributes.
+          </p>
+          <button
+            type="button"
+            className="kavla-scatter__button"
+            onClick={() => setMeta({ nativeVisualization: false })}
+          >
+            Switch to standard chart
+          </button>
+        </div>
+      )}
     </HTMLContainer>
   );
 }

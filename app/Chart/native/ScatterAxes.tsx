@@ -1,6 +1,6 @@
 import type { chartGeometry } from "./geometry";
 import type { Point } from "./selection";
-import { memo } from "react";
+import { memo, useId } from "react";
 
 export const ScatterAxes = memo(function ScatterAxes({
   geometry,
@@ -17,51 +17,96 @@ export const ScatterAxes = memo(function ScatterAxes({
   yLabel: string;
   polygon: Point[] | null;
 }) {
+  const clipId = useId();
+  const { plot, xScale, yScale } = geometry;
+  const bottom = plot.top + plot.height;
+  const xTicks = Math.max(2, Math.floor(plot.width / 90));
+  const yTicks = Math.max(2, Math.floor(plot.height / 48));
+  const shorten = (label: string, space: number) => {
+    const length = Math.max(4, Math.floor(space / 8));
+    return label.length > length ? `${label.slice(0, length - 1)}…` : label;
+  };
   return (
-    <svg width={width} height={height} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-      <path
-        d={`M${geometry.plot.left},${geometry.plot.top}V${geometry.plot.top + geometry.plot.height}H${geometry.plot.left + geometry.plot.width}`}
-        fill="none"
-        stroke="black"
-        strokeWidth={2}
-      />
-      {geometry.xScale.ticks(Math.max(2, Math.floor(width / 110))).map((t) => (
-        <text
-          key={t}
-          x={geometry.xScale(t)}
-          y={geometry.plot.top + geometry.plot.height + 20}
-          textAnchor="middle"
-          fontSize={11}
-        >
-          {geometry.xScale.tickFormat(5)(t)}
-        </text>
-      ))}
-      {geometry.yScale.ticks(Math.max(2, Math.floor(height / 65))).map((t) => (
-        <text key={t} x={geometry.plot.left - 8} y={geometry.yScale(t) + 4} textAnchor="end" fontSize={11}>
-          {geometry.yScale.tickFormat(5)(t)}
-        </text>
-      ))}
-      <text x={width / 2} y={height - 4} fontSize={12} textAnchor="middle">
-        {xLabel}
-      </text>
-      <text transform={`translate(13,${height / 2}) rotate(-90)`} fontSize={12} textAnchor="middle">
-        {yLabel}
-      </text>
+    <svg
+      width={width}
+      height={height}
+      aria-label={`${yLabel} by ${xLabel}`}
+      style={{ position: "absolute", inset: 0, pointerEvents: "none", fontFamily: "Inter, sans-serif", fill: "#000" }}
+    >
+      <defs>
+        <clipPath id={clipId}>
+          <rect x={plot.left} y={plot.top} width={plot.width} height={plot.height} />
+        </clipPath>
+      </defs>
       {polygon && (
         <polygon
+          clipPath={`url(#${clipId})`}
           points={polygon
             .map((p) => {
               const q = geometry.fromAnalytical(p);
               return `${q.x},${q.y}`;
             })
             .join(" ")}
-          fill="#eab308"
-          fillOpacity={0.1}
+          fill="#fde047"
+          fillOpacity={0.08}
           fillRule="evenodd"
-          stroke="#a16207"
-          strokeWidth={1.5}
+          stroke="#000"
+          strokeWidth={2}
+          strokeDasharray="5 4"
+          strokeLinejoin="round"
         />
       )}
+      <path
+        d={`M${plot.left},${plot.top}V${bottom}H${plot.left + plot.width}`}
+        fill="none"
+        stroke="#000"
+        strokeWidth={3}
+        strokeLinejoin="round"
+      />
+      {xScale.ticks(xTicks).map((t) => {
+        const label = xScale.tickFormat(xTicks, "~s")(t);
+        if (!label) return null;
+        return (
+          <g key={t}>
+            <path d={`M${xScale(t)},${bottom}v5`} stroke="#000" strokeWidth={2} />
+            <text x={xScale(t)} y={bottom + 19} textAnchor="middle" fontSize={11} fontWeight={700}>
+              {label}
+            </text>
+          </g>
+        );
+      })}
+      {yScale.ticks(yTicks).map((t) => {
+        const label = yScale.tickFormat(yTicks, "~s")(t);
+        if (!label) return null;
+        return (
+          <g key={t}>
+            <path d={`M${plot.left - 5},${yScale(t)}h5`} stroke="#000" strokeWidth={2} />
+            <text
+              x={plot.left - 9}
+              y={yScale(t)}
+              dominantBaseline="middle"
+              textAnchor="end"
+              fontSize={11}
+              fontWeight={700}
+            >
+              {label}
+            </text>
+          </g>
+        );
+      })}
+      <text x={plot.left + plot.width / 2} y={height - 5} fontSize={12} fontWeight={800} textAnchor="middle">
+        <title>{xLabel}</title>
+        {shorten(xLabel, plot.width)}
+      </text>
+      <text
+        transform={`translate(14,${plot.top + plot.height / 2}) rotate(-90)`}
+        fontSize={12}
+        fontWeight={800}
+        textAnchor="middle"
+      >
+        <title>{yLabel}</title>
+        {shorten(yLabel, plot.height)}
+      </text>
     </svg>
   );
 });
