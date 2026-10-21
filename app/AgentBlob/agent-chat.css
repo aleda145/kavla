@@ -29,3 +29,41 @@
   -webkit-user-select: none;
   user-select: none;
 }
+
+.agent-chat-launcher {
+  position: absolute;
+  right: 12px;
+  bottom: 56px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 2px solid #000;
+  border-radius: 12px;
+  background: #ede9fe;
+  color: #000;
+  box-shadow: 4px 4px 0 #000;
+  font-family: "Kavla Agent Inter", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  pointer-events: all;
+  cursor: pointer;
+  transition:
+    box-shadow 0.12s,
+    transform 0.12s;
+}
+.agent-chat-launcher:hover {
+  background: #ddd6fe;
+  transform: translateY(1px);
+  box-shadow: 2px 2px 0 #000;
+}
+.agent-chat-launcher:focus-visible {
+  outline: 2px solid #6d28d9;
+  outline-offset: 2px;
+}
+@media (max-width: 840px) {
+  .agent-chat-launcher {
+    bottom: 66px;
+  }
+}

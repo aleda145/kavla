@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, Maximize2, Minimize2, Send, Square, Trash2, X } from "lucide-react";
+import { ChevronDown, Loader2, Maximize2, Minimize2, Send, Sparkles, Square, Trash2 } from "lucide-react";
 import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useAgentModels, useAgentStatus } from "../client/localServer/agentStore";
 import { useData } from "../client/useLocalServer";
@@ -24,11 +24,8 @@ import { LocalAgentDialog } from "../client/local/LocalAgentDialog";
 import { randomUUID } from "../util/randomUUID";
 import "./agent-chat.css";
 
-const DOCK_ANCHOR_SIZE = 48;
 const CHAT_WIDTH = 340;
 const CHAT_HEIGHT = 330;
-const TOOLBAR_GAP = 6;
-const CHAT_GAP = 12;
 const CAT_RESPONSES = ["Meow", "Maaoo", "Mrrrp", "Mew", "Purrrrr"] as const;
 const CAT_INTRO_ENTRY: AgentChatEntry = {
   id: "cat-intro",
@@ -39,46 +36,6 @@ const CAT_INTRO_ENTRY: AgentChatEntry = {
 
 function stopOverlayEvent(event: SyntheticEvent) {
   event.stopPropagation();
-}
-
-function getDockLayout() {
-  const toolbarElements = Array.from(
-    document.querySelectorAll<HTMLElement>(".tlui-layout__bottom .tlui-toolbar__inner")
-  );
-  const toolbar = toolbarElements
-    .map((element) => ({ element, bounds: element.getBoundingClientRect() }))
-    .filter(({ bounds }) => bounds.width > 0 && bounds.height > 0)
-    .sort((a, b) => b.bounds.bottom - a.bounds.bottom)[0]?.bounds;
-  const agentButton = Array.from(document.querySelectorAll<HTMLElement>("[data-kavla-agent-toolbar]"))
-    .map((element) => element.getBoundingClientRect())
-    .filter((bounds) => bounds.width > 0 && bounds.height > 0)
-    .sort((a, b) => b.bottom - a.bottom)[0];
-  const maxChatX = Math.max(18, window.innerWidth - CHAT_WIDTH - 18);
-  const maxChatY = Math.max(18, window.innerHeight - CHAT_HEIGHT - 18);
-  if (agentButton) {
-    return {
-      chat: {
-        x: Math.max(18, Math.min((toolbar?.right ?? agentButton.right) + TOOLBAR_GAP, maxChatX)),
-        y: Math.max(18, Math.min(agentButton.top - CHAT_HEIGHT - CHAT_GAP, maxChatY)),
-      },
-    };
-  }
-  if (!toolbar) {
-    return {
-      chat: {
-        x: Math.max(18, window.innerWidth - CHAT_WIDTH - 24),
-        y: Math.max(18, window.innerHeight - CHAT_HEIGHT - 92),
-      },
-    };
-  }
-  const maxAnchorX = Math.max(18, window.innerWidth - DOCK_ANCHOR_SIZE - 18);
-  const anchorX = Math.max(18, Math.min(toolbar.right + TOOLBAR_GAP, maxAnchorX));
-  return {
-    chat: {
-      x: Math.max(18, Math.min(anchorX + DOCK_ANCHOR_SIZE - CHAT_WIDTH, maxChatX)),
-      y: Math.max(18, Math.min(toolbar.top - CHAT_HEIGHT - CHAT_GAP, maxChatY)),
-    },
-  };
 }
 
 function fallbackHistory(entries: AgentChatEntry[]): string {
@@ -170,7 +127,18 @@ function AnswerText({
 
 function AgentChatOverlay() {
   const editor = useEditor();
-  const { container, isMaximized, setIsMaximized } = useAgentChatLayout();
+  const {
+    container,
+    isMaximized,
+    setIsMaximized,
+    isMobile,
+    isMobileOpen,
+    setIsMobileOpen,
+    mobileContainer,
+    mobileLauncherContainer,
+  } = useAgentChatLayout();
+  const panelContainer = isMobile ? mobileContainer : container;
+  const isDocked = isMobile || isMaximized;
   const dataSocket = useData();
   const agentStatus = useAgentStatus();
   const agentModels = useAgentModels();
@@ -188,7 +156,6 @@ function AgentChatOverlay() {
   const [chosenMentions, setChosenMentions] = useState<ContextBadge[]>([]);
   const [isFollowing, setIsFollowing] = useState(false);
   const chatPanelRef = useRef<HTMLElement>(null);
-  const [layout, setLayout] = useState(() => getDockLayout());
   const endRef = useRef<HTMLDivElement>(null);
   const agent = useValue("Kavla agent", () => getAgentChat(editor), [editor]);
   const canvasBadges = useValue("Kavla agent canvas references", () => getCanvasBadges(editor), [editor]);
@@ -286,13 +253,24 @@ function AgentChatOverlay() {
     });
   };
   const ready = agentStatus.state === "ready";
-  const isOpen = agent?.props.isOpen ?? false;
+  const isOpen = isMobile ? isMobileOpen : (agent?.props.isOpen ?? false);
+  const toggleChat = () => {
+    if (isMobile) {
+      if (!isOpen) createOrFocusAgentChat(editor);
+      setIsMobileOpen(!isOpen);
+    } else if (isOpen) {
+      updateAgentChat(editor, { isOpen: false });
+    } else {
+      setIsMaximized(false);
+      createOrFocusAgentChat(editor);
+    }
+  };
   const {
     inputRef,
     textareaRef: promptRef,
     textareaHeight,
     resizeHandleProps,
-  } = useChatComposerSize(chatPanelRef, isOpen && container !== null, prompt);
+  } = useChatComposerSize(chatPanelRef, isOpen && panelContainer !== null, prompt);
   const isRunning = !isCat && (isSending || runs.some(isAgentRunActive) || (agent?.props.isRunning ?? false));
   const entries = isCat ? catEntries : (agent?.props.entries ?? []);
 
@@ -302,22 +280,7 @@ function AgentChatOverlay() {
 
   useLayoutEffect(() => {
     editor.updateViewportScreenBounds(editor.getContainer());
-  }, [editor, isMaximized]);
-
-  useLayoutEffect(() => {
-    const update = () => setLayout(getDockLayout());
-    update();
-    const timers = [window.setTimeout(update, 100), window.setTimeout(update, 500)];
-    window.addEventListener("resize", update);
-    const toolbar = document.querySelector<HTMLElement>(".tlui-layout__bottom .tlui-toolbar__inner");
-    const observer = toolbar ? new ResizeObserver(update) : null;
-    if (toolbar && observer) observer.observe(toolbar);
-    return () => {
-      timers.forEach(window.clearTimeout);
-      window.removeEventListener("resize", update);
-      observer?.disconnect();
-    };
-  }, [isOpen, isMaximized]);
+  }, [editor, isMaximized, isMobile, isMobileOpen]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -452,626 +415,662 @@ function AgentChatOverlay() {
           ? "Thinking"
           : "Ready";
 
-  if (!container) return null;
+  if (!panelContainer) return null;
 
-  return createPortal(
-    <div
+  const launcher = (
+    <button
+      type="button"
+      className="agent-chat-launcher"
       data-kavla-agent-ui
-      style={{
-        fontFamily: '"Kavla Agent Inter", sans-serif',
-        inset: 0,
-        pointerEvents: "none",
-        position: "absolute",
+      aria-label={isOpen ? "Close agent chat" : "Open agent chat"}
+      aria-expanded={isOpen}
+      onPointerDown={stopOverlayEvent}
+      onMouseDown={stopOverlayEvent}
+      onClick={(event) => {
+        event.stopPropagation();
+        toggleChat();
       }}
     >
-      <style>{`
-        @keyframes kavla-agent-thinking-dot { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
-      `}</style>
-      {isOpen && agent ? (
-        <aside
-          ref={chatPanelRef}
-          aria-label={isCat ? "Kavla cat chat" : "Kavla Agent chat"}
-          className="kavla-agent-chat"
-          tabIndex={-1}
-          onClick={stopOverlayEvent}
-          onContextMenu={stopOverlayEvent}
-          onCopy={stopOverlayEvent}
-          onCut={stopOverlayEvent}
-          onPaste={stopOverlayEvent}
-          onDoubleClick={stopOverlayEvent}
-          onKeyDown={stopOverlayEvent}
-          onMouseDown={stopOverlayEvent}
-          onPointerDown={stopOverlayEvent}
-          onWheel={stopOverlayEvent}
+      <Sparkles size={16} color="#6d28d9" aria-hidden="true" />
+      <span style={{ color: "#000" }}>Agent</span>
+    </button>
+  );
+
+  return (
+    <>
+      {isMobile && mobileLauncherContainer && createPortal(launcher, mobileLauncherContainer)}
+      {createPortal(
+        <div
+          data-kavla-agent-ui
           style={{
-            background: "#fff",
-            border: isMaximized ? 0 : "3px solid #000",
-            borderLeft: isMaximized ? "6px solid #000" : "3px solid #000",
-            borderRadius: isMaximized ? 0 : 12,
-            boxShadow: isMaximized ? "none" : "4px 4px 0 0 #000",
-            boxSizing: "border-box",
-            display: "flex",
-            flexDirection: "column",
-            height: isMaximized ? "100%" : CHAT_HEIGHT,
-            left: isMaximized ? 0 : layout.chat.x,
-            overflow: isMaximized ? "hidden" : "visible",
-            pointerEvents: "all",
+            fontFamily: '"Kavla Agent Inter", sans-serif',
+            inset: 0,
+            pointerEvents: "none",
             position: "absolute",
-            top: isMaximized ? 0 : layout.chat.y,
-            width: isMaximized ? "100%" : CHAT_WIDTH,
           }}
         >
-          <div
-            style={{
-              alignItems: "center",
-              background: isCat ? "#ffedd5" : "#ede9fe",
-              borderBottom: "3px solid #000",
-              borderRadius: isMaximized ? 0 : "9px 9px 0 0",
-              display: "flex",
-              flexShrink: 0,
-              flexWrap: "wrap",
-              gap: 8,
-              minHeight: 42,
-              padding: "6px 8px",
-            }}
-          >
-            <strong
+          <style>{`
+        @keyframes kavla-agent-thinking-dot { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+      `}</style>
+          {!isMobile && !isOpen && launcher}
+          {isOpen && agent ? (
+            <aside
+              ref={chatPanelRef}
+              aria-label={isCat ? "Kavla cat chat" : "Kavla Agent chat"}
+              className="kavla-agent-chat"
+              tabIndex={-1}
+              onClick={stopOverlayEvent}
+              onContextMenu={stopOverlayEvent}
+              onCopy={stopOverlayEvent}
+              onCut={stopOverlayEvent}
+              onPaste={stopOverlayEvent}
+              onDoubleClick={stopOverlayEvent}
+              onKeyDown={stopOverlayEvent}
+              onMouseDown={stopOverlayEvent}
+              onPointerDown={stopOverlayEvent}
+              onWheel={stopOverlayEvent}
               style={{
+                background: "#fff",
+                border: isDocked ? 0 : "3px solid #000",
+                borderLeft: isMobile ? 0 : isMaximized ? "6px solid #000" : "3px solid #000",
+                borderRadius: isDocked ? 0 : 12,
+                boxShadow: isDocked ? "none" : "4px 4px 0 0 #000",
+                boxSizing: "border-box",
                 display: "flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: 11,
-                fontWeight: 900,
-                textTransform: "uppercase",
+                flexDirection: "column",
+                height: isDocked ? "100%" : `min(${CHAT_HEIGHT}px, calc(100% - 72px))`,
+                right: isDocked ? 0 : 12,
+                overflow: isDocked ? "hidden" : "visible",
+                pointerEvents: "all",
+                position: "absolute",
+                bottom: isDocked ? 0 : 56,
+                width: isDocked ? "100%" : `min(${CHAT_WIDTH}px, calc(100% - 24px))`,
               }}
             >
-              {isCat ? (
-                <>
-                  <span style={{ textDecoration: "line-through", opacity: 0.55 }}>Analyst</span>
-                  <span>Cat</span>
-                  <img src="/cat.svg" alt="Cat" style={{ width: 24, height: 24, objectFit: "contain" }} />
-                </>
-              ) : (
-                "Analyst"
-              )}
-            </strong>
-            <div style={{ alignItems: "center", display: "flex", gap: 6, marginLeft: "auto" }}>
-              <button
-                aria-label="Follow analyst"
-                aria-pressed={!isCat && isFollowing}
-                disabled={isCat}
-                onClick={() => setIsFollowing((value) => !value)}
-                title="Follow active work. Moving around the canvas pauses following."
-                type="button"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: !isCat && isFollowing ? "#fef08a" : "#fff",
-                  opacity: isCat ? 0.45 : 1,
-                  color: "#000",
-                  border: "2px solid #000",
-                  borderRadius: 5,
-                  height: 24,
-                  padding: "0 6px",
-                  fontSize: 9,
-                  fontWeight: 900,
-                  textTransform: "uppercase",
-                  cursor: "pointer",
-                }}
-              >
-                Follow
-              </button>
-              <button
-                aria-label="Clear chat"
-                disabled={isRunning}
-                onClick={() =>
-                  isCat
-                    ? setCatEntries([CAT_INTRO_ENTRY])
-                    : updateAgentChat(editor, {
-                        entries: [],
-                        threadId: null,
-                        streamingText: "",
-                        activity: null,
-                        historyClearedAt: Date.now(),
-                      })
-                }
-                style={{
-                  alignItems: "center",
-                  background: "#fff",
-                  border: "2px solid #000",
-                  borderRadius: 5,
-                  cursor: isRunning ? "default" : "pointer",
-                  display: "flex",
-                  height: 24,
-                  justifyContent: "center",
-                  opacity: isRunning ? 0.45 : 1,
-                  padding: 0,
-                  width: 24,
-                }}
-                title="Clear chat"
-                type="button"
-              >
-                <Trash2 size={13} strokeWidth={3} />
-              </button>
               <div
                 style={{
-                  background: ready || isCat ? "#fff" : agentStatus.state === "checking" ? "#fef9c3" : "#fee2e2",
-                  border: "2px solid #000",
-                  borderRadius: 5,
-                  fontSize: 9,
-                  fontWeight: 900,
-                  padding: "2px 6px",
-                  textTransform: "uppercase",
-                }}
-              >
-                {visualStatus}
-              </div>
-              <button
-                aria-label={isMaximized ? "Restore floating agent chat" : "Maximize agent chat"}
-                onClick={() => setIsMaximized(!isMaximized)}
-                style={{
-                  display: "flex",
                   alignItems: "center",
-                  justifyContent: "center",
-                  background: "#fff",
-                  border: "2px solid #000",
-                  borderRadius: 5,
-                  height: 24,
-                  width: 24,
-                  padding: 0,
-                  cursor: "pointer",
-                }}
-                title={isMaximized ? "Restore floating chat" : "Maximize chat to sidebar"}
-                type="button"
-              >
-                {isMaximized ? <Minimize2 size={13} strokeWidth={3} /> : <Maximize2 size={13} strokeWidth={3} />}
-              </button>
-              <button
-                aria-label="Close agent chat"
-                onClick={() => updateAgentChat(editor, { isOpen: false })}
-                style={{
+                  background: isCat ? "#ffedd5" : "#ede9fe",
+                  borderBottom: "3px solid #000",
+                  borderRadius: isDocked ? 0 : "9px 9px 0 0",
                   display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "#fff",
-                  border: "2px solid #000",
-                  borderRadius: 5,
-                  height: 24,
-                  width: 24,
-                  padding: 0,
-                  cursor: "pointer",
+                  flexShrink: 0,
+                  flexWrap: "wrap",
+                  gap: 8,
+                  minHeight: 42,
+                  padding: "6px 8px",
                 }}
-                title="Close chat"
-                type="button"
               >
-                <X size={13} strokeWidth={3} />
-              </button>
-            </div>
-          </div>
-
-          {!ready && !isCat ? (
-            <div
-              style={{
-                background: agentStatus.state === "checking" ? "#fef9c3" : "#fee2e2",
-                borderBottom: "2px solid #000",
-                color: agentStatus.state === "checking" ? "#713f12" : "#7f1d1d",
-                fontSize: 10,
-                lineHeight: 1.35,
-                padding: "6px 8px",
-              }}
-            >
-              {agentStatus.message}
-              <button
-                onClick={() => dataSocket.retryAgent()}
-                style={{
-                  background: "#fff",
-                  border: "1px solid #000",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  fontSize: 9,
-                  fontWeight: 900,
-                  marginLeft: 6,
-                }}
-                type="button"
-              >
-                Retry
-              </button>
-            </div>
-          ) : null}
-
-          <div
-            style={{
-              background: "#faf5ff",
-              display: "flex",
-              flex: "1 1 auto",
-              flexDirection: "column",
-              gap: 7,
-              minHeight: 0,
-              overflowY: "auto",
-              padding: 10,
-              userSelect: "text",
-            }}
-          >
-            {entries.length === 0 ? (
-              <div style={{ color: "#57534e", fontSize: 12, lineHeight: 1.45, padding: 4 }}>
-                Select shapes or type @ to mention them, then ask the Agent to explore, create, or edit your analysis.
-              </div>
-            ) : null}
-            {entries.map((entry) => {
-              if (entry.role === "event" && entry.toolCallId) return null;
-              const isUser = entry.role === "user";
-              const isError = entry.role === "error";
-              const isThought = entry.role === "thought";
-              const contextBadges = (entry.contextShapeIds ?? [])
-                .map((id) => badgesById.get(id))
-                .filter((badge): badge is ContextBadge => Boolean(badge));
-              return (
-                <div
-                  key={entry.id}
+                <strong
                   style={{
-                    alignSelf: isUser ? "flex-end" : "flex-start",
-                    background: isError
-                      ? "#fee2e2"
-                      : isThought
-                        ? "#f3f4f6"
-                        : entry.role === "event"
-                          ? "#e0f2fe"
-                          : "#fff",
-                    border: "2px solid #000",
-                    borderRadius: 7,
-                    boxShadow: "2px 2px 0 0 rgba(0,0,0,.16)",
-                    fontSize: 12,
-                    fontWeight: 750,
-                    lineHeight: 1.35,
-                    maxWidth: "92%",
-                    padding: "6px 8px",
-                    whiteSpace: "pre-wrap",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 11,
+                    fontWeight: 900,
+                    textTransform: "uppercase",
                   }}
                 >
-                  {isUser && contextBadges.length ? (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 5 }}>
-                      {contextBadges.map((badge) => (
-                        <ContextChip badge={badge} key={badge.id} onClick={() => zoomToShape(badge.id)} />
-                      ))}
+                  {isCat ? (
+                    <>
+                      <span style={{ textDecoration: "line-through", opacity: 0.55 }}>Analyst</span>
+                      <span>Cat</span>
+                      <img src="/cat.svg" alt="Cat" style={{ width: 24, height: 24, objectFit: "contain" }} />
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} color="#6d28d9" aria-hidden="true" />
+                      <span style={{ color: "#000" }}>Agent</span>
+                    </>
+                  )}
+                </strong>
+                <div style={{ alignItems: "center", display: "flex", gap: 6, marginLeft: "auto" }}>
+                  <button
+                    aria-label="Follow analyst"
+                    aria-pressed={!isCat && isFollowing}
+                    disabled={isCat}
+                    onClick={() => setIsFollowing((value) => !value)}
+                    title="Follow active work. Moving around the canvas pauses following."
+                    type="button"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: !isCat && isFollowing ? "#fef08a" : "#fff",
+                      opacity: isCat ? 0.45 : 1,
+                      color: "#000",
+                      border: "2px solid #000",
+                      borderRadius: 5,
+                      height: 24,
+                      padding: "0 6px",
+                      fontSize: 9,
+                      fontWeight: 900,
+                      textTransform: "uppercase",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Follow
+                  </button>
+                  <button
+                    aria-label="Clear chat"
+                    disabled={isRunning}
+                    onClick={() =>
+                      isCat
+                        ? setCatEntries([CAT_INTRO_ENTRY])
+                        : updateAgentChat(editor, {
+                            entries: [],
+                            threadId: null,
+                            streamingText: "",
+                            activity: null,
+                            historyClearedAt: Date.now(),
+                          })
+                    }
+                    style={{
+                      alignItems: "center",
+                      background: "#fff",
+                      border: "2px solid #000",
+                      borderRadius: 5,
+                      cursor: isRunning ? "default" : "pointer",
+                      display: "flex",
+                      height: 24,
+                      justifyContent: "center",
+                      opacity: isRunning ? 0.45 : 1,
+                      padding: 0,
+                      width: 24,
+                    }}
+                    title="Clear chat"
+                    type="button"
+                  >
+                    <Trash2 size={13} strokeWidth={3} />
+                  </button>
+                  <div
+                    style={{
+                      background: ready || isCat ? "#fff" : agentStatus.state === "checking" ? "#fef9c3" : "#fee2e2",
+                      border: "2px solid #000",
+                      borderRadius: 5,
+                      fontSize: 9,
+                      fontWeight: 900,
+                      padding: "2px 6px",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    {visualStatus}
+                  </div>
+                  {!isMobile && (
+                    <button
+                      aria-label={isMaximized ? "Restore floating agent chat" : "Maximize agent chat"}
+                      onClick={() => setIsMaximized(!isMaximized)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "#fff",
+                        border: "2px solid #000",
+                        borderRadius: 5,
+                        height: 24,
+                        width: 24,
+                        padding: 0,
+                        cursor: "pointer",
+                      }}
+                      title={isMaximized ? "Restore floating chat" : "Maximize chat to sidebar"}
+                      type="button"
+                    >
+                      {isMaximized ? <Minimize2 size={13} strokeWidth={3} /> : <Maximize2 size={13} strokeWidth={3} />}
+                    </button>
+                  )}
+                  <button
+                    aria-label="Minimize agent chat"
+                    onClick={toggleChat}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: "#fff",
+                      border: "2px solid #000",
+                      borderRadius: 5,
+                      height: 24,
+                      width: 24,
+                      padding: 0,
+                      cursor: "pointer",
+                    }}
+                    title="Minimize chat"
+                    type="button"
+                  >
+                    <ChevronDown size={13} strokeWidth={3} />
+                  </button>
+                </div>
+              </div>
+
+              {!ready && !isCat ? (
+                <div
+                  style={{
+                    background: agentStatus.state === "checking" ? "#fef9c3" : "#fee2e2",
+                    borderBottom: "2px solid #000",
+                    color: agentStatus.state === "checking" ? "#713f12" : "#7f1d1d",
+                    fontSize: 10,
+                    lineHeight: 1.35,
+                    padding: "6px 8px",
+                  }}
+                >
+                  {agentStatus.message}
+                  <button
+                    onClick={() => dataSocket.retryAgent()}
+                    style={{
+                      background: "#fff",
+                      border: "1px solid #000",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                      fontSize: 9,
+                      fontWeight: 900,
+                      marginLeft: 6,
+                    }}
+                    type="button"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : null}
+
+              <div
+                style={{
+                  background: "#faf5ff",
+                  display: "flex",
+                  flex: "1 1 auto",
+                  flexDirection: "column",
+                  gap: 7,
+                  minHeight: 0,
+                  overflowY: "auto",
+                  padding: 10,
+                  userSelect: "text",
+                }}
+              >
+                {entries.length === 0 ? (
+                  <div style={{ color: "#57534e", fontSize: 12, lineHeight: 1.45, padding: 4 }}>
+                    Select shapes or type @ to mention them, then ask the Agent to explore, create, or edit your
+                    analysis.
+                  </div>
+                ) : null}
+                {entries.map((entry) => {
+                  if (entry.role === "event" && entry.toolCallId) return null;
+                  const isUser = entry.role === "user";
+                  const isError = entry.role === "error";
+                  const isThought = entry.role === "thought";
+                  const contextBadges = (entry.contextShapeIds ?? [])
+                    .map((id) => badgesById.get(id))
+                    .filter((badge): badge is ContextBadge => Boolean(badge));
+                  return (
+                    <div
+                      key={entry.id}
+                      style={{
+                        alignSelf: isUser ? "flex-end" : "flex-start",
+                        background: isError
+                          ? "#fee2e2"
+                          : isThought
+                            ? "#f3f4f6"
+                            : entry.role === "event"
+                              ? "#e0f2fe"
+                              : "#fff",
+                        border: "2px solid #000",
+                        borderRadius: 7,
+                        boxShadow: "2px 2px 0 0 rgba(0,0,0,.16)",
+                        fontSize: 12,
+                        fontWeight: 750,
+                        lineHeight: 1.35,
+                        maxWidth: "92%",
+                        padding: "6px 8px",
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {isUser && contextBadges.length ? (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 5 }}>
+                          {contextBadges.map((badge) => (
+                            <ContextChip badge={badge} key={badge.id} onClick={() => zoomToShape(badge.id)} />
+                          ))}
+                        </div>
+                      ) : null}
+                      {isThought ? (
+                        <details>
+                          <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>
+                            Thinking
+                          </summary>
+                          <div style={{ marginTop: 6 }}>
+                            <AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} />
+                          </div>
+                        </details>
+                      ) : (
+                        <AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} />
+                      )}
+                      {isCat && entry.id === CAT_INTRO_ENTRY.id ? (
+                        <p style={{ margin: "8px 0 0" }}>
+                          <a
+                            href="#agent-settings"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              setShowAgentSettings(true);
+                            }}
+                            className="text-black underline underline-offset-2 hover:text-blue-700"
+                          >
+                            Set up an agent
+                          </a>
+                          {" to work on your analysis!"}
+                        </p>
+                      ) : null}
                     </div>
-                  ) : null}
-                  {isThought ? (
+                  );
+                })}
+                {!isCat && agent.props.streamingText ? (
+                  <div
+                    style={{
+                      alignSelf: "flex-start",
+                      background: "#f3f4f6",
+                      border: "2px solid #000",
+                      borderRadius: 7,
+                      boxShadow: "2px 2px 0 0 rgba(0,0,0,.16)",
+                      fontSize: 12,
+                      fontWeight: 750,
+                      lineHeight: 1.35,
+                      maxWidth: "92%",
+                      padding: "6px 8px",
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
                     <details>
                       <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>
                         Thinking
                       </summary>
-                      <div style={{ marginTop: 6 }}>
-                        <AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} />
-                      </div>
+                      <div style={{ marginTop: 6 }}>{agent.props.streamingText}</div>
                     </details>
-                  ) : (
-                    <AnswerText text={entry.text} badgesById={badgesById} onNavigate={zoomToShape} />
-                  )}
-                  {isCat && entry.id === CAT_INTRO_ENTRY.id ? (
-                    <p style={{ margin: "8px 0 0" }}>
-                      <a
-                        href="#agent-settings"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          setShowAgentSettings(true);
-                        }}
-                        className="text-black underline underline-offset-2 hover:text-blue-700"
-                      >
-                        Set up an agent
-                      </a>
-                      {" to work on your analysis!"}
-                    </p>
-                  ) : null}
-                </div>
-              );
-            })}
-            {!isCat && agent.props.streamingText ? (
-              <div
-                style={{
-                  alignSelf: "flex-start",
-                  background: "#f3f4f6",
-                  border: "2px solid #000",
-                  borderRadius: 7,
-                  boxShadow: "2px 2px 0 0 rgba(0,0,0,.16)",
-                  fontSize: 12,
-                  fontWeight: 750,
-                  lineHeight: 1.35,
-                  maxWidth: "92%",
-                  padding: "6px 8px",
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                <details>
-                  <summary style={{ cursor: "pointer", fontWeight: 900, listStylePosition: "inside" }}>
-                    Thinking
-                  </summary>
-                  <div style={{ marginTop: 6 }}>{agent.props.streamingText}</div>
-                </details>
-              </div>
-            ) : null}
-            {isRunning ? (
-              <div
-                style={{
-                  alignItems: "center",
-                  alignSelf: "flex-start",
-                  background: "#fef9c3",
-                  border: "2px solid #000",
-                  borderRadius: 7,
-                  boxShadow: "2px 2px 0 0 rgba(0,0,0,.16)",
-                  display: "flex",
-                  fontSize: 12,
-                  fontWeight: 900,
-                  gap: 7,
-                  lineHeight: 1.35,
-                  maxWidth: "92%",
-                  padding: "6px 8px",
-                }}
-              >
-                <Loader2 className="animate-spin" size={14} strokeWidth={3} /> Thinking…
-              </div>
-            ) : null}
-            <div ref={endRef} />
-          </div>
-
-          <div
-            style={{
-              background: "#fff",
-              borderRadius: isMaximized ? 0 : "0 0 9px 9px",
-              borderTop: "3px solid #000",
-              flexShrink: 0,
-              padding: 7,
-              position: "relative",
-            }}
-          >
-            <div {...resizeHandleProps} />
-            {contextBadges.length ? (
-              <div
-                style={{
-                  alignItems: "center",
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 4,
-                  marginBottom: 6,
-                  maxHeight: 44,
-                  overflowY: "auto",
-                }}
-              >
-                <span style={{ color: "#57534e", fontSize: 9, fontWeight: 900, textTransform: "uppercase" }}>
-                  Context
-                </span>
-                {contextBadges.map((badge) => (
-                  <ContextChip badge={badge} key={badge.id} onClick={() => zoomToShape(badge.id)} />
-                ))}
-              </div>
-            ) : null}
-            {showMentions && ready && !isRunning ? (
-              <div
-                id="agent-mention-list"
-                role="listbox"
-                aria-label="Canvas shapes"
-                style={{
-                  position: "absolute",
-                  bottom: "calc(100% + 6px)",
-                  left: 8,
-                  right: 8,
-                  maxHeight: 210,
-                  overflowY: "auto",
-                  background: "#fff",
-                  border: "2px solid #000",
-                  borderRadius: 6,
-                  boxShadow: "4px 4px 0 #000",
-                  zIndex: 1,
-                }}
-              >
-                {mentionSuggestions.length ? (
-                  mentionSuggestions.map((badge, index) => (
-                    <button
-                      key={badge.id}
-                      id={`agent-mention-${index}`}
-                      role="option"
-                      aria-selected={index === activeMentionIndex}
-                      type="button"
-                      onPointerDown={(event) => event.preventDefault()}
-                      onClick={() => chooseMention(badge)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        width: "100%",
-                        minWidth: 0,
-                        textAlign: "left",
-                        background: index === activeMentionIndex ? "#ede9fe" : "#fff",
-                        border: 0,
-                        borderBottom: index === mentionSuggestions.length - 1 ? 0 : "1px solid #e5e7eb",
-                        padding: "7px 8px",
-                        fontSize: 12,
-                        fontWeight: 850,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontFamily: "monospace",
-                          background: badge.backgroundColor,
-                          borderBottom: `2px solid ${badge.borderBottomColor}`,
-                          padding: "0 2px",
-                          fontWeight: 900,
-                          display: "block",
-                          maxWidth: "100%",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {badge.name}
-                      </span>
-                    </button>
-                  ))
-                ) : (
-                  <div style={{ padding: "7px 8px", fontSize: 12, fontWeight: 850, color: "#6b7280" }}>
-                    No matching context
                   </div>
-                )}
+                ) : null}
+                {isRunning ? (
+                  <div
+                    style={{
+                      alignItems: "center",
+                      alignSelf: "flex-start",
+                      background: "#fef9c3",
+                      border: "2px solid #000",
+                      borderRadius: 7,
+                      boxShadow: "2px 2px 0 0 rgba(0,0,0,.16)",
+                      display: "flex",
+                      fontSize: 12,
+                      fontWeight: 900,
+                      gap: 7,
+                      lineHeight: 1.35,
+                      maxWidth: "92%",
+                      padding: "6px 8px",
+                    }}
+                  >
+                    <Loader2 className="animate-spin" size={14} strokeWidth={3} /> Thinking…
+                  </div>
+                ) : null}
+                <div ref={endRef} />
               </div>
-            ) : null}
-            <div
-              ref={inputRef}
-              style={{
-                background: "#fff",
-                border: "2px solid #000",
-                borderRadius: 6,
-                overflow: "hidden",
-                position: "relative",
-              }}
-            >
+
               <div
-                ref={highlightsRef}
-                aria-hidden="true"
                 style={{
-                  position: "absolute",
-                  inset: 0,
-                  padding: "7px 56px 7px 8px",
-                  boxSizing: "border-box",
-                  whiteSpace: "pre-wrap",
-                  overflowWrap: "break-word",
-                  overflow: "hidden",
-                  font: '700 12px/1.35 "Kavla Agent Inter", sans-serif',
-                  color: "#000",
-                  pointerEvents: "none",
+                  background: "#fff",
+                  borderRadius: isDocked ? 0 : "0 0 9px 9px",
+                  borderTop: "3px solid #000",
+                  flexShrink: 0,
+                  padding: 7,
+                  position: "relative",
                 }}
               >
-                {(() => {
-                  let offset = 0;
-                  return (
-                    <>
-                      {mentionRanges.map((range) => {
-                        const prefix = prompt.slice(offset, range.from);
-                        offset = range.to;
-                        return (
-                          <span key={`${range.from}:${range.badge.id}`}>
-                            {prefix}
-                            <span
-                              style={{
-                                background: range.badge.backgroundColor,
-                                borderBottom: `1px solid ${range.badge.borderBottomColor}`,
-                                borderRadius: 3,
-                              }}
-                            >
-                              {prompt.slice(range.from, range.to)}
-                            </span>
+                <div {...resizeHandleProps} />
+                {contextBadges.length ? (
+                  <div
+                    style={{
+                      alignItems: "center",
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 4,
+                      marginBottom: 6,
+                      maxHeight: 44,
+                      overflowY: "auto",
+                    }}
+                  >
+                    <span style={{ color: "#57534e", fontSize: 9, fontWeight: 900, textTransform: "uppercase" }}>
+                      Context
+                    </span>
+                    {contextBadges.map((badge) => (
+                      <ContextChip badge={badge} key={badge.id} onClick={() => zoomToShape(badge.id)} />
+                    ))}
+                  </div>
+                ) : null}
+                {showMentions && ready && !isRunning ? (
+                  <div
+                    id="agent-mention-list"
+                    role="listbox"
+                    aria-label="Canvas shapes"
+                    style={{
+                      position: "absolute",
+                      bottom: "calc(100% + 6px)",
+                      left: 8,
+                      right: 8,
+                      maxHeight: 210,
+                      overflowY: "auto",
+                      background: "#fff",
+                      border: "2px solid #000",
+                      borderRadius: 6,
+                      boxShadow: "4px 4px 0 #000",
+                      zIndex: 1,
+                    }}
+                  >
+                    {mentionSuggestions.length ? (
+                      mentionSuggestions.map((badge, index) => (
+                        <button
+                          key={badge.id}
+                          id={`agent-mention-${index}`}
+                          role="option"
+                          aria-selected={index === activeMentionIndex}
+                          type="button"
+                          onPointerDown={(event) => event.preventDefault()}
+                          onClick={() => chooseMention(badge)}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            width: "100%",
+                            minWidth: 0,
+                            textAlign: "left",
+                            background: index === activeMentionIndex ? "#ede9fe" : "#fff",
+                            border: 0,
+                            borderBottom: index === mentionSuggestions.length - 1 ? 0 : "1px solid #e5e7eb",
+                            padding: "7px 8px",
+                            fontSize: 12,
+                            fontWeight: 850,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontFamily: "monospace",
+                              background: badge.backgroundColor,
+                              borderBottom: `2px solid ${badge.borderBottomColor}`,
+                              padding: "0 2px",
+                              fontWeight: 900,
+                              display: "block",
+                              maxWidth: "100%",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {badge.name}
                           </span>
-                        );
-                      })}
-                      {prompt.slice(offset)}
-                      {"\n"}
-                    </>
-                  );
-                })()}
+                        </button>
+                      ))
+                    ) : (
+                      <div style={{ padding: "7px 8px", fontSize: 12, fontWeight: 850, color: "#6b7280" }}>
+                        No matching context
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+                <div
+                  ref={inputRef}
+                  style={{
+                    background: "#fff",
+                    border: "2px solid #000",
+                    borderRadius: 6,
+                    overflow: "hidden",
+                    position: "relative",
+                  }}
+                >
+                  <div
+                    ref={highlightsRef}
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      padding: "7px 56px 7px 8px",
+                      boxSizing: "border-box",
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "break-word",
+                      overflow: "hidden",
+                      font: '700 12px/1.35 "Kavla Agent Inter", sans-serif',
+                      color: "#000",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    {(() => {
+                      let offset = 0;
+                      return (
+                        <>
+                          {mentionRanges.map((range) => {
+                            const prefix = prompt.slice(offset, range.from);
+                            offset = range.to;
+                            return (
+                              <span key={`${range.from}:${range.badge.id}`}>
+                                {prefix}
+                                <span
+                                  style={{
+                                    background: range.badge.backgroundColor,
+                                    borderBottom: `1px solid ${range.badge.borderBottomColor}`,
+                                    borderRadius: 3,
+                                  }}
+                                >
+                                  {prompt.slice(range.from, range.to)}
+                                </span>
+                              </span>
+                            );
+                          })}
+                          {prompt.slice(offset)}
+                          {"\n"}
+                        </>
+                      );
+                    })()}
+                  </div>
+                  <textarea
+                    ref={promptRef}
+                    onScroll={(event) => {
+                      if (highlightsRef.current) highlightsRef.current.scrollTop = event.currentTarget.scrollTop;
+                    }}
+                    aria-label={isCat ? "Message the cat" : "Ask the Kavla Agent"}
+                    aria-autocomplete="list"
+                    aria-controls={showMentions ? "agent-mention-list" : undefined}
+                    aria-activedescendant={
+                      showMentions && mentionSuggestions.length ? `agent-mention-${activeMentionIndex}` : undefined
+                    }
+                    disabled={(!ready && !isCat) || isRunning}
+                    onChange={(event) => {
+                      setPrompt(event.currentTarget.value);
+                      setCursor(event.currentTarget.selectionStart);
+                      setMentionIndex(0);
+                      setDismissedMention(null);
+                    }}
+                    onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
+                    onKeyDown={onPromptKeyDown}
+                    placeholder={
+                      isCat
+                        ? "Say something to the cat"
+                        : contextBadges.length
+                          ? "Ask about this"
+                          : "Ask about this canvas"
+                    }
+                    style={{
+                      background: "transparent",
+                      border: 0,
+                      boxSizing: "border-box",
+                      color: "transparent",
+                      caretColor: "#000",
+                      position: "relative",
+                      display: "block",
+                      font: '700 12px/1.35 "Kavla Agent Inter", sans-serif',
+                      height: textareaHeight,
+                      outline: 0,
+                      padding: "7px 56px 7px 8px",
+                      resize: "none",
+                      width: "100%",
+                    }}
+                    value={prompt}
+                  />
+                  {isRunning ? (
+                    <button
+                      aria-label="Stop agent"
+                      onClick={() => dataSocket.cancelAgent()}
+                      style={{
+                        alignItems: "center",
+                        background: "#fee2e2",
+                        border: "2px solid #000",
+                        borderRadius: 5,
+                        bottom: 7,
+                        cursor: "pointer",
+                        display: "flex",
+                        height: 28,
+                        justifyContent: "center",
+                        padding: 0,
+                        position: "absolute",
+                        right: 6,
+                        width: 28,
+                      }}
+                      type="button"
+                    >
+                      <Square fill="currentColor" size={11} />
+                    </button>
+                  ) : (
+                    <button
+                      aria-label="Send"
+                      disabled={(!ready && !isCat) || !prompt.trim()}
+                      onClick={send}
+                      style={{
+                        alignItems: "center",
+                        background: "#ede9fe",
+                        border: "2px solid #000",
+                        borderRadius: 5,
+                        bottom: 7,
+                        cursor: (ready || isCat) && prompt.trim() ? "pointer" : "default",
+                        display: "flex",
+                        height: 28,
+                        justifyContent: "center",
+                        opacity: (ready || isCat) && prompt.trim() ? 1 : 0.5,
+                        padding: 0,
+                        position: "absolute",
+                        right: 6,
+                        width: 28,
+                      }}
+                      type="button"
+                    >
+                      <Send size={13} strokeWidth={3} />
+                    </button>
+                  )}
+                </div>
               </div>
-              <textarea
-                ref={promptRef}
-                onScroll={(event) => {
-                  if (highlightsRef.current) highlightsRef.current.scrollTop = event.currentTarget.scrollTop;
-                }}
-                aria-label={isCat ? "Message the cat" : "Ask the Kavla Agent"}
-                aria-autocomplete="list"
-                aria-controls={showMentions ? "agent-mention-list" : undefined}
-                aria-activedescendant={
-                  showMentions && mentionSuggestions.length ? `agent-mention-${activeMentionIndex}` : undefined
-                }
-                disabled={(!ready && !isCat) || isRunning}
-                onChange={(event) => {
-                  setPrompt(event.currentTarget.value);
-                  setCursor(event.currentTarget.selectionStart);
-                  setMentionIndex(0);
-                  setDismissedMention(null);
-                }}
-                onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
-                onKeyDown={onPromptKeyDown}
-                placeholder={
-                  isCat ? "Say something to the cat" : contextBadges.length ? "Ask about this" : "Ask about this canvas"
-                }
-                style={{
-                  background: "transparent",
-                  border: 0,
-                  boxSizing: "border-box",
-                  color: "transparent",
-                  caretColor: "#000",
-                  position: "relative",
-                  display: "block",
-                  font: '700 12px/1.35 "Kavla Agent Inter", sans-serif',
-                  height: textareaHeight,
-                  outline: 0,
-                  padding: "7px 56px 7px 8px",
-                  resize: "none",
-                  width: "100%",
-                }}
-                value={prompt}
-              />
-              {isRunning ? (
-                <button
-                  aria-label="Stop agent"
-                  onClick={() => dataSocket.cancelAgent()}
-                  style={{
-                    alignItems: "center",
-                    background: "#fee2e2",
-                    border: "2px solid #000",
-                    borderRadius: 5,
-                    bottom: 7,
-                    cursor: "pointer",
-                    display: "flex",
-                    height: 28,
-                    justifyContent: "center",
-                    padding: 0,
-                    position: "absolute",
-                    right: 6,
-                    width: 28,
-                  }}
-                  type="button"
-                >
-                  <Square fill="currentColor" size={11} />
-                </button>
-              ) : (
-                <button
-                  aria-label="Send"
-                  disabled={(!ready && !isCat) || !prompt.trim()}
-                  onClick={send}
-                  style={{
-                    alignItems: "center",
-                    background: "#ede9fe",
-                    border: "2px solid #000",
-                    borderRadius: 5,
-                    bottom: 7,
-                    cursor: (ready || isCat) && prompt.trim() ? "pointer" : "default",
-                    display: "flex",
-                    height: 28,
-                    justifyContent: "center",
-                    opacity: (ready || isCat) && prompt.trim() ? 1 : 0.5,
-                    padding: 0,
-                    position: "absolute",
-                    right: 6,
-                    width: 28,
-                  }}
-                  type="button"
-                >
-                  <Send size={13} strokeWidth={3} />
-                </button>
-              )}
-            </div>
-          </div>
-        </aside>
-      ) : null}
-      {showAgentSettings ? (
-        <LocalAgentDialog
-          onClose={() => setShowAgentSettings(false)}
-          onOpenChat={() => {
-            createOrFocusAgentChat(editor);
-            setShowAgentSettings(false);
-          }}
-        />
-      ) : null}
-    </div>,
-    container
+            </aside>
+          ) : null}
+          {showAgentSettings ? (
+            <LocalAgentDialog
+              onClose={() => setShowAgentSettings(false)}
+              onOpenChat={() => {
+                createOrFocusAgentChat(editor);
+                if (isMobile) setIsMobileOpen(true);
+                setShowAgentSettings(false);
+              }}
+            />
+          ) : null}
+        </div>,
+        panelContainer
+      )}
+    </>
   );
 }
 

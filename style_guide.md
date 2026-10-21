@@ -65,6 +65,8 @@ const buttonBaseClass =
 
 ### Dropdowns / Overlays
 
+Hard drop shadows identify floating UI (such as chat) as separate from canvas shapes.
+
 Overlays _do_ use the "Loud" shadow to float above content:
 
 - **Shadow**: `boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)"`.
