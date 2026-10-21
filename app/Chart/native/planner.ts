@@ -33,8 +33,8 @@ export function planScatter(
   width: number,
   height: number
 ): ScatterPlan {
-  const columns = Math.max(1, Math.min(128, Math.floor(width / 8)));
-  const rows = Math.max(1, Math.min(128, Math.floor(height / 8)));
+  const columns = Math.max(1, Math.min(256, Math.floor(width / 4)));
+  const rows = Math.max(1, Math.min(256, Math.floor(height / 4)));
   const coordinates = `SELECT ${coordinateSQL(x)} AS x, ${coordinateSQL(y)} AS y FROM (${source}) AS observation`;
   const visible = `SELECT * FROM (${coordinates}) WHERE isfinite(x) AND isfinite(y) AND x BETWEEN 0 AND 1 AND y BETWEEN 0 AND 1`;
   if (count <= pointBudget)

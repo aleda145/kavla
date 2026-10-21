@@ -118,17 +118,14 @@ async function setup(n = 1000000) {
   });
   connectShapes(editor, sourceId, chartId);
   editor.setCamera({ x: 0, y: 0, z: 1 });
-  await waitUntil(
-    () => document.body.textContent?.includes(`${n.toLocaleString()} source rows`) ?? false,
-    "native plot"
-  );
+  await waitUntil(() => document.body.textContent?.includes(`${n.toLocaleString()} rows`) ?? false, "native plot");
   await frame();
 }
 function lassoPagePoints() {
   const shape = editor.getShape<ChartShape>(chartId)!;
   const geometry = chartGeometry(
     shape.props.w - 8,
-    shape.props.h - 132,
+    shape.props.h - 116,
     { field: "x", type: "linear", domain: [0, 0.999] },
     { field: "y", type: "linear", domain: [0, 0.99] }
   );
@@ -154,8 +151,8 @@ async function programmaticLasso() {
     props: { segments: [{ type: "free", points }], isComplete: false, isClosed: true },
   });
   editor.updateShape<TLDrawShape>({ id, type: "draw", props: { isComplete: true } });
-  await waitUntil(() => document.body.textContent?.includes("128,010 observations selected") ?? false, "exact count");
-  click("Explore selected data");
+  await waitUntil(() => document.body.textContent?.includes("128,010 selected") ?? false, "exact count");
+  click("Explore");
   await waitUntil(
     () =>
       editor

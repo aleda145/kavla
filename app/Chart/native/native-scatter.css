@@ -1,0 +1,248 @@
+.kavla-scatter {
+  color: #000;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  container-type: inline-size;
+}
+.kavla-scatter button,
+.kavla-scatter select {
+  font-family: inherit;
+  color: inherit;
+}
+.kavla-scatter__header {
+  box-sizing: border-box;
+  border-bottom: 4px solid #000;
+  background: #fce7f3;
+  border-radius: 8px 8px 0 0;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kavla-scatter__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 800;
+}
+.kavla-scatter__button {
+  height: 28px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  border: 2px solid #000;
+  border-radius: 4px;
+  background: #fff;
+  font-weight: 750;
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 #0003;
+}
+.kavla-scatter__button:hover:not(:disabled) {
+  box-shadow: 3px 3px 0 #000;
+}
+.kavla-scatter__button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 1px 1px 0 #000;
+}
+.kavla-scatter__button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  box-shadow: none;
+}
+.kavla-scatter__button:focus-visible,
+.kavla-scatter select:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 3px;
+}
+.kavla-scatter__button--icon {
+  width: 28px;
+  padding: 0;
+}
+.kavla-scatter__button--primary {
+  background: #fde047;
+}
+.kavla-scatter__button[aria-expanded="true"],
+.kavla-scatter__button[aria-pressed="true"] {
+  background: #ccfbf1;
+  box-shadow: none;
+}
+.kavla-scatter__footer {
+  box-sizing: border-box;
+  border-top: 2px solid #000;
+  border-radius: 0 0 8px 8px;
+  padding: 5px 10px 7px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 5px;
+  background: #f9fafb;
+}
+.kavla-scatter__status,
+.kavla-scatter__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.kavla-scatter__status {
+  font-size: 10px;
+  line-height: 16px;
+}
+.kavla-scatter__rows {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.kavla-scatter__hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  line-height: 14px;
+  color: #52525b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kavla-scatter__selection {
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.kavla-scatter__legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.kavla-scatter__ramp {
+  width: 60px;
+  height: 8px;
+  border: 1px solid #000;
+  border-radius: 2px;
+}
+.kavla-scatter__notice {
+  color: #92400e;
+  font-weight: 700;
+}
+.kavla-scatter__message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  width: min(320px, calc(100% - 40px));
+  padding: 16px;
+  background: #fff;
+  border: 2px solid #000;
+  border-radius: 6px;
+  box-shadow: 4px 4px 0 #000;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.kavla-scatter__message strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-weight: 800;
+}
+.kavla-scatter__message p {
+  margin: 0;
+  color: #52525b;
+  overflow-wrap: anywhere;
+}
+.kavla-scatter__settings {
+  position: absolute;
+  right: 10px;
+  top: 48px;
+  z-index: 2;
+  width: min(280px, calc(100% - 24px));
+  max-height: calc(100% - 60px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: #fff;
+  padding: 12px;
+  border: 2px solid #000;
+  border-radius: 6px;
+  box-shadow: 4px 4px 0 #000;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kavla-scatter__settings-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 800;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+.kavla-scatter__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.kavla-scatter__field > span {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.kavla-scatter__field select {
+  width: 100%;
+  height: 32px;
+  background: #fff;
+  border: 2px solid #000;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-weight: 700;
+}
+.kavla-scatter__scales {
+  display: flex;
+  gap: 5px;
+}
+.kavla-scatter__scales button {
+  flex: 1;
+}
+.kavla-scatter__settings-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #52525b;
+}
+@container (max-width: 420px) {
+  .kavla-scatter__optional {
+    display: none;
+  }
+  .kavla-scatter__ramp {
+    width: 36px;
+  }
+  .kavla-scatter__footer {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .kavla-scatter__status,
+  .kavla-scatter__actions {
+    gap: 6px;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .kavla-scatter__busy {
+    animation: kavla-scatter-spin 1.2s linear infinite;
+  }
+  @keyframes kavla-scatter-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
