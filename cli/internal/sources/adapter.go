@@ -27,6 +27,11 @@ type DeferredTableMaterializer interface {
 	MaterializeReferencedTables(ctx context.Context, query string, exec func(string) error) error
 }
 
+// WritableCatalog supplies a temporary write attachment for an explicit Store operation.
+type WritableCatalog interface {
+	AttachSQL(catalogName string, readOnly bool) string
+}
+
 type Adapter interface {
 	Type() string
 	StartupRequirements(src kavlaconfig.SourceConfig) (*StartupRequirements, error)

@@ -346,6 +346,9 @@ func (s *Server) documentRequests(next http.Handler) http.Handler {
 		}
 		exclusive := r.Method != http.MethodGet && (strings.HasPrefix(r.URL.Path, "/api/session/uploads") || strings.HasPrefix(r.URL.Path, "/api/cli/sources") || strings.HasPrefix(r.URL.Path, "/api/session/blobs") || r.URL.Path == "/api/session/document" || r.URL.Path == "/api/session/save" || r.URL.Path == "/api/session/transfer" || r.URL.Path == "/api/session/save-as" || r.URL.Path == "/api/session/close" || r.URL.Path == "/api/session/load-path" || r.URL.Path == "/api/session/new")
 		exclusive = exclusive || (r.Method != http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/session/snapshots"))
+		// Store may reattach a catalog for writing. Wait for current reads and
+		// prevent queries, saves, and source changes until it is read-only again.
+		exclusive = exclusive || (r.Method == http.MethodPost && r.URL.Path == "/api/session/store")
 		if exclusive {
 			s.documentGate.Lock()
 			defer s.documentGate.Unlock()

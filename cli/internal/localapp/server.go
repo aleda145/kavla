@@ -392,6 +392,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/session/query-results/{id}", s.handleGetTransientResult)
 	mux.HandleFunc("POST /api/session/queries", s.sameOriginMutation(s.handleQuery))
 	mux.HandleFunc("POST /api/session/queries/{shapeId}/export", s.sameOriginMutation(s.handleExportQueryResult))
+	mux.HandleFunc("POST /api/session/store", s.sameOriginMutation(s.handleStoreQuery))
 	mux.HandleFunc("DELETE /api/session/queries/{shapeId}", s.sameOriginMutation(s.handleCancelQuery))
 	mux.HandleFunc("GET /api/session/queries/{shapeId}/rows", s.handleQueryResultPage)
 	mux.HandleFunc("DELETE /api/session/queries/{shapeId}/result", s.sameOriginMutation(s.handleDropQueryResult))
