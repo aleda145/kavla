@@ -185,3 +185,5 @@ export function resolveKnobSQL(editor: Editor, sql: string): string {
     return `(${value})`;
   });
 }
+
+export { tokenizeKnobSQL as tokenizeSQL };

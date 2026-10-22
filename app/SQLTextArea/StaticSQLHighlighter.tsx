@@ -3,7 +3,10 @@ import { defaultHighlightStyle } from "@codemirror/language";
 import React, { memo, useMemo } from "react";
 import { getColumnTypeMutedColor } from "../util/column-colors";
 import { DuckDBDialect } from "./duckdb-dialect";
-import { useEditor } from "tldraw";
+import { useEditor, useValue, type TLShapeId } from "tldraw";
+import { getSelectedAreaReferences, hasSelectedAreaBinding } from "./selected-area";
+import { navigateToSelectedArea } from "./selected-area-navigation";
+import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { getKnobReferences, navigateToKnob } from "../Knob/knobReferences";
 import {
   createSqlNameLookup,
@@ -17,6 +20,7 @@ import {
 const parser = DuckDBDialect.language.parser;
 
 interface StaticSQLHighlighterProps {
+  shapeId?: TLShapeId;
   sql: string;
   validTableNames?: Set<string>;
   sources?: Set<string>;
@@ -26,14 +30,27 @@ interface StaticSQLHighlighterProps {
 }
 
 export const StaticSQLHighlighter = memo(
-  ({ sql, validTableNames, sources, queries, columnMapping, upstreamTableNames }: StaticSQLHighlighterProps) => {
+  ({
+    shapeId,
+    sql,
+    validTableNames,
+    sources,
+    queries,
+    columnMapping,
+    upstreamTableNames,
+  }: StaticSQLHighlighterProps) => {
     const editor = useEditor();
+    const hasArea = useValue(
+      "static SQL selected area",
+      () => hasSelectedAreaBinding(shapeId ? editor.getShape<SQLTextAreaShape>(shapeId) : undefined),
+      [editor, shapeId]
+    );
     const spansByLine = useMemo(() => {
       const tableNames = createSqlNameLookup(validTableNames ?? []);
       const mentionedTables = findMentionedTables(sql, tableNames);
       const upstreamTables = new Set(upstreamTableNames ?? []);
       const tree = parser.parse(sql);
-      let tokens: { from: number; to: number; classes?: string; knobName?: string }[] = [];
+      let tokens: { from: number; to: number; classes?: string; knobName?: string; selectedArea?: boolean }[] = [];
       let pos = 0;
 
       highlightTree(tree, defaultHighlightStyle, (from, to, classes) => {
@@ -58,6 +75,17 @@ export const StaticSQLHighlighter = memo(
         });
         tokens.push({ from: reference.from, to: reference.to, knobName: reference.name });
       }
+      if (hasArea)
+        for (const reference of getSelectedAreaReferences(sql)) {
+          tokens = tokens.flatMap((token) => {
+            if (token.to <= reference.from || token.from >= reference.to) return [token];
+            return [
+              ...(token.from < reference.from ? [{ ...token, to: reference.from }] : []),
+              ...(token.to > reference.to ? [{ ...token, from: reference.to }] : []),
+            ];
+          });
+          tokens.push({ from: reference.from, to: reference.to, selectedArea: true });
+        }
       tokens.sort((a, b) => a.from - b.from);
 
       const lines = sql.split("\n");
@@ -97,7 +125,30 @@ export const StaticSQLHighlighter = memo(
                 token.classes.includes("comment") ||
                 token.classes.includes("number"));
 
-            if (token.knobName !== undefined) {
+            if (token.selectedArea && shapeId) {
+              lineNodes.push(
+                <span
+                  key={intersectionStart}
+                  title="Ctrl/Cmd+click to go to selected area"
+                  style={{
+                    fontFamily: "monospace",
+                    backgroundColor: "#27272a",
+                    color: "#fafafa",
+                    borderBottom: "2px solid #09090b",
+                    borderRadius: 3,
+                    cursor: "pointer",
+                  }}
+                  onMouseDown={(event) => {
+                    if (!event.ctrlKey && !event.metaKey) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    navigateToSelectedArea(editor, shapeId);
+                  }}
+                >
+                  {textPart}
+                </span>
+              );
+            } else if (token.knobName !== undefined) {
               const name = token.knobName;
               lineNodes.push(
                 <span
@@ -166,7 +217,7 @@ export const StaticSQLHighlighter = memo(
 
         return lineNodes;
       });
-    }, [sql, validTableNames, sources, queries, columnMapping, upstreamTableNames, editor]);
+    }, [sql, validTableNames, sources, queries, columnMapping, upstreamTableNames, editor, hasArea, shapeId]);
 
     const lineCount = spansByLine.length;
     // Match CodeMirror's gutter padding while allowing for every line-number digit.

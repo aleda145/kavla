@@ -80,7 +80,7 @@ export function KnobRuntime() {
             editor.updateShape<KnobShape>({ id: knob.id, type: "knob", props: { inferenceStatus: "ready" } });
           continue;
         }
-        const dependencies = getOrderedDependenciesForSQL(editor, context.sql).orderedDependencies;
+        const dependencies = getOrderedDependenciesForSQL(editor, context.sql, context.query.id).orderedDependencies;
         const key = JSON.stringify([
           context.query.id,
           context.sql,
@@ -99,7 +99,7 @@ export function KnobRuntime() {
           type: "knob",
           props: { inferenceStatus: "loading", inferenceError: null },
         });
-        void inferKnob(editor, dataRef.current, knob, context.sql, controller.signal)
+        void inferKnob(editor, dataRef.current, knob, context.sql, controller.signal, context.query.id)
           .then((props) => {
             const current = editor.getShape<KnobShape>(knob.id);
             if (disposed || controller.signal.aborted || !current || current.props.inferFromColumn === false) return;
@@ -180,7 +180,7 @@ export function KnobRuntime() {
           },
           { history: "ignore" }
         );
-        const { orderedDependencies } = getOrderedDependenciesForSQL(editor, query.props.text);
+        const { orderedDependencies } = getOrderedDependenciesForSQL(editor, query.props.text, query.id);
         const names = [
           ...new Set(
             [query, ...orderedDependencies].flatMap((dependency) =>
@@ -226,7 +226,7 @@ export function KnobRuntime() {
         }
         // Finish the current run, then execute only the latest slider value.
         if (query.props.isRunning || running.has(id)) continue;
-        const dependencies = getOrderedDependenciesForSQL(editor, query.props.text).orderedDependencies;
+        const dependencies = getOrderedDependenciesForSQL(editor, query.props.text, query.id).orderedDependencies;
         if (creationTimers.has(id) || dependencies.some((dependency) => creationTimers.has(dependency.id))) continue;
         if (
           [query, ...dependencies].some(

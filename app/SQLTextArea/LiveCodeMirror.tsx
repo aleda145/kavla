@@ -10,7 +10,7 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { useSchemaRegistry } from "../hooks/useSchemaRegistry";
 import { linter, Diagnostic } from "@codemirror/lint";
-import { useEditor, TLShapeId } from "tldraw";
+import { useEditor, useValue, TLShapeId } from "tldraw";
 import { DataSourceShape } from "../DataSource/data-source-types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
 import type { RemoteSourceInfo } from "./remote-column-stats";
@@ -42,6 +42,8 @@ import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
 import { createKnobEditorExtensions, getKnobHoverSource } from "./knob-editor";
 import { getKnobReferences } from "../Knob/knobReferences";
+import { hasSelectedAreaBinding } from "./selected-area";
+import { createSelectedAreaEditorExtensions } from "./selected-area-editor";
 
 const spatialMark = Decoration.mark({
   class: "cm-spatial-link",
@@ -277,6 +279,11 @@ export const LiveCodeMirror = ({
 }: LiveCodeMirrorProps) => {
   const registry = useSchemaRegistry();
   const editor = useEditor();
+  const hasArea = useValue(
+    "SQL selected area",
+    () => hasSelectedAreaBinding(editor.getShape<SQLTextAreaShape>(shapeId)),
+    [editor, shapeId]
+  );
   const { runRemoteQuery, cancelRemoteQuery } = useData();
   const isFormattingRef = useRef(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -407,7 +414,7 @@ export const LiveCodeMirror = ({
       const queryShape = editor.getShape<SQLTextAreaShape>(shapeId as TLShapeId);
       if (!queryShape) continue;
 
-      const dagWalk = walkSQLDag(editor, queryShape.props.text);
+      const dagWalk = walkSQLDag(editor, queryShape.props.text, queryShape.id);
       if (!dagWalk.ok) continue;
 
       const { executionState, orderedDependencies } = dagWalk.plan;
@@ -415,8 +422,8 @@ export const LiveCodeMirror = ({
         remoteMap.set(entry.tableName, {
           sourceName: executionState.sourceName ?? "uploaded_files",
           sourceType: executionState.sourceNativePreview ? executionState.sourceType : "duckdb",
-          fullTableRef: `query:${queryShape.id}:${buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies, editor)}`,
-          tableSql: buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies, editor),
+          fullTableRef: `query:${queryShape.id}:${buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies, editor, queryShape.id)}`,
+          tableSql: buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies, editor, queryShape.id),
           runRemoteQuery,
           cancelRemoteQuery,
         });
@@ -632,7 +639,13 @@ export const LiveCodeMirror = ({
         schema: schemaConfig,
         tables: Array.from(tableNames).map((t) => ({ label: t, type: "table" })),
       }),
-      createSpatialPlugin(tableNames, sources, queries, onNavigate),
+      createSpatialPlugin(
+        new Set([...tableNames].filter((name) => !hasArea || name.toLowerCase() !== "selected_area")),
+        sources,
+        queries,
+        onNavigate
+      ),
+      ...(hasArea ? createSelectedAreaEditorExtensions(editor, shapeId) : []),
       createKnobEditorExtensions(editor),
       createColumnHighlightPlugin(columnMapping, upstreamTableNames, tableNames), // Add column highlighting
       gracePeriodHoverTooltip(
@@ -739,6 +752,7 @@ export const LiveCodeMirror = ({
       ),
     ];
   }, [
+    hasArea,
     schemaConfig,
     tableNames,
     onRun,

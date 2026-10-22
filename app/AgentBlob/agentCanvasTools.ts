@@ -242,7 +242,7 @@ export function buildPromptCanvasContext(editor: Editor, explicitShapeIds?: stri
       includedIds.add(shape.props.sourceShapeId as TLShapeId);
     if (shape.type === "sql-text-area") {
       for (const knob of getSQLKnobs(editor, (shape as SQLTextAreaShape).props.text)) includedIds.add(knob.id);
-      for (const dep of getOrderedDependenciesForSQL(editor, (shape as SQLTextAreaShape).props.text)
+      for (const dep of getOrderedDependenciesForSQL(editor, (shape as SQLTextAreaShape).props.text, shape.id)
         .orderedDependencies)
         includedIds.add(dep.id);
     }

@@ -186,8 +186,10 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     };
 
     const { text } = shape.props;
-    const getOrderedDependencies = (currentText: string) => getOrderedDependenciesForSQL(this.editor, currentText);
-    const { orderedDependencies: currentDependencies } = getOrderedDependencies(text);
+    const getOrderedDependencies = (currentText: string) =>
+      getOrderedDependenciesForSQL(this.editor, currentText, shape.id);
+    const currentPlan = walkSQLDag(this.editor, text, shape.id);
+    const currentDependencies = currentPlan.ok ? currentPlan.plan.orderedDependencies : [];
     const queryExecutionState = describeQueryExecution(currentDependencies);
 
     const handleValidate = async (sql: string): Promise<EditorValidationIssue | null> => {
@@ -212,7 +214,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         if (missingSource) return issueFromMessage(missingSource);
         // Native remote queries retain syntax-only validation; preparing them can contact a paid source.
         if (execution.sourceNativePreview && execution.sourceType !== "duckdb") return null;
-        await validateBackendQuery(buildRemoteSQLFromDag(sql, orderedDependencies, this.editor));
+        await validateBackendQuery(buildRemoteSQLFromDag(sql, orderedDependencies, this.editor, shape.id));
         return null;
       } catch (e: unknown) {
         console.error("Validation error", e);
@@ -228,7 +230,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       clearRestoredRemoteQueryMetadata(shape.id);
       ensureQueryKnobs(this.editor, shape, sqlText);
 
-      const dagWalk = walkSQLDag(this.editor, sqlText);
+      const dagWalk = walkSQLDag(this.editor, sqlText, shape.id);
       if (!dagWalk.ok) {
         update({ error: dagWalk.error.message, isDirty: true });
         addToast({
@@ -269,7 +271,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
         {
           const { sourceName, sourceType, sourceNativePreview } = currentQueryExecutionState;
-          const finalSQL = buildRemoteSQLFromDag(sqlText, orderedDependencies, this.editor);
+          const finalSQL = buildRemoteSQLFromDag(sqlText, orderedDependencies, this.editor, shape.id);
 
           const result = await runRemoteQuery({
             sql: finalSQL,

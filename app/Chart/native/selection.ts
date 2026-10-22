@@ -133,3 +133,45 @@ export function selectionPredicate(selection: Pick<ScatterSelection, "x" | "y" |
     )
 )`;
 }
+
+export function readSelection(value: unknown): ScatterSelection | null {
+  if (typeof value !== "string") return null;
+  const s = JSON.parse(value) as ScatterSelection;
+  if (
+    s.version !== 1 ||
+    s.semantics !== "observations" ||
+    s.policy !== "live" ||
+    typeof s.sourceRevision !== "string" ||
+    typeof s.sourceSQL !== "string" ||
+    typeof s.sourceId !== "string" ||
+    typeof s.drawingId !== "string" ||
+    typeof s.chartId !== "string" ||
+    ![s.x, s.y].every(
+      (axis) =>
+        axis &&
+        typeof axis.field === "string" &&
+        ["linear", "log"].includes(axis.type) &&
+        Array.isArray(axis.domain) &&
+        axis.domain.length === 2 &&
+        axis.domain.every((n) => Number.isFinite(n) && (axis.type !== "log" || n > 0)) &&
+        axis.domain[0] !== axis.domain[1]
+    ) ||
+    !Array.isArray(s.polygon)
+  )
+    throw new Error("This saved selection is not supported.");
+  s.polygon = validatePolygon(s.polygon);
+  if (
+    s.outline &&
+    (typeof s.outline.color !== "string" ||
+      !Number.isFinite(s.outline.width) ||
+      s.outline.width <= 0 ||
+      !Number.isFinite(s.outline.opacity) ||
+      s.outline.opacity < 0 ||
+      s.outline.opacity > 1 ||
+      !["draw", "solid", "dashed", "dotted"].includes(s.outline.dash))
+  )
+    throw new Error("This saved chart outline is not supported.");
+  coordinateSQL(s.x);
+  coordinateSQL(s.y);
+  return s;
+}

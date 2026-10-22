@@ -1,10 +1,11 @@
-import type { Editor } from "tldraw";
+import type { Editor, TLShapeId } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
 import { quoteDottedIdentifier, quoteIdentifier, stripTrailingSemicolons } from "../src/duckdb/sql";
 import { getEngineAppearance, type ShapeEngineTab } from "../util/ShapeEngineTabs";
 import { getOrderedDependenciesForSQL, type SQLDependencyShape } from "./sqlDependencies";
 import { getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
+import { resolveSelectedAreaSQL } from "./selected-area";
 
 export type QueryExecutionState = {
   sourceName?: string;
@@ -157,8 +158,21 @@ export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]
   };
 }
 
-export function walkSQLDag(editor: Editor, sqlText: string): SQLDagWalkResult {
-  const { orderedDependencies, immediateUpstreamIds } = getOrderedDependenciesForSQL(editor, sqlText);
+export function walkSQLDag(editor: Editor, sqlText: string, shapeId?: TLShapeId): SQLDagWalkResult {
+  let dependencies: ReturnType<typeof getOrderedDependenciesForSQL>;
+  try {
+    dependencies = getOrderedDependenciesForSQL(editor, sqlText, shapeId);
+    resolveSelectedAreaSQL(editor, sqlText, shapeId);
+    for (const dependency of dependencies.orderedDependencies) {
+      if (dependency.type === "sql-text-area") resolveSelectedAreaSQL(editor, dependency.props.text, dependency.id);
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      error: { title: "Selected area unavailable", message: error instanceof Error ? error.message : String(error) },
+    };
+  }
+  const { orderedDependencies, immediateUpstreamIds } = dependencies;
   const nextUpstreamShapeIds = Array.from(
     new Set([...immediateUpstreamIds, ...getSQLKnobs(editor, sqlText).map((knob) => knob.id)])
   );
@@ -201,15 +215,16 @@ export function walkSQLDag(editor: Editor, sqlText: string): SQLDagWalkResult {
 export function buildRemoteSQLFromDag(
   sqlText: string,
   orderedDependencies: SQLDependencyShape[],
-  editor: Editor
+  editor: Editor,
+  shapeId?: TLShapeId
 ): string {
   const ctes = orderedDependencies.map((dependency) => {
     if (dependency.type === "sql-text-area")
-      return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(resolveKnobSQL(editor, dependency.props.text))})`;
+      return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(resolveKnobSQL(editor, resolveSelectedAreaSQL(editor, dependency.props.text, dependency.id)))})`;
     const source = getRemoteSourceMetadata(dependency);
     if (!source) throw new Error(`Source "${dependency.props.name}" is unavailable.`);
     return `${quoteIdentifier(dependency.props.name)} AS (SELECT * FROM ${quoteDottedIdentifier(source.remoteTableRef)})`;
   });
-  const query = stripTrailingSemicolons(resolveKnobSQL(editor, sqlText));
+  const query = stripTrailingSemicolons(resolveKnobSQL(editor, resolveSelectedAreaSQL(editor, sqlText, shapeId)));
   return ctes.length ? `WITH ${ctes.join(",\n")} SELECT * FROM (${query}) AS kavla_query` : query;
 }
