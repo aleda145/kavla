@@ -6,6 +6,7 @@ import {
   type Connector,
   type ArrowIPCBytes,
 } from "@uwdata/mosaic-core";
+import { isSelectQuery } from "@uwdata/mosaic-sql";
 
 export type ExecuteArrow = (sql: string, signal: AbortSignal) => Promise<ArrowIPCBytes>;
 
@@ -44,14 +45,49 @@ export class KavlaConnector implements Connector {
   }
 }
 
+// Mosaic 0.33's consolidator neither carries request options to merged queries
+// nor exposes its animation-frame queue to cancel(). Keep live/signal requests
+// on the immediate path and explicitly settle detached consumers below.
+class VisualizationCoordinator extends Coordinator {
+  private outstanding = new Set<ReturnType<Coordinator["query"]>>();
+
+  override query(...[query, options = {}]: Parameters<Coordinator["query"]>) {
+    const consolidate =
+      isSelectQuery(query) && options.cache !== false && !options.signal && options.priority === undefined;
+    if (!consolidate) this.manager.consolidate(false);
+    const result = super.query(query, options);
+    if (!consolidate) this.manager.consolidate(true);
+    this.outstanding.add(result);
+    void result.then(
+      () => this.outstanding.delete(result),
+      () => this.outstanding.delete(result)
+    );
+    return result;
+  }
+
+  override cancel(requests: Parameters<Coordinator["cancel"]>[0]) {
+    super.cancel(requests);
+    for (const result of requests) {
+      if (this.outstanding.has(result as ReturnType<Coordinator["query"]>)) result.reject("Canceled");
+    }
+  }
+
+  override clear(options?: Parameters<Coordinator["clear"]>[0]) {
+    // Coordinator invokes clear() before subclass fields are initialized.
+    this.outstanding?.forEach((result) => result.reject("Cleared"));
+    this.outstanding?.clear();
+    super.clear(options);
+  }
+}
+
 export function createVisualizationSession(execute: ExecuteArrow) {
   const connector = new KavlaConnector(execute);
-  const coordinator = new Coordinator(connector, {
+  const coordinator = new VisualizationCoordinator(connector, {
     logger: null,
     cache: lruCache({ maxBytes: 32 * 1024 * 1024 }),
-    // String queries cannot use structural consolidation. In 0.33, cancelling
-    // during the consolidator's animation-frame queue does not remove requests.
-    consolidate: false,
+    consolidate: true,
+    // Preaggregation requires supported linked interval/point filters. Charts
+    // currently use full-source queries and exact polygon snapshots instead.
     preagg: { enabled: false },
   });
   return {

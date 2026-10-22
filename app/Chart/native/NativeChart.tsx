@@ -34,7 +34,14 @@ import { getUniqueName } from "../../util/getUniqueName";
 import { getColumnTypeColor } from "../../util/column-colors";
 import { connectShapes } from "../../util/shapeConnections";
 import { chartGeometry, drawingToPlotPoints } from "./geometry";
-import { loadChartData, isNumericColumn, xKindFor, type ChartData, type ChartKind } from "./chart-data";
+import {
+  loadChartData,
+  isNumericColumn,
+  xKindFor,
+  type ChartData,
+  type ChartKind,
+  type ChartQuery,
+} from "./chart-data";
 import { SeriesMarks } from "./SeriesMarks";
 import { restoreRemoteQueryView } from "../../SQLTextArea/restoreRemoteQueryView";
 import { exportNativeChart } from "./export-chart";
@@ -188,16 +195,16 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     const requests: ReturnType<typeof coordinator.query>[] = [];
     // The revision is part of SQL because Mosaic 0.33 keys its cache by SQL.
     const stamp = `/* kavla-view ${encodeURIComponent(JSON.stringify([source.revision, refresh]))} */\n`;
-    const query = (sql: string) => {
+    const query: ChartQuery = (sql) => {
       if (!current) throw new DOMException("Chart query was cancelled.", "AbortError");
-      const request = coordinator.query(stamp + sql);
+      const request = coordinator.query(sql);
       requests.push(request);
       return request;
     };
     setBusy(true);
     void (async () => {
       const load = () =>
-        loadChartData(query, source, shape.props, {
+        loadChartData(query, { ...source, sql: stamp + source.sql }, shape.props, {
           xLog,
           yLog,
           width: size.width - 90,
