@@ -2,6 +2,7 @@ import type { ChartShape } from "../chart-shape-types";
 import { domain, pointBudget, type ScatterPlan } from "./planner.ts";
 import { coordinateSQL, identifier, normalize, type Axis } from "./selection.ts";
 import type { Mark } from "./ScatterMarks";
+import { Query, bin2d, column, count, cte, m4, max, min, verbatim } from "@uwdata/mosaic-sql";
 
 export type ChartKind = "scatter" | "line" | "area" | "bar";
 export type XKind = "number" | "time" | "category";
@@ -21,7 +22,7 @@ export type ChartData = {
   reduced: boolean;
   page: { offset: number; size: number; total: number } | null;
 };
-export type ChartQuery = (sql: string) => PromiseLike<{ numRows: number; toArray(): Record<string, unknown>[] }>;
+export type ChartQuery = (sql: Query) => PromiseLike<{ numRows: number; toArray(): Record<string, unknown>[] }>;
 export const isNumericColumn = (type: string) =>
   /^(U?INT|U?BIGINT|HUGEINT|SMALLINT|TINYINT|FLOAT|DOUBLE|REAL|DECIMAL|NUMERIC)/i.test(type);
 export function xKindFor(field: string, type: string, kind: ChartKind): XKind {
@@ -57,6 +58,8 @@ export async function loadChartData(
     rawY = `s.${identifier(props.y)}`;
   const valueX = xKind === "time" ? `epoch_ms(TRY_CAST(${rawX} AS TIMESTAMP))` : `TRY_CAST(${rawX} AS DOUBLE)`;
   const group = props.color ? `CAST(s.${identifier(props.color)} AS VARCHAR)` : "NULL::VARCHAR";
+  const input = Query.from(verbatim(`(${source.sql}) AS s`)).select("*");
+  if (props.limit !== null) input.limit(Math.max(1, Math.floor(props.limit)));
   const base = `WITH input AS (SELECT * FROM (${source.sql})${limit}),
     raw AS (SELECT row_number() OVER () AS ord, CAST(${rawX} AS VARCHAR) AS label_x,
       CAST(${rawY} AS VARCHAR) AS label_y, ${valueX} AS value_x, TRY_CAST(${rawY} AS DOUBLE) AS vy, ${group} AS g FROM input s),
@@ -65,7 +68,7 @@ export async function loadChartData(
     positioned AS (SELECT raw.*, ${xKind === "category" ? "cid" : "value_x"} AS vx FROM raw
       ${xKind === "category" ? "JOIN category_ids USING (label_x)" : ""}
       ${xKind === "category" ? "UNION ALL SELECT raw.*, cid AS vx FROM raw JOIN category_ids ON raw.label_x IS NULL AND category_ids.label_x IS NULL" : ""}),
-    ranked AS (SELECT *, row_number() OVER (PARTITION BY vx, g ORDER BY ord) AS duplicate FROM positioned),
+    ranked AS (SELECT *, ${kind === "bar" || stacked ? "row_number() OVER (PARTITION BY vx, g ORDER BY ord)" : "1"} AS duplicate FROM positioned),
     observations AS (SELECT * FROM ranked ${kind === "bar" ? "WHERE duplicate = 1" : ""}),
     baselines AS (SELECT *, ${
       stacked
@@ -75,15 +78,35 @@ export async function loadChartData(
     } AS y0 FROM observations),
     plotted_values AS (SELECT *, vy + ${stacked ? "y0" : "0"} AS yt,
       isfinite(vx) AND isfinite(vy)${xLog ? " AND vx > 0" : ""}${yLog ? " AND vy > 0" : ""} AS eligible FROM baselines),
-    runs AS (SELECT *, sum(CASE WHEN eligible THEN 0 ELSE 1 END) OVER (PARTITION BY g ORDER BY ord) AS run FROM plotted_values)`;
-  const stats = (
-    await query(`${base} SELECT (SELECT count(*) FROM raw) AS total,
-    count(*) FILTER (WHERE eligible) AS valid, min(vx) FILTER (WHERE eligible) AS xmin, max(vx) FILTER (WHERE eligible) AS xmax,
-    min(least(yt, ${stacked ? "y0" : "yt"})) FILTER (WHERE eligible) AS ymin,
-    max(greatest(yt, ${stacked ? "y0" : "yt"})) FILTER (WHERE eligible) AS ymax,
-    ${xKind === "category" ? "(SELECT count(*) FROM category_ids)" : "0"} AS categories,
-    (SELECT count(*) FROM positioned WHERE NOT (coalesce(isfinite(vx) AND isfinite(vy)${xLog ? " AND vx > 0" : ""}${yLog ? " AND vy > 0" : ""}, false))) AS excluded FROM runs`)
-  ).toArray()[0];
+    runs AS (SELECT *, ${kind === "line" || kind === "area" ? "sum(CASE WHEN eligible THEN 0 ELSE 1 END) OVER (PARTITION BY g ORDER BY ord)" : "0"} AS run FROM plotted_values)`;
+  let statsQuery: Query;
+  if (kind === "scatter" && xKind !== "category") {
+    // A common FROM lets Mosaic combine domains/counts for different charts
+    // into one scan. Color and pixel dimensions do not change these statistics.
+    const valueY = `TRY_CAST(${rawY} AS DOUBLE)`;
+    const eligible = `isfinite(${valueX}) AND isfinite(${valueY})${xLog ? ` AND ${valueX} > 0` : ""}${yLog ? ` AND ${valueY} > 0` : ""}`;
+    statsQuery = Query.from({ s: input }).select({
+      total: count(),
+      valid: count().where(eligible),
+      xmin: min(verbatim(valueX)).where(eligible),
+      xmax: max(verbatim(valueX)).where(eligible),
+      ymin: min(verbatim(valueY)).where(eligible),
+      ymax: max(verbatim(valueY)).where(eligible),
+      categories: verbatim("0"),
+      excluded: count().where(`NOT coalesce(${eligible}, false)`),
+    });
+  } else {
+    statsQuery = Query.from(
+      verbatim(`(${base} SELECT
+      (SELECT count(*) FROM raw) AS total,
+      count(*) FILTER (WHERE eligible) AS valid, min(vx) FILTER (WHERE eligible) AS xmin, max(vx) FILTER (WHERE eligible) AS xmax,
+      min(least(yt, ${stacked ? "y0" : "yt"})) FILTER (WHERE eligible) AS ymin,
+      max(greatest(yt, ${stacked ? "y0" : "yt"})) FILTER (WHERE eligible) AS ymax,
+      ${xKind === "category" ? "(SELECT count(*) FROM category_ids)" : "0"} AS categories,
+      (SELECT count(*) FROM positioned WHERE NOT (coalesce(isfinite(vx) AND isfinite(vy)${xLog ? " AND vx > 0" : ""}${yLog ? " AND vy > 0" : ""}, false))) AS excluded FROM runs) AS chart_stats`)
+    ).select("*");
+  }
+  const stats = (await query(statsQuery)).toArray()[0];
   const total = Number(stats.total),
     valid = Number(stats.valid);
   const size = Math.max(12, Math.floor(options.width / (kind === "bar" ? 12 : 6)));
@@ -96,8 +119,12 @@ export async function loadChartData(
   const categories =
     xKind === "category"
       ? (
-          await query(`${base} SELECT cid, label_x FROM category_ids
-    WHERE cid >= ${offset} AND cid < ${offset + size} ORDER BY cid`)
+          await query(
+            Query.from(verbatim(`(${base} SELECT cid, label_x FROM category_ids) AS chart_categories`))
+              .select("cid", "label_x")
+              .where(verbatim(`cid >= ${offset} AND cid < ${offset + size}`))
+              .orderby("cid")
+          )
         )
           .toArray()
           .map((r) => ({ value: Number(r.cid), label: r.label_x === null ? "(null)" : String(r.label_x) }))
@@ -138,29 +165,49 @@ export async function loadChartData(
     normalizedY = coordinateSQL({ ...y, field: "yt" }, "v");
   const visible = `${base}, visible AS (SELECT *, ${normalizedX} AS nx, ${normalizedY} AS ny FROM runs v
     WHERE eligible ${page ? `AND vx >= ${offset} AND vx < ${offset + size}` : ""})`;
-  let sql: string;
+  const visibleQuery = Query.from(verbatim(`(${visible} SELECT * FROM visible) AS chart_observations`)).select("*");
+  let plotQuery: Query;
   if (density) {
-    sql = `${visible}, cells AS (SELECT least(${columns - 1}, greatest(0, floor(nx*${columns}))) AS bin_x,
-      least(${rows - 1}, greatest(0, floor(ny*${rows}))) AS bin_y, g, count(*) AS n,
-      bool_or(nx < -1e-12 OR nx > 1+1e-12 OR ny < -1e-12 OR ny > 1+1e-12) AS domain_changed FROM visible GROUP BY bin_x, bin_y, g)
-      SELECT (bin_x+0.5)/${columns} AS nx, (bin_y+0.5)/${rows} AS ny, sum(n) AS count,
-      CAST(to_json(list(struct_pack(key := g, count := n) ORDER BY g NULLS FIRST)) AS VARCHAR) AS groups,
-      bool_or(domain_changed) AS domain_changed FROM cells GROUP BY bin_x, bin_y`;
+    const cells = bin2d(
+      Query.from({ v: visibleQuery }).select("g"),
+      verbatim(`least(${columns - 1}, greatest(0, nx*${columns}))`),
+      verbatim(`least(${rows - 1}, greatest(0, ny*${rows}))`),
+      { n: count(), domain_changed: verbatim("bool_or(nx < -1e-12 OR nx > 1+1e-12 OR ny < -1e-12 OR ny > 1+1e-12)") },
+      columns,
+      ["g"]
+    );
+    plotQuery = Query.from({ cells })
+      .select({
+        nx: verbatim(`((index % ${columns})+0.5)/${columns}`),
+        ny: verbatim(`(floor(index / ${columns})+0.5)/${rows}`),
+        count: verbatim("sum(n)"),
+        groups: verbatim("CAST(to_json(list(struct_pack(key := g, count := n) ORDER BY g NULLS FIRST)) AS VARCHAR)"),
+        domain_changed: verbatim("bool_or(domain_changed)"),
+      })
+      .groupby("index");
   } else if ((kind === "line" || kind === "area") && valid > pointBudget) {
     // Preserve source order, null-separated runs, and first/last/min/max of both
     // boundaries per horizontal pixel. Stacked areas must retain their baseline.
     const pixels = Math.max(1, Math.floor(options.width));
-    sql = `${visible}, binned AS (SELECT *, floor(nx*${pixels}) AS bin FROM visible),
-      extrema AS (SELECT *,
-        row_number() OVER (PARTITION BY g, run, bin ORDER BY ord) AS first_in_bin,
-        row_number() OVER (PARTITION BY g, run, bin ORDER BY ord DESC) AS last_in_bin,
-        row_number() OVER (PARTITION BY g, run, bin ORDER BY yt, ord) AS min_in_bin,
-        row_number() OVER (PARTITION BY g, run, bin ORDER BY yt DESC, ord) AS max_in_bin,
-        row_number() OVER (PARTITION BY g, run, bin ORDER BY y0, ord) AS min_base,
-        row_number() OVER (PARTITION BY g, run, bin ORDER BY y0 DESC, ord) AS max_base FROM binned)
-      SELECT * FROM extrema WHERE first_in_bin=1 OR last_in_bin=1 OR min_in_bin=1 OR max_in_bin=1 OR min_base=1 OR max_base=1 ORDER BY ord`;
-  } else sql = `${visible} SELECT * FROM visible ORDER BY ord${kind === "scatter" ? ` LIMIT ${pointBudget + 1}` : ""}`;
-  const result = valid ? await query(sql) : null;
+    // Bin by display X but use source ordinal as M4's ordering dimension.
+    // Select original rows afterward to retain labels and both area boundaries.
+    const bin = verbatim(`nx*${pixels}`),
+      groups = [column("g"), column("run")];
+    const upper = m4("chart_visible", bin, "ord", "yt", groups);
+    const ordinals = Query.from({ upper }).select("ord");
+    const selected = stacked
+      ? Query.union(ordinals, Query.from({ lower: m4("chart_visible", bin, "ord", "y0", groups) }).select("ord"))
+      : ordinals;
+    plotQuery = Query.with(cte("chart_visible", visibleQuery, true), { chart_extrema: selected })
+      .from("chart_visible")
+      .select("*")
+      .where(verbatim("ord IN (SELECT ord FROM chart_extrema)"))
+      .orderby("ord");
+  } else {
+    plotQuery = visibleQuery.orderby("ord");
+    if (kind === "scatter") plotQuery.limit(pointBudget + 1);
+  }
+  const result = valid ? await query(plotQuery) : null;
   if (!density && kind === "scatter" && result && result.numRows > pointBudget)
     throw new Error("The source changed while plotting. Refresh the chart; no partial result is shown.");
   const plottedRows = result?.toArray() ?? [];
@@ -206,7 +253,7 @@ export async function loadChartData(
     x,
     y,
     marks,
-    plan: { sql, mode: density ? "density" : "points", columns, rows },
+    plan: { sql: String(plotQuery), mode: density ? "density" : "points", columns, rows },
     total,
     valid,
     excluded: Number(stats.excluded),

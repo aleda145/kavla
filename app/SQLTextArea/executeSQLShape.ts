@@ -1,5 +1,5 @@
 import { clearRestoredRemoteQueryMetadata } from "./restoreRemoteQueryView";
-import { createShapeId, type Editor, type TLShapeId } from "tldraw";
+import { createShapeId, uniqueId, type Editor, type TLShapeId } from "tldraw";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import type { LocalServerContextType } from "../client/localServer/types";
 import { walkSQLDag, buildRemoteSQLFromDag } from "./walkSQLDag";
@@ -56,6 +56,7 @@ export async function executeSQLShape(
     editor.updateShape<SQLTextAreaShape>({
       id,
       type: "sql-text-area",
+      meta: { ...current.meta, nativeQueryRevision: uniqueId() },
       props: {
         outputSchema: output.schema,
         columnStats: null,

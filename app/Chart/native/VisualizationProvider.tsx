@@ -1,8 +1,7 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { useValue } from "tldraw";
 import { backendRequest, backendRevision, withBackendActivity } from "../../client/backendCompute";
 import { editorToken, useCanvasConnection } from "../../client/canvasConnection";
-import { SQL_SHAPE_RUN_FINISHED_EVENT } from "../../SQLTextArea/sqlShapeRun";
 import { createVisualizationSession } from "./coordinator";
 
 export const VisualizationContext = createContext<ReturnType<typeof createVisualizationSession> | null>(null);
@@ -11,12 +10,8 @@ export function VisualizationProvider({ children, documentId }: { children: Reac
   const revision = useValue("visualization backend revision", () => backendRevision.get(), []);
   const connection = useCanvasConnection();
   const token = editorToken();
-  const [runs, setRuns] = useState(0);
-  useEffect(() => {
-    const invalidate = () => setRuns((n) => n + 1);
-    window.addEventListener(SQL_SHAPE_RUN_FINISHED_EVENT, invalidate);
-    return () => window.removeEventListener(SQL_SHAPE_RUN_FINISHED_EVENT, invalidate);
-  }, []);
+  // Each chart includes its upstream revision in SQL cache keys. Unrelated SQL
+  // runs must not dispose the coordinator, its cache, or other charts' requests.
   const session = useMemo(
     () => ({
       mounts: 0,
@@ -36,7 +31,7 @@ export function VisualizationProvider({ children, documentId }: { children: Reac
         })
       ),
     }),
-    [documentId, revision, connection.status, token, runs]
+    [documentId, revision, connection.status, token]
   );
   useEffect(() => {
     session.mounts++;

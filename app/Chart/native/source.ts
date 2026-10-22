@@ -43,6 +43,13 @@ export function scatterSource(editor: Editor, chart: ChartShape) {
       expanded,
       orderedDependencies.map((d) => (d.type === "sql-text-area" ? d.props.lastRunStats : getRemoteSourceMetadata(d))),
       ...(limit === null ? [] : [limit]),
+      // Runtime and row count can be identical on two runs with different data.
+      // Preserve legacy revision strings until a query receives its first token.
+      ...orderedDependencies.flatMap((d) =>
+        d.type === "sql-text-area" && typeof d.meta.nativeQueryRevision === "string"
+          ? [[d.id, d.meta.nativeQueryRevision]]
+          : []
+      ),
     ]),
     schema: query.props.outputSchema ?? [],
   };

@@ -6,6 +6,7 @@ import {
   resizeBox,
   TLShapeId,
   createShapeId,
+  uniqueId,
   useToasts,
 } from "tldraw";
 import { SQLTextAreaMigrations } from "./sql-text-area-migrations";
@@ -287,6 +288,13 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         }
 
         const executionTime = Date.now() - startTime;
+        const completedShape = this.editor.getShape<SQLTextAreaShape>(shape.id);
+        if (completedShape)
+          this.editor.updateShape({
+            id: shape.id,
+            type: "sql-text-area",
+            meta: { ...completedShape.meta, nativeQueryRevision: uniqueId() },
+          });
         update({
           isRunning: false,
           queryStartTime: null,
