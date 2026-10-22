@@ -43,7 +43,7 @@ export function restoreRemoteQueryView(
       );
     }
 
-    const dagWalk = walkSQLDag(editor, currentShape.props.text);
+    const dagWalk = walkSQLDag(editor, currentShape.props.text, currentShape.id);
     if (!dagWalk.ok) {
       throw new Error(dagWalk.error.message);
     }
@@ -60,7 +60,7 @@ export function restoreRemoteQueryView(
       );
     }
     const result = await runRemoteQuery({
-      sql: buildRemoteSQLFromDag(currentShape.props.text, orderedDependencies, editor),
+      sql: buildRemoteSQLFromDag(currentShape.props.text, orderedDependencies, editor, currentShape.id),
       sourceName: executionState.sourceName,
       sourceType: executionState.sourceType,
       shapeId: currentShape.id,

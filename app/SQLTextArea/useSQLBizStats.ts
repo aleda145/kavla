@@ -78,7 +78,7 @@ export function useSQLBizStats(shape: SQLTextAreaShape, sql: string | null, erro
         try {
           const current = editor.getShape<SQLTextAreaShape>(shape.id);
           if (!current || current.props.text !== shape.props.text) return { status: "waiting" };
-          const dag = walkSQLDag(editor, sql);
+          const dag = walkSQLDag(editor, sql, current.id);
           if (!dag.ok) throw new Error(dag.error.message);
           if (dag.plan.orderedDependencies.some((input) => input.id === shape.id)) {
             throw new Error("Cannot measure this operation because its source resolves back to the current query.");
@@ -100,7 +100,7 @@ export function useSQLBizStats(shape: SQLTextAreaShape, sql: string | null, erro
             status: "ready",
             sources,
             payload: {
-              sql: buildRemoteSQLFromDag(sql, dag.plan.orderedDependencies, editor),
+              sql: buildRemoteSQLFromDag(sql, dag.plan.orderedDependencies, editor, current.id),
               sourceName: execution.sourceName,
               sourceType: execution.sourceType,
               sourceNative: execution.sourceNativePreview,

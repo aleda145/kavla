@@ -3,7 +3,10 @@ import { defaultHighlightStyle } from "@codemirror/language";
 import React, { memo, useMemo } from "react";
 import { getColumnTypeMutedColor } from "../util/column-colors";
 import { DuckDBDialect } from "./duckdb-dialect";
-import { useEditor, useValue } from "tldraw";
+import { useEditor, useValue, type TLShapeId } from "tldraw";
+import { getSelectedAreaReferences, hasSelectedAreaBinding } from "./selected-area";
+import { navigateToSelectedArea } from "./selected-area-navigation";
+import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { describeKnob, findKnob, getKnobReferences, navigateToKnob } from "../Knob/knobReferences";
 import {
   createSqlNameLookup,
@@ -22,6 +25,7 @@ export type SQLHighlightTarget =
   | { kind: "knob"; name: string };
 
 interface StaticSQLHighlighterProps {
+  shapeId?: TLShapeId;
   sql: string;
   inline?: boolean;
   contextSql?: string;
@@ -35,6 +39,7 @@ interface StaticSQLHighlighterProps {
 
 export const StaticSQLHighlighter = memo(
   ({
+    shapeId,
     sql,
     inline = false,
     contextSql,
@@ -45,12 +50,18 @@ export const StaticSQLHighlighter = memo(
     columnMapping,
     upstreamTableNames,
   }: StaticSQLHighlighterProps) => {
+    const editor = useEditor();
+    const hasArea = useValue(
+      "static SQL selected area",
+      () => hasSelectedAreaBinding(shapeId ? editor.getShape<SQLTextAreaShape>(shapeId) : undefined),
+      [editor, shapeId]
+    );
     const spansByLine = useMemo(() => {
       const tableNames = createSqlNameLookup(validTableNames ?? []);
       const mentionedTables = findMentionedTables(contextSql ?? sql, tableNames);
       const upstreamTables = new Set(upstreamTableNames ?? []);
       const tree = parser.parse(sql);
-      let tokens: { from: number; to: number; classes?: string; knobName?: string }[] = [];
+      let tokens: { from: number; to: number; classes?: string; knobName?: string; selectedArea?: boolean }[] = [];
       let pos = 0;
 
       highlightTree(tree, defaultHighlightStyle, (from, to, classes) => {
@@ -75,6 +86,17 @@ export const StaticSQLHighlighter = memo(
         });
         tokens.push({ from: reference.from, to: reference.to, knobName: reference.name });
       }
+      if (hasArea)
+        for (const reference of getSelectedAreaReferences(sql)) {
+          tokens = tokens.flatMap((token) => {
+            if (token.to <= reference.from || token.from >= reference.to) return [token];
+            return [
+              ...(token.from < reference.from ? [{ ...token, to: reference.from }] : []),
+              ...(token.to > reference.to ? [{ ...token, from: reference.to }] : []),
+            ];
+          });
+          tokens.push({ from: reference.from, to: reference.to, selectedArea: true });
+        }
       tokens.sort((a, b) => a.from - b.from);
 
       const lines = sql.split("\n");
@@ -110,7 +132,30 @@ export const StaticSQLHighlighter = memo(
             // contents are not mistaken for schema identifiers.
             const isSafe = /String|Comment|Number/.test(tree.resolveInner(intersectionStart, 1).name);
 
-            if (token.knobName !== undefined) {
+            if (token.selectedArea && shapeId) {
+              lineNodes.push(
+                <span
+                  key={intersectionStart}
+                  title="Ctrl/Cmd+click to go to selected area"
+                  style={{
+                    fontFamily: "monospace",
+                    backgroundColor: "#27272a",
+                    color: "#fafafa",
+                    borderBottom: "2px solid #09090b",
+                    borderRadius: 3,
+                    cursor: "pointer",
+                  }}
+                  onMouseDown={(event) => {
+                    if (!event.ctrlKey && !event.metaKey) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    navigateToSelectedArea(editor, shapeId);
+                  }}
+                >
+                  {textPart}
+                </span>
+              );
+            } else if (token.knobName !== undefined) {
               lineNodes.push(
                 <StaticKnobReference key={intersectionStart} name={token.knobName} renderIdentifier={renderIdentifier}>
                   {textPart}
@@ -164,7 +209,7 @@ export const StaticSQLHighlighter = memo(
 
         return lineNodes;
       });
-    }, [sql, contextSql, renderIdentifier, validTableNames, sources, queries, columnMapping, upstreamTableNames]);
+    }, [sql, contextSql, renderIdentifier, validTableNames, sources, queries, columnMapping, upstreamTableNames, editor, hasArea, shapeId]);
 
     if (inline) {
       return (

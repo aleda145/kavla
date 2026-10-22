@@ -498,7 +498,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
       for (const candidate of this.editor.getCurrentPageShapes()) {
         if (candidate.type !== "sql-text-area") continue;
         const query = candidate as SQLTextAreaShape;
-        const { orderedDependencies } = getOrderedDependenciesForSQL(this.editor, query.props.text);
+        const { orderedDependencies } = getOrderedDependenciesForSQL(this.editor, query.props.text, query.id);
         if (!orderedDependencies.some((dependency) => dependency.id === next.id)) continue;
         clearRestoredRemoteQueryMetadata(query.id);
         this.editor.updateShape<SQLTextAreaShape>({

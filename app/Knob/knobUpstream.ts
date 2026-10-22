@@ -21,7 +21,7 @@ export function getKnobUpstreamSources(editor: Editor, queries: SQLTextAreaShape
       .map((id) => editor.getShape(id as TLShapeId))
       .filter((shape): shape is SQLDependencyShape => shape?.type === "sql-text-area" || shape?.type === "data-source");
     if (saved.length) return saved;
-    const dependencies = getOrderedDependenciesForSQL(editor, query.props.text);
+    const dependencies = getOrderedDependenciesForSQL(editor, query.props.text, query.id);
     return dependencies.orderedDependencies.filter((source) => dependencies.immediateUpstreamIds.includes(source.id));
   };
   const visit = (query: SQLTextAreaShape, source: SQLDependencyShape) => {

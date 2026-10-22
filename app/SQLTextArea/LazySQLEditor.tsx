@@ -131,6 +131,7 @@ export const LazySQLEditor = ({
         <StaticCodeHighlighter code={text} />
       ) : (
         <StaticSQLHighlighter
+          shapeId={shapeId}
           sql={text}
           validTableNames={tableNames}
           sources={sources}

@@ -156,6 +156,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
   };
   const highlight = (sql: string) => (
     <StaticSQLHighlighter
+      shapeId={shape.id}
       inline
       sql={sql}
       contextSql={text}

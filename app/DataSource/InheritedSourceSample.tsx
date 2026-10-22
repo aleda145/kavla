@@ -21,7 +21,7 @@ function getSourceSamples(editor: Editor, shapeId: TLShapeId) {
     } else if (shape.type === "sql-text-area") {
       const query = shape as SQLTextAreaShape;
       // Follow the same SQL dependencies as execution, rather than saved arrows.
-      for (const dependency of getOrderedDependenciesForSQL(editor, query.props.text).orderedDependencies) {
+      for (const dependency of getOrderedDependenciesForSQL(editor, query.props.text, query.id).orderedDependencies) {
         if (dependency.type === "data-source") sources.set(dependency.id, dependency);
       }
     } else if (shape.type === "summary-shape") {

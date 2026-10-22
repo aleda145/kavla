@@ -23,7 +23,7 @@ export async function executeSQLShape(
   if (options.createMissingKnobs !== false) ensureQueryKnobs(editor, shape, sql);
   clearRestoredRemoteQueryMetadata(id);
   const started = Date.now();
-  const plan = walkSQLDag(editor, sql);
+  const plan = walkSQLDag(editor, sql, id);
   if (!plan.ok) throw new Error(plan.error.message);
   const { executionState, orderedDependencies, nextUpstreamShapeIds } = plan.plan;
   if (nextUpstreamShapeIds.includes(id))
@@ -59,7 +59,7 @@ export async function executeSQLShape(
   try {
     signal.throwIfAborted();
     const output = await data.runRemoteQuery({
-      sql: buildRemoteSQLFromDag(sql, orderedDependencies, editor),
+      sql: buildRemoteSQLFromDag(sql, orderedDependencies, editor, id),
       sourceName: executionState.sourceName,
       sourceType: executionState.sourceType,
       sourceNative: executionState.sourceNativePreview,

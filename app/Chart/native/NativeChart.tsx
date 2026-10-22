@@ -38,7 +38,8 @@ import { loadChartData, isNumericColumn, xKindFor, type ChartData, type ChartKin
 import { SeriesMarks } from "./SeriesMarks";
 import { restoreRemoteQueryView } from "../../SQLTextArea/restoreRemoteQueryView";
 import { exportNativeChart } from "./export-chart";
-import { coordinateSQL, identifier, selectionSQL, validatePolygon, type ScatterSelection } from "./selection";
+import { readSelection, selectionSQL, validatePolygon, type ScatterSelection } from "./selection";
+import { selectedAreaPreview } from "../../SQLTextArea/selected-area-navigation";
 import { scatterSource } from "./source";
 import { ScatterMarks } from "./ScatterMarks";
 import { ScatterAxes } from "./ScatterAxes";
@@ -50,48 +51,6 @@ const axisBarHeight = 64;
 const actionBarWidth = 48;
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 type Loaded = ChartData & { revision: string };
-
-function readSelection(value: unknown): ScatterSelection | null {
-  if (typeof value !== "string") return null;
-  const s = JSON.parse(value) as ScatterSelection;
-  if (
-    s.version !== 1 ||
-    s.semantics !== "observations" ||
-    s.policy !== "live" ||
-    typeof s.sourceRevision !== "string" ||
-    typeof s.sourceSQL !== "string" ||
-    typeof s.sourceId !== "string" ||
-    typeof s.drawingId !== "string" ||
-    typeof s.chartId !== "string" ||
-    ![s.x, s.y].every(
-      (axis) =>
-        axis &&
-        typeof axis.field === "string" &&
-        ["linear", "log"].includes(axis.type) &&
-        Array.isArray(axis.domain) &&
-        axis.domain.length === 2 &&
-        axis.domain.every((n) => Number.isFinite(n) && (axis.type !== "log" || n > 0)) &&
-        axis.domain[0] !== axis.domain[1]
-    ) ||
-    !Array.isArray(s.polygon)
-  )
-    throw new Error("This saved selection is not supported.");
-  s.polygon = validatePolygon(s.polygon);
-  if (
-    s.outline &&
-    (typeof s.outline.color !== "string" ||
-      !Number.isFinite(s.outline.width) ||
-      s.outline.width <= 0 ||
-      !Number.isFinite(s.outline.opacity) ||
-      s.outline.opacity < 0 ||
-      s.outline.opacity > 1 ||
-      !["draw", "solid", "dashed", "dotted"].includes(s.outline.dash))
-  )
-    throw new Error("This saved chart outline is not supported.");
-  coordinateSQL(s.x);
-  coordinateSQL(s.y);
-  return s;
-}
 
 export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartShape }) {
   const { coordinator } = useVisualizationSession();
@@ -131,10 +90,20 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     }
   }, [shape.meta.nativeSelection]);
   const selection = saved.selection;
+  const preview = useValue(
+    "linked selected area",
+    () => {
+      const area = selectedAreaPreview(editor).get();
+      return area?.chartId === shape.id && editor.getSelectedShapeIds().includes(shape.id) ? area : null;
+    },
+    [editor, shape.id]
+  );
   const pendingDrawings = useRef(new Set<TLShapeId>());
   const currentTool = useValue("chart outline tool", () => editor.getCurrentToolId(), [editor]);
   const capturing = currentTool === "draw" && canSelect;
-  const controlsHeight = compact ? 0 : 28 + (shape.props.color ? 24 : 0) + (selection && canSelect ? 34 : 0);
+  const controlsHeight = compact
+    ? 0
+    : 28 + (shape.props.color ? 24 : 0) + (preview || (selection && canSelect) ? 34 : 0);
   const [exporting, setExporting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsId = useId();
@@ -284,10 +253,21 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   // Selection is defined in its original domain. Project it into refreshed
   // domains for feedback; do not reinterpret it after a move/resize/refresh.
   const visiblePolygon = useMemo(() => {
+    if (
+      preview &&
+      geometry &&
+      currentPlot &&
+      preview.x.field === currentPlot.x.field &&
+      preview.y.field === currentPlot.y.field &&
+      currentPlot.xKind === "number"
+    ) {
+      const original = chartGeometry(width, height, preview.x, preview.y);
+      return preview.polygon.map((p) => geometry.normalize(original.unproject(original.fromAnalytical(p))));
+    }
     if (!selectionCurrent || !selection || !geometry) return null;
     const original = chartGeometry(width, height, selection.x, selection.y);
     return selection.polygon.map((p) => geometry.normalize(original.unproject(original.fromAnalytical(p))));
-  }, [selectionCurrent, selection, geometry, width, height]);
+  }, [selectionCurrent, selection, geometry, width, height, preview, currentPlot]);
 
   const acceptDrawing = useCallback(
     (drawing: TLDrawShape, explicit = false) => {
@@ -361,6 +341,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         // transfer has its own boundary so undo restores the original stroke.
         if (explicit) editor.markHistoryStoppingPoint("attach chart outline");
         editor.run(() => {
+          selectedAreaPreview(editor).set(null);
           setMeta({ nativeSelection: JSON.stringify(next), nativeLassoError: null, nativeLassoDrawing: null });
           editor.deleteShapes([drawing.id]);
         });
@@ -451,8 +432,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       const latest = scatterSource(editor, shape);
       if (latest.revision !== selection.sourceRevision)
         throw new Error("The upstream query changed. Draw a new selection.");
-      const namedSource = `SELECT * FROM ${identifier(latest.name)}${shape.props.limit === null ? "" : ` LIMIT ${Math.max(1, Math.floor(shape.props.limit))}`}`;
-      const text = selectionSQL(namedSource, selection);
+      const text = "SELECT * FROM selected_area";
       const id = createShapeId();
       const bounds = editor.getShapePageBounds(shape.id)!;
       editor.createShape<SQLTextAreaShape>({
@@ -461,7 +441,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         x: bounds.maxX + 60,
         y: bounds.y,
         props: { name: getUniqueName(editor, `${latest.name}_selected`), text, isDirty: true, showTable: true },
-        meta: { nativeSelection: JSON.stringify(selection) },
+        meta: { nativeSelection: JSON.stringify(selection), selectedAreaLimit: shape.props.limit },
       });
       connectShapes(editor, latest.id, id);
       const controller = new AbortController();
@@ -535,7 +515,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         visiblePolygon,
         source?.name ?? "chart",
         format,
-        selection?.outline
+        (preview ?? selection)?.outline
       );
     } catch (error) {
       setSelectionError(message(error));
@@ -546,6 +526,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   const updateProps = (props: Partial<ChartShape["props"]>) =>
     editor.updateShape<ChartShape>({ id: shape.id, type: "chart-shape", props });
   const clearSelection = () => {
+    selectedAreaPreview(editor).set(null);
     setSelectionError(null);
     setCount(null);
     editor.markHistoryStoppingPoint("clear chart outline");
@@ -605,7 +586,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                   xLabel={currentPlot.x.field + (xLog ? " · log" : "")}
                   yLabel={currentPlot.y.field + (yLog ? " · log" : "")}
                   polygon={visiblePolygon}
-                  outline={selection?.outline}
+                  outline={(preview ?? selection)?.outline}
                   xKind={currentPlot.xKind}
                   categories={currentPlot.categories}
                 />
@@ -733,41 +714,55 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                   ))}
                 </div>
               )}
-              {selection && canSelect && (
+              {preview ? (
                 <div className="kavla-scatter__actions">
-                  <span
-                    className="kavla-scatter__hint kavla-scatter__selection"
-                    role="status"
-                    title="Exact count from the original rows, including duplicate coordinates. Density highlights are a preview."
-                  >
-                    {selectionCurrent
-                      ? count === null
-                        ? "Counting…"
-                        : `${count.toLocaleString()} selected`
-                      : "Selection out of date"}
+                  <span className="kavla-scatter__hint kavla-scatter__selection" role="status">
+                    {preview.x.field === currentPlot?.x.field && preview.y.field === currentPlot?.y.field
+                      ? "selected_area"
+                      : `Area uses ${preview.x.field} / ${preview.y.field}`}
                   </span>
-                  {selectionCurrent && (
-                    <button
-                      type="button"
-                      className="kavla-scatter__button kavla-scatter__button--primary"
-                      title="Explore selected rows in a new SQL query"
-                      disabled={count === null || exploring}
-                      onClick={() => void explore()}
-                    >
-                      {exploring ? "Running…" : "Explore"}
-                      <ArrowUpRight size={14} />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="kavla-scatter__button kavla-scatter__button--icon"
-                    title="Clear selection"
-                    aria-label="Clear selection"
-                    onClick={clearSelection}
-                  >
-                    <X size={14} />
+                  <button className="kavla-scatter__button" onClick={() => selectedAreaPreview(editor).set(null)}>
+                    Back to current selection
                   </button>
                 </div>
+              ) : (
+                selection &&
+                canSelect && (
+                  <div className="kavla-scatter__actions">
+                    <span
+                      className="kavla-scatter__hint kavla-scatter__selection"
+                      role="status"
+                      title="Exact count from the original rows, including duplicate coordinates. Density highlights are a preview."
+                    >
+                      {selectionCurrent
+                        ? count === null
+                          ? "Counting…"
+                          : `${count.toLocaleString()} selected`
+                        : "Selection out of date"}
+                    </span>
+                    {selectionCurrent && (
+                      <button
+                        type="button"
+                        className="kavla-scatter__button kavla-scatter__button--primary"
+                        title="Explore selected rows in a new SQL query"
+                        disabled={count === null || exploring}
+                        onClick={() => void explore()}
+                      >
+                        {exploring ? "Running…" : "Explore"}
+                        <ArrowUpRight size={14} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="kavla-scatter__button kavla-scatter__button--icon"
+                      title="Clear selection"
+                      aria-label="Clear selection"
+                      onClick={clearSelection}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                )
               )}
             </div>
           )}
