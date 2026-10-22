@@ -1,6 +1,8 @@
 import type { chartGeometry } from "./geometry";
 import type { Point } from "./selection";
 import { memo, useId } from "react";
+import { scaleUtc } from "d3";
+import type { XKind } from "./chart-data";
 
 export const ScatterAxes = memo(function ScatterAxes({
   geometry,
@@ -9,6 +11,8 @@ export const ScatterAxes = memo(function ScatterAxes({
   xLabel,
   yLabel,
   polygon,
+  xKind = "number",
+  categories = [],
 }: {
   geometry: ReturnType<typeof chartGeometry>;
   width: number;
@@ -16,11 +20,20 @@ export const ScatterAxes = memo(function ScatterAxes({
   xLabel: string;
   yLabel: string;
   polygon: Point[] | null;
+  xKind?: XKind;
+  categories?: { value: number; label: string }[];
 }) {
   const clipId = useId();
   const { plot, xScale, yScale } = geometry;
   const bottom = plot.top + plot.height;
   const xTicks = Math.max(2, Math.floor(plot.width / 90));
+  const timeScale = scaleUtc().domain(xScale.domain().map((value) => new Date(value)));
+  const ticks =
+    xKind === "category"
+      ? categories.filter((_, i) => i % Math.max(1, Math.ceil(categories.length / xTicks)) === 0).map((c) => c.value)
+      : xKind === "time"
+        ? timeScale.ticks(xTicks).map(Number)
+        : xScale.ticks(xTicks);
   const yTicks = Math.max(2, Math.floor(plot.height / 48));
   const shorten = (label: string, space: number) => {
     const length = Math.max(4, Math.floor(space / 8));
@@ -63,8 +76,13 @@ export const ScatterAxes = memo(function ScatterAxes({
         strokeWidth={3}
         strokeLinejoin="round"
       />
-      {xScale.ticks(xTicks).map((t) => {
-        const label = xScale.tickFormat(xTicks, "~s")(t);
+      {ticks.map((t) => {
+        const label =
+          xKind === "category"
+            ? shorten(categories.find((c) => c.value === t)?.label ?? "", plot.width / xTicks)
+            : xKind === "time"
+              ? timeScale.tickFormat(xTicks)(new Date(t))
+              : xScale.tickFormat(xTicks, "~s")(t);
         if (!label) return null;
         return (
           <g key={t}>

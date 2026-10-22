@@ -1,7 +1,7 @@
 import { LensRuntimeUnavailableError } from "../Lens/lens-errors";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import ReactECharts from "echarts-for-react";
-import * as ECharts from "echarts";
+import type ReactECharts from "echarts-for-react";
+import type * as ECharts from "echarts";
 import { queryBackendRows } from "../client/backendCompute";
 import { getLensVizRuntime } from "../Lens/viz/runtime";
 import type { LensVizRuntime } from "../Lens/viz/runtime";
@@ -15,7 +15,8 @@ type GeneratedWidgetLibraries = {
   useFrame: any;
   OrbitControls: any;
   MapLibre: any;
-  ECharts: typeof ECharts;
+  ReactECharts?: typeof ReactECharts & { graphic?: typeof ECharts.graphic };
+  ECharts?: typeof ECharts;
 };
 
 type GeneratedChartWidgetProps = {
@@ -48,8 +49,8 @@ type GeneratedChartWidgetProps = {
   };
   viz: LensVizRuntime;
   React: typeof React;
-  ReactECharts: typeof ReactECharts & { graphic?: typeof ECharts.graphic };
-  ECharts: typeof ECharts;
+  ReactECharts?: typeof ReactECharts & { graphic?: typeof ECharts.graphic };
+  ECharts?: typeof ECharts;
   Plot: any;
   d3: any;
   THREE: any;
@@ -109,10 +110,6 @@ const theme = {
   radius: 6,
   shadow: "4px 4px 0px 0px rgba(0,0,0,1)",
 };
-
-const ReactEChartsRuntime = Object.assign(ReactECharts, {
-  graphic: ECharts.graphic,
-});
 
 type GeneratedWidgetCompiledFactory = (
   ReactRuntime: typeof React,
@@ -186,7 +183,14 @@ export async function prepareGeneratedChartWidgetRuntime(): Promise<void> {
   await loadGeneratedWidgetLibraries();
 }
 
-function loadGeneratedWidgetLibraries(): Promise<GeneratedWidgetLibraries> {
+async function loadGeneratedWidgetLibraries(code = ""): Promise<GeneratedWidgetLibraries> {
+  const libraries = await loadBaseGeneratedWidgetLibraries();
+  if (!/echarts/i.test(code)) return libraries;
+  const legacy = await import("./legacy-widget-charts");
+  return { ...libraries, ECharts: legacy.ECharts, ReactECharts: legacy.ReactEChartsRuntime };
+}
+
+function loadBaseGeneratedWidgetLibraries(): Promise<GeneratedWidgetLibraries> {
   if (generatedWidgetRuntime) return generatedWidgetRuntime;
   generatedWidgetRuntime = (async () => {
     try {
@@ -233,14 +237,14 @@ async function importGeneratedWidgetLibraries(): Promise<GeneratedWidgetLibrarie
     useFrame: fiber.useFrame,
     OrbitControls: drei.OrbitControls,
     MapLibre,
-    ECharts,
   };
 }
 
 function getGeneratedWidgetImportRuntime(libraries: GeneratedWidgetLibraries) {
+  const { ECharts, ReactECharts: ReactEChartsRuntime } = libraries;
   return {
     react: { ...React, default: React },
-    "echarts-for-react": { default: ReactEChartsRuntime, graphic: ECharts.graphic },
+    "echarts-for-react": { default: ReactEChartsRuntime, graphic: ECharts?.graphic },
     echarts: { ...ECharts, default: ECharts },
     d3: { ...libraries.d3, default: libraries.d3 },
     three: { ...libraries.THREE, default: libraries.THREE },
@@ -425,6 +429,8 @@ function cacheGeneratedWidgetCompilation(cacheKey: string, entry: GeneratedWidge
 }
 
 function createGeneratedWidgetScope(imports: Record<string, any>) {
+  const ECharts = imports.echarts?.default;
+  const ReactEChartsRuntime = imports["echarts-for-react"]?.default;
   const viz = getLensVizRuntime();
   return {
     React,
@@ -723,7 +729,7 @@ async function renderGeneratedWidgetForValidation(
 export async function validateGeneratedChartWidget(
   input: GeneratedChartWidgetValidationInput
 ): Promise<GeneratedChartWidgetValidationResult> {
-  const libraries = await loadGeneratedWidgetLibraries();
+  const libraries = await loadGeneratedWidgetLibraries(input.code);
   const { component: Component } = await compileGeneratedWidget(input.code, libraries);
   const rows = input.rows ?? [];
   const columns = input.columns ?? [];
@@ -754,8 +760,8 @@ export async function validateGeneratedChartWidget(
     theme,
     viz: getLensVizRuntime(),
     React,
-    ReactECharts: ReactEChartsRuntime,
-    ECharts,
+    ReactECharts: libraries.ReactECharts,
+    ECharts: libraries.ECharts,
     Plot: libraries.Plot,
     d3: libraries.d3,
     THREE: libraries.THREE,
@@ -855,7 +861,7 @@ export const GeneratedChartWidgetView = React.memo(function GeneratedChartWidget
     setCompileError(null);
     setComponent(null);
 
-    loadGeneratedWidgetLibraries()
+    loadGeneratedWidgetLibraries(code)
       .then(async (loadedLibraries) => {
         const { component: compiledComponent } = await compileGeneratedWidget(code, loadedLibraries);
         return { loadedLibraries, compiledComponent };
@@ -914,8 +920,8 @@ export const GeneratedChartWidgetView = React.memo(function GeneratedChartWidget
         theme={theme}
         viz={getLensVizRuntime()}
         React={React}
-        ReactECharts={ReactEChartsRuntime}
-        ECharts={ECharts}
+        ReactECharts={libraries.ReactECharts}
+        ECharts={libraries.ECharts}
         Plot={libraries.Plot}
         d3={libraries.d3}
         THREE={libraries.THREE}

@@ -4,8 +4,6 @@ import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { buildRemoteSQLFromDag, walkSQLDag } from "../../SQLTextArea/walkSQLDag";
 import { identifier } from "./selection";
 import { getRemoteSourceMetadata } from "../../DataSource/remote-source-metadata";
-import { getCliSourcesSnapshot } from "../../client/localServer/runtimeStore";
-import { extractTableNames } from "../../util/parseSql";
 
 export function scatterSource(editor: Editor, chart: ChartShape) {
   const source = chart.props.sourceShapeId ? editor.getShape(chart.props.sourceShapeId as TLShapeId) : undefined;
@@ -17,20 +15,11 @@ export function scatterSource(editor: Editor, chart: ChartShape) {
   const { orderedDependencies } = result.plan;
   // Native remote dialects cannot safely be wrapped in a DuckDB polygon query.
   // Avoid automatically re-running potentially chargeable BigQuery queries.
-  if (
-    orderedDependencies.some(
-      (d) =>
-        d.type === "data-source" &&
-        !["duckdb", "csv", "parquet", "directory"].includes(getRemoteSourceMetadata(d)?.sourceType ?? "")
-    )
-  ) {
-    throw new Error("This prototype requires a DuckDB source. Materialize remote results explicitly before plotting.");
-  }
-  if (
-    result.plan.executionState.sourceNativePreview &&
-    !["duckdb", "csv", "parquet", "directory"].includes(result.plan.executionState.sourceType ?? "")
-  )
-    throw new Error("Native remote queries are not supported by this prototype. Use a DuckDB source.");
+  const canSelect = !orderedDependencies.some(
+    (d) =>
+      d.type === "data-source" &&
+      !["duckdb", "csv", "parquet", "directory"].includes(getRemoteSourceMetadata(d)?.sourceType ?? "")
+  );
   for (const dependency of orderedDependencies) {
     if (
       dependency.type === "sql-text-area" &&
@@ -38,24 +27,22 @@ export function scatterSource(editor: Editor, chart: ChartShape) {
     )
       throw new Error(`Run "${dependency.props.name}" before plotting or selecting its data.`);
   }
-  const sql = buildRemoteSQLFromDag(reference, orderedDependencies, editor);
-  if (/\b(?:bigquery_query|postgres_query)\s*\(/i.test(sql))
-    throw new Error("Native remote query functions require explicit materialization before plotting.");
-  for (const table of extractTableNames(sql)) {
-    if (!table.includes(".")) continue;
-    const catalog = table.split(".")[0];
-    if (catalog === "uploaded_files") continue;
-    const configured = getCliSourcesSnapshot().find((source) => source.name.toLowerCase() === catalog.toLowerCase());
-    if (!configured || !["duckdb", "csv", "parquet", "directory"].includes(configured.type.toLowerCase()))
-      throw new Error(`The prototype cannot automatically scan "${catalog}". Use a known DuckDB source.`);
-  }
+  const expanded = buildRemoteSQLFromDag(reference, orderedDependencies, editor);
+  // Match the CLI's existing result-view naming contract. Querying this view
+  // preserves the prepared native/federated execution route and document session.
+  const resultId = query.id.replaceAll("'", "''");
+  const resultSQL = `SELECT * FROM query_table('_kavla_result_' || substr(sha256('${resultId}'), 1, 32))`;
+  const limit = chart.props.limit;
+  const sql = limit === null ? resultSQL : `${resultSQL} LIMIT ${Math.max(1, Math.floor(limit))}`;
   return {
     id: query.id,
     name: query.props.name,
     sql,
+    canSelect: canSelect && !/\b(?:bigquery_query|postgres_query)\s*\(/i.test(expanded),
     revision: JSON.stringify([
-      sql,
+      expanded,
       orderedDependencies.map((d) => (d.type === "sql-text-area" ? d.props.lastRunStats : getRemoteSourceMetadata(d))),
+      ...(limit === null ? [] : [limit]),
     ]),
     schema: query.props.outputSchema ?? [],
   };
