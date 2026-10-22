@@ -44,8 +44,7 @@ export function validatePolygon(input: Point[]): Point[] {
   const polygon = input.filter((p, i) => !i || p.x !== input[i - 1].x || p.y !== input[i - 1].y);
   if (polygon.length > 1 && polygon[0].x === polygon.at(-1)!.x && polygon[0].y === polygon.at(-1)!.y) polygon.pop();
   if (polygon.length < 3) throw new Error("Draw a closed region with at least three distinct points.");
-  if (polygon.length > 512)
-    throw new Error("This prototype supports at most 512 lasso vertices. Draw a shorter outline.");
+  if (polygon.length > 512) throw new Error("Selections support at most 512 lasso vertices. Draw a shorter outline.");
   polygon.forEach((p) => {
     literal(p.x);
     literal(p.y);

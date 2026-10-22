@@ -1,11 +1,13 @@
 import { quadtree } from "d3";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useValue, type Editor, type TLShapeId } from "tldraw";
-import { pointStyle } from "./appearance";
+import { pointStyle, groupColor } from "./appearance";
 import type { chartGeometry } from "./geometry";
 import type { ScatterPlan } from "./planner";
 import type { Mark } from "./ScatterMarks";
 import type { Point } from "./selection";
+import type { ChartData } from "./chart-data";
+import { barRectangles } from "./SeriesMarks";
 
 const formatRange = (value: number) =>
   Number(value.toPrecision(12)).toLocaleString(undefined, { maximumSignificantDigits: 12 });
@@ -21,6 +23,7 @@ export const ScatterTooltip = memo(function ScatterTooltip({
   plotOffset,
   xLabel,
   yLabel,
+  data,
 }: {
   editor: Editor;
   shapeId: TLShapeId;
@@ -32,6 +35,7 @@ export const ScatterTooltip = memo(function ScatterTooltip({
   plotOffset: Point;
   xLabel: string;
   yLabel: string;
+  data?: ChartData;
 }) {
   const enabled = useValue("scatter hover enabled", () => editor.isIn("select.idle"), [editor]);
   const view = useValue(
@@ -62,6 +66,7 @@ export const ScatterTooltip = memo(function ScatterTooltip({
           },
     [marks, geometry, plan]
   );
+  const bars = useMemo(() => (data ? barRectangles(data, geometry) : []), [data, geometry]);
   const [hover, setHover] = useState<{ mark: Mark; index: typeof index; view: string } | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [cardSize, setCardSize] = useState({ width: 220, height: 140 });
@@ -86,7 +91,11 @@ export const ScatterTooltip = memo(function ScatterTooltip({
     const point = { x: local.x - plotOffset.x, y: local.y - plotOffset.y };
     const analytical = geometry.toAnalytical(point);
     let next: Mark | undefined;
-    if (plan.mode === "density") {
+    if (data?.kind === "bar") {
+      next = bars.find(
+        (bar) => point.x >= bar.x && point.x <= bar.x + bar.width && point.y >= bar.y && point.y <= bar.y + bar.height
+      )?.mark;
+    } else if (plan.mode === "density") {
       if (analytical.x >= 0 && analytical.x <= 1 && analytical.y >= 0 && analytical.y <= 1) {
         const column = Math.min(plan.columns - 1, Math.floor(analytical.x * plan.columns));
         const row = Math.min(plan.rows - 1, Math.floor(analytical.y * plan.rows));
@@ -105,6 +114,7 @@ export const ScatterTooltip = memo(function ScatterTooltip({
     );
   };
 
+  const hoveredBar = bars.find((bar) => bar.mark === mark);
   const anchor = mark ? geometry.fromAnalytical(mark) : { x: 0, y: 0 };
   const left = Math.max(
     8,
@@ -137,7 +147,17 @@ export const ScatterTooltip = memo(function ScatterTooltip({
             aria-hidden="true"
             style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
           >
-            {plan.mode === "density" ? (
+            {hoveredBar ? (
+              <rect
+                x={hoveredBar.x}
+                y={hoveredBar.y}
+                width={hoveredBar.width}
+                height={hoveredBar.height}
+                fill="none"
+                stroke="#000"
+                strokeWidth={2}
+              />
+            ) : plan.mode === "density" ? (
               <rect
                 x={anchor.x - geometry.plot.width / plan.columns / 2}
                 y={anchor.y - geometry.plot.height / plan.rows / 2}
@@ -162,13 +182,22 @@ export const ScatterTooltip = memo(function ScatterTooltip({
             <strong>
               {plan.mode === "density"
                 ? `${mark.count.toLocaleString()} ${mark.count === 1 ? "row" : "rows"} in bin`
-                : "Point"}
+                : data?.kind === "bar"
+                  ? "Bar"
+                  : "Point"}
             </strong>
             <dl>
               <dt title={xLabel}>{xLabel}</dt>
               <dd>
                 {plan.mode === "density"
-                  ? `${formatRange(low.x)} – ${formatRange(high.x)}`
+                  ? data?.xKind === "time"
+                    ? `${new Date(low.x).toISOString()} – ${new Date(high.x).toISOString()}`
+                    : data?.xKind === "category"
+                      ? data.categories
+                          .filter((c) => c.value >= low.x && c.value <= high.x)
+                          .map((c) => c.label)
+                          .join(", ") || "Category bin"
+                      : `${formatRange(low.x)} – ${formatRange(high.x)}`
                   : (mark.xValue ?? formatRange(value!.x))}
               </dd>
               <dt title={yLabel}>{yLabel}</dt>
@@ -178,6 +207,23 @@ export const ScatterTooltip = memo(function ScatterTooltip({
                   : (mark.yValue ?? formatRange(value!.y))}
               </dd>
             </dl>
+            {data?.groups.length && plan.mode === "points" ? (
+              <p>
+                <i className="kavla-chart__swatch" style={{ background: groupColor(mark.group) }} />
+                {mark.group ?? "(null)"}
+              </p>
+            ) : null}
+            {mark.groups && (
+              <div className="kavla-chart__tooltip-groups">
+                {mark.groups.slice(0, 5).map((group) => (
+                  <p key={JSON.stringify(group.key)}>
+                    <i className="kavla-chart__swatch" style={{ background: groupColor(group.key) }} />
+                    {group.key ?? "(null)"}: {Number(group.count).toLocaleString()}
+                  </p>
+                ))}
+                {mark.groups.length > 5 && <p>+{mark.groups.length - 5} more groups</p>}
+              </div>
+            )}
             {plan.mode === "density" && <p>Axis ranges · approximate bounds</p>}
           </div>
         </>

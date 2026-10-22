@@ -2,9 +2,17 @@ import { memo, useEffect, useId, useMemo, useRef } from "react";
 import { containsPoint, type Point } from "./selection";
 import type { chartGeometry } from "./geometry";
 import type { ScatterPlan } from "./planner";
-import { densityScale, pointStyle } from "./appearance";
+import { densityScale, densityOpacity, pointStyle, groupColor } from "./appearance";
 
-export type Mark = Point & { count: number; xValue?: string; yValue?: string };
+export type Mark = Point & {
+  count: number;
+  xValue?: string;
+  yValue?: string;
+  group?: string | null;
+  run?: number;
+  y0?: number;
+  groups?: { key: string | null; count: number }[];
+};
 export const ScatterMarks = memo(function ScatterMarks({
   marks,
   geometry,
@@ -14,6 +22,7 @@ export const ScatterMarks = memo(function ScatterMarks({
   height,
   renderer,
   pixelRatio = 1,
+  colorBy = false,
 }: {
   marks: Mark[];
   geometry: ReturnType<typeof chartGeometry>;
@@ -23,6 +32,7 @@ export const ScatterMarks = memo(function ScatterMarks({
   height: number;
   renderer: "svg" | "canvas";
   pixelRatio?: number;
+  colorBy?: boolean;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const clipId = useId();
@@ -37,7 +47,7 @@ export const ScatterMarks = memo(function ScatterMarks({
     node.width = Math.ceil(width * dpr);
     node.height = Math.ceil(height * dpr);
     const ctx = node.getContext("2d");
-    if (!ctx) throw new Error("Canvas 2D is unavailable. Switch to the standard chart in settings.");
+    if (!ctx) throw new Error("Canvas 2D is unavailable.");
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, width, height);
     const { plot } = geometry;
@@ -60,9 +70,18 @@ export const ScatterMarks = memo(function ScatterMarks({
         const top = Math.round((p.y - cellHeight / 2) * dpr) / dpr;
         const right = Math.round((p.x + cellWidth / 2) * dpr) / dpr;
         const bottom = Math.round((p.y + cellHeight / 2) * dpr) / dpr;
-        ctx.fillRect(left, top, right - left, bottom - top);
+        if (colorBy && mark.groups) {
+          ctx.globalAlpha = densityOpacity(mark.count, maximum);
+          let start = left;
+          for (const group of mark.groups) {
+            const end = start + ((right - left) * Number(group.count)) / mark.count;
+            ctx.fillStyle = selected ? "#fde047" : groupColor(group.key);
+            ctx.fillRect(start, top, end - start, bottom - top);
+            start = end;
+          }
+        } else ctx.fillRect(left, top, right - left, bottom - top);
       } else {
-        ctx.fillStyle = selected ? "#fde047" : "#3b82f6";
+        ctx.fillStyle = selected ? "#fde047" : colorBy ? groupColor(mark.group) : "#3b82f6";
         ctx.globalAlpha = polygon && !selected ? 0.3 : 1;
         ctx.strokeStyle = "#000";
         ctx.lineWidth = point.stroke;
@@ -81,6 +100,8 @@ export const ScatterMarks = memo(function ScatterMarks({
     height,
     renderer,
     pixelRatio,
+    colorBy,
+    maximum,
     color,
     selectedColor,
     point.radius,
@@ -104,6 +125,28 @@ export const ScatterMarks = memo(function ScatterMarks({
         {marks.map((mark, i) => {
           const p = geometry.fromAnalytical(mark);
           const selected = polygon && containsPoint(mark, polygon);
+          if (plan.mode === "density" && colorBy && mark.groups) {
+            let start = p.x - geometry.plot.width / plan.columns / 2;
+            return (
+              <g key={i} opacity={densityOpacity(mark.count, maximum)}>
+                {mark.groups.map((group, j) => {
+                  const cellWidth = ((geometry.plot.width / plan.columns) * Number(group.count)) / mark.count;
+                  const left = start;
+                  start += cellWidth;
+                  return (
+                    <rect
+                      key={j}
+                      x={left}
+                      y={p.y - geometry.plot.height / plan.rows / 2}
+                      width={cellWidth}
+                      height={geometry.plot.height / plan.rows}
+                      fill={selected ? "#fde047" : groupColor(group.key)}
+                    />
+                  );
+                })}
+              </g>
+            );
+          }
           return plan.mode === "density" ? (
             <rect
               key={i}
@@ -120,7 +163,7 @@ export const ScatterMarks = memo(function ScatterMarks({
               cx={p.x}
               cy={p.y}
               r={point.radius}
-              fill={selected ? "#fde047" : "#3b82f6"}
+              fill={selected ? "#fde047" : colorBy ? groupColor(mark.group) : "#3b82f6"}
               stroke="#000"
               strokeWidth={point.stroke}
               opacity={polygon && !selected ? 0.3 : 1}

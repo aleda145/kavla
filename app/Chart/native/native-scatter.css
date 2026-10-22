@@ -14,7 +14,7 @@
   border-bottom: 4px solid #000;
   background: #fce7f3;
   border-radius: 8px 8px 0 0;
-  padding: 0 10px;
+  padding: 0 12px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -25,8 +25,67 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
+}
+.kavla-chart__body {
+  display: flex;
+  min-height: 0;
+}
+.kavla-chart__content {
+  flex-shrink: 0;
+  min-width: 0;
+}
+.kavla-chart__action-bar {
+  box-sizing: border-box;
+  width: 48px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  border-left: 4px solid #000;
+  background: #f3f4f6;
+}
+.kavla-chart__action-types,
+.kavla-chart__action-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.kavla-chart__action-types {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.kavla-chart__action-tools {
+  margin-top: auto;
+  flex-shrink: 0;
+}
+.kavla-chart__action-bar .kavla-scatter__button {
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  box-shadow: none;
+}
+.kavla-chart__action-types .kavla-scatter__button {
+  border-color: transparent;
+  background: transparent;
+}
+.kavla-chart__action-bar .kavla-scatter__button:hover:not(:disabled),
+.kavla-chart__action-bar .kavla-scatter__button:focus-visible {
+  border-color: #000;
+  background: #fff;
+  box-shadow: none;
+  outline-offset: -3px;
+}
+.kavla-chart__action-bar .kavla-scatter__button[aria-pressed="true"],
+.kavla-chart__action-bar .kavla-scatter__button[aria-expanded="true"] {
+  border-color: #000;
+  background: #dbeafe;
 }
 .kavla-scatter__button {
   height: 28px;
@@ -75,14 +134,46 @@
 }
 .kavla-scatter__footer {
   box-sizing: border-box;
-  border-top: 2px solid #000;
-  border-radius: 0 0 8px 8px;
-  padding: 5px 10px 7px;
+  padding: 4px 12px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 5px;
+  gap: 4px;
+  background: #fff;
+}
+.kavla-chart__axis-bar {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-top: 4px solid #000;
+  border-radius: 0 0 8px 8px;
   background: #f9fafb;
+}
+.kavla-chart__axis-bar > label {
+  flex: 1;
+  gap: 2px;
+}
+.kavla-chart__axis-bar .kavla-chart__axis-select {
+  display: block;
+  border-radius: 4px;
+}
+.kavla-chart__axis-bar .kavla-chart__axis-select select {
+  display: block;
+  box-sizing: border-box;
+  min-width: 0;
+  background: transparent;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  text-transform: none;
+}
+.kavla-chart__axis-bar option {
+  background: #fff;
+  color: #000;
+}
+.kavla-chart__axis-bar select:disabled {
+  opacity: 0.5;
 }
 .kavla-scatter__status,
 .kavla-scatter__actions {
@@ -94,6 +185,13 @@
 .kavla-scatter__status {
   font-size: 10px;
   line-height: 16px;
+  min-height: 20px;
+}
+.kavla-scatter__status .kavla-scatter__button {
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  box-shadow: none;
 }
 .kavla-scatter__rows {
   flex: 1;
@@ -163,11 +261,11 @@
 }
 .kavla-scatter__settings {
   position: absolute;
-  right: 10px;
-  top: 48px;
+  right: 56px;
+  bottom: 72px;
   z-index: 2;
-  width: min(280px, calc(100% - 24px));
-  max-height: calc(100% - 60px);
+  width: min(280px, calc(100% - 68px));
+  max-height: calc(100% - 124px);
   overflow-y: auto;
   box-sizing: border-box;
   background: #fff;
@@ -231,6 +329,10 @@
     padding-left: 8px;
     padding-right: 8px;
   }
+  .kavla-chart__axis-bar {
+    gap: 6px;
+    padding: 0 8px;
+  }
   .kavla-scatter__status,
   .kavla-scatter__actions {
     gap: 6px;
@@ -291,4 +393,53 @@
   margin: 8px 0 0;
   font-size: 10px;
   color: #52525b;
+}
+.kavla-chart__legend {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  min-height: 20px;
+  font-size: 10px;
+  scrollbar-width: thin;
+}
+.kavla-chart__legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 180px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.kavla-chart__legend i,
+.kavla-chart__swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 1px solid #000;
+  flex-shrink: 0;
+  margin-right: 3px;
+}
+.kavla-chart__pages {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.kavla-scatter__field input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 32px;
+  border: 2px solid #000;
+  border-radius: 4px;
+  padding: 0 6px;
+  font: inherit;
+}
+.kavla-chart__tooltip-groups p {
+  margin: 3px 0 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
