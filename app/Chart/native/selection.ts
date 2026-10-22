@@ -2,6 +2,12 @@
 // row IDs as the authoritative selection, including when the plot shows bins.
 export type Point = { x: number; y: number };
 export type Axis = { field: string; type: "linear" | "log"; domain: [number, number] };
+export type OutlineStyle = {
+  color: string;
+  width: number;
+  opacity: number;
+  dash: "draw" | "solid" | "dashed" | "dotted";
+};
 export type ScatterSelection = {
   version: 1;
   semantics: "observations";
@@ -14,6 +20,9 @@ export type ScatterSelection = {
   x: Axis;
   y: Axis;
   polygon: Point[];
+  // Present when the chart owns the stroke. drawingId is provenance only;
+  // older saved selections may still refer to a standalone canvas drawing.
+  outline?: OutlineStyle;
 };
 
 // Inclusive boundaries in normalized scale space. This is a numerical tolerance,

@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { HTMLContainer, createShapeId, useValue, type Editor, type TLDrawShape, type TLShapeId } from "tldraw";
+import {
+  HTMLContainer,
+  createShapeId,
+  getDefaultColorTheme,
+  STROKE_SIZES,
+  useValue,
+  type Editor,
+  type TLDrawShape,
+  type TLShapeId,
+} from "tldraw";
 import {
   ArrowUpRight,
   CircleAlert,
@@ -68,6 +77,17 @@ function readSelection(value: unknown): ScatterSelection | null {
   )
     throw new Error("This saved selection is not supported.");
   s.polygon = validatePolygon(s.polygon);
+  if (
+    s.outline &&
+    (typeof s.outline.color !== "string" ||
+      !Number.isFinite(s.outline.width) ||
+      s.outline.width <= 0 ||
+      !Number.isFinite(s.outline.opacity) ||
+      s.outline.opacity < 0 ||
+      s.outline.opacity > 1 ||
+      !["draw", "solid", "dashed", "dotted"].includes(s.outline.dash))
+  )
+    throw new Error("This saved chart outline is not supported.");
   coordinateSQL(s.x);
   coordinateSQL(s.y);
   return s;
@@ -111,6 +131,9 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     }
   }, [shape.meta.nativeSelection]);
   const selection = saved.selection;
+  const pendingDrawings = useRef(new Set<TLShapeId>());
+  const currentTool = useValue("chart outline tool", () => editor.getCurrentToolId(), [editor]);
+  const capturing = currentTool === "draw" && canSelect;
   const controlsHeight = compact ? 0 : 28 + (shape.props.color ? 24 : 0) + (selection && canSelect ? 34 : 0);
   const [exporting, setExporting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -268,6 +291,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
 
   const acceptDrawing = useCallback(
     (drawing: TLDrawShape, explicit = false) => {
+      if (!editor.getShape(drawing.id) || !editor.getShape(shape.id)) return;
       if (!canSelect || !geometry || !source || !currentPlot) {
         if (explicit) setSelectionError("Wait for a current plot before selecting.");
         return;
@@ -293,49 +317,102 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       const first = geometry.toAnalytical(points[0]);
       if (!explicit && (first.x < 0 || first.x > 1 || first.y < 0 || first.y > 1)) return;
       try {
+        if (
+          editor.getIsReadonly() ||
+          editor.isShapeOrAncestorLocked(shape.id) ||
+          editor.isShapeOrAncestorLocked(drawing.id)
+        )
+          throw new Error("Unlock the chart and drawing before attaching an outline.");
         if (!drawing.props.isComplete) throw new Error("Finish the drawing before selecting.");
         const end = points.at(-1)!;
         if (!drawing.props.isClosed && Math.hypot(end.x - points[0].x, end.y - points[0].y) > 12)
           throw new Error("Close the freehand outline (end within 12 chart pixels of the start), then retry.");
         const polygon = validatePolygon(points.map(geometry.toAnalytical));
-        const next: ScatterSelection = {
-          version: 1,
-          semantics: "observations",
-          policy: "live",
-          sourceId: source.id,
-          sourceRevision: source.revision,
-          sourceSQL: source.sql,
-          chartId: shape.id,
-          drawingId: drawing.id,
-          x: currentPlot.x,
-          y: currentPlot.y,
-          polygon,
+        const outline = {
+          color: getDefaultColorTheme({ isDarkMode: false })[drawing.props.color].solid,
+          width: (STROKE_SIZES[drawing.props.size] + 1) * drawing.props.scale,
+          opacity: drawing.opacity,
+          dash: drawing.props.dash,
         };
+        const next: ScatterSelection =
+          selection?.drawingId === drawing.id && !selection.outline
+            ? {
+                ...selection,
+                chartId: shape.id,
+                outline,
+              }
+            : {
+                version: 1,
+                semantics: "observations",
+                policy: "live",
+                sourceId: source.id,
+                sourceRevision: source.revision,
+                sourceSQL: source.sql,
+                chartId: shape.id,
+                drawingId: drawing.id,
+                x: currentPlot.x,
+                y: currentPlot.y,
+                polygon,
+                outline,
+              };
         setCount(null);
         setSelectionError(null);
-        setMeta({ nativeSelection: JSON.stringify(next), nativeLassoError: null, nativeLassoDrawing: drawing.id });
+        // Automatic capture joins the draw gesture's history entry. An explicit
+        // transfer has its own boundary so undo restores the original stroke.
+        if (explicit) editor.markHistoryStoppingPoint("attach chart outline");
+        editor.run(() => {
+          setMeta({ nativeSelection: JSON.stringify(next), nativeLassoError: null, nativeLassoDrawing: null });
+          editor.deleteShapes([drawing.id]);
+        });
+        editor.markHistoryStoppingPoint("chart outline attached");
+        if (!explicit) editor.setCurrentTool("select");
       } catch (error) {
         setCount(null);
         setSelectionError(message(error));
-        setMeta({ nativeSelection: null, nativeLassoDrawing: drawing.id, nativeLassoError: message(error) });
+        setMeta({ nativeLassoDrawing: drawing.id, nativeLassoError: message(error) });
       }
     },
-    [editor, shape.id, geometry, source, currentPlot, setMeta, canSelect]
+    [editor, shape.id, geometry, source, currentPlot, setMeta, canSelect, selection]
   );
 
-  useEffect(
-    () =>
-      editor.sideEffects.registerAfterChangeHandler("shape", (before, after) => {
-        if (
-          before.type === "draw" &&
-          after.type === "draw" &&
-          !(before as TLDrawShape).props.isComplete &&
-          (after as TLDrawShape).props.isComplete
-        )
-          queueMicrotask(() => acceptDrawing(after as TLDrawShape));
-      }),
-    [editor, acceptDrawing]
-  );
+  useEffect(() => {
+    // Observe fresh pen gestures, including the canvas Draw tool. Completed
+    // strokes restored by undo, paste, or document loading are not new gestures.
+    const stopCreate = editor.sideEffects.registerAfterCreateHandler("shape", (record, changeSource) => {
+      if (
+        changeSource === "user" &&
+        record.type === "draw" &&
+        !(record as TLDrawShape).props.isComplete &&
+        editor.getCurrentToolId() === "draw"
+      ) {
+        pendingDrawings.current.add(record.id);
+      }
+    });
+    const stopChange = editor.sideEffects.registerAfterChangeHandler("shape", (before, after, changeSource) => {
+      if (
+        changeSource === "user" &&
+        pendingDrawings.current.has(after.id) &&
+        before.type === "draw" &&
+        after.type === "draw" &&
+        !(before as TLDrawShape).props.isComplete &&
+        (after as TLDrawShape).props.isComplete
+      ) {
+        pendingDrawings.current.delete(after.id);
+        queueMicrotask(() => {
+          const drawing = editor.getShape<TLDrawShape>(after.id);
+          if (drawing?.type === "draw" && drawing.props.isComplete) acceptDrawing(drawing);
+        });
+      }
+    });
+    const stopDelete = editor.sideEffects.registerAfterDeleteHandler("shape", (record) => {
+      pendingDrawings.current.delete(record.id);
+    });
+    return () => {
+      stopCreate();
+      stopChange();
+      stopDelete();
+    };
+  }, [editor, acceptDrawing]);
 
   useEffect(() => {
     setCount(null);
@@ -440,9 +517,10 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     source?.schema.filter((column) => isNumericColumn(column.type) || column.name === shape.props.y) ?? [];
   const excluded = currentPlot?.excluded ?? 0;
   const retryDrawing = () => {
+    const drawingId = shape.meta.nativeLassoDrawing ?? (!selection?.outline ? selection?.drawingId : null);
     const drawing =
       editor.getSelectedShapes().find((s) => s.type === "draw") ??
-      editor.getShape(shape.meta.nativeLassoDrawing as TLShapeId);
+      (typeof drawingId === "string" ? editor.getShape(drawingId as TLShapeId) : undefined);
     if (drawing?.type === "draw") acceptDrawing(drawing as TLDrawShape, true);
     else setSelectionError("Select a freehand drawing, then retry.");
   };
@@ -450,7 +528,15 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     if (!currentPlot) return;
     setExporting(true);
     try {
-      await exportNativeChart(currentPlot, width, height, visiblePolygon, source?.name ?? "chart", format);
+      await exportNativeChart(
+        currentPlot,
+        width,
+        height,
+        visiblePolygon,
+        source?.name ?? "chart",
+        format,
+        selection?.outline
+      );
     } catch (error) {
       setSelectionError(message(error));
     } finally {
@@ -459,6 +545,13 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   };
   const updateProps = (props: Partial<ChartShape["props"]>) =>
     editor.updateShape<ChartShape>({ id: shape.id, type: "chart-shape", props });
+  const clearSelection = () => {
+    setSelectionError(null);
+    setCount(null);
+    editor.markHistoryStoppingPoint("clear chart outline");
+    setMeta({ nativeSelection: null, nativeLassoError: null, nativeLassoDrawing: null });
+    editor.markHistoryStoppingPoint("chart outline cleared");
+  };
   return (
     <HTMLContainer
       id={shape.id}
@@ -512,6 +605,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                   xLabel={currentPlot.x.field + (xLog ? " · log" : "")}
                   yLabel={currentPlot.y.field + (yLog ? " · log" : "")}
                   polygon={visiblePolygon}
+                  outline={selection?.outline}
                   xKind={currentPlot.xKind}
                   categories={currentPlot.categories}
                 />
@@ -669,11 +763,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                     className="kavla-scatter__button kavla-scatter__button--icon"
                     title="Clear selection"
                     aria-label="Clear selection"
-                    onClick={() => {
-                      setSelectionError(null);
-                      setCount(null);
-                      setMeta({ nativeSelection: null, nativeLassoError: null });
-                    }}
+                    onClick={clearSelection}
                   >
                     <X size={14} />
                   </button>
@@ -717,9 +807,13 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 type="button"
                 className="kavla-scatter__button kavla-scatter__button--icon"
                 disabled={!currentPlot}
-                title="Draw a closed outline to select rows"
+                title={capturing ? "Cancel drawing an outline" : "Draw a closed outline to select rows"}
                 aria-label={selection ? "Redraw selection" : "Select rows"}
-                onClick={() => editor.setCurrentTool("draw")}
+                aria-pressed={capturing}
+                onClick={() => {
+                  setSelectionError(null);
+                  editor.setCurrentTool(capturing ? "select" : "draw");
+                }}
               >
                 <Lasso size={18} />
               </button>
@@ -900,11 +994,13 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
             </div>
           )}
           {saved.error && (
-            <button
-              className="kavla-scatter__button"
-              onClick={() => setMeta({ nativeSelection: null, nativeLassoError: null })}
-            >
+            <button className="kavla-scatter__button" onClick={clearSelection}>
               Clear unsupported selection
+            </button>
+          )}
+          {selection && (compact || !canSelect) && (
+            <button className="kavla-scatter__button" onClick={clearSelection}>
+              Clear outline
             </button>
           )}
           <p className="kavla-scatter__settings-note">

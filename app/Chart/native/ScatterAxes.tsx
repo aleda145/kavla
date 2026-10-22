@@ -1,5 +1,5 @@
 import type { chartGeometry } from "./geometry";
-import type { Point } from "./selection";
+import type { OutlineStyle, Point } from "./selection";
 import { memo, useId } from "react";
 import { scaleUtc } from "d3";
 import type { XKind } from "./chart-data";
@@ -11,6 +11,7 @@ export const ScatterAxes = memo(function ScatterAxes({
   xLabel,
   yLabel,
   polygon,
+  outline,
   xKind = "number",
   categories = [],
 }: {
@@ -20,6 +21,7 @@ export const ScatterAxes = memo(function ScatterAxes({
   xLabel: string;
   yLabel: string;
   polygon: Point[] | null;
+  outline?: OutlineStyle;
   xKind?: XKind;
   categories?: { value: number; label: string }[];
 }) {
@@ -63,9 +65,19 @@ export const ScatterAxes = memo(function ScatterAxes({
           fill="#fde047"
           fillOpacity={0.08}
           fillRule="evenodd"
-          stroke="#000"
-          strokeWidth={2}
-          strokeDasharray="5 4"
+          stroke={outline?.color ?? "#000"}
+          strokeWidth={outline?.width ?? 2}
+          strokeOpacity={outline?.opacity ?? 1}
+          strokeDasharray={
+            outline
+              ? outline.dash === "dashed"
+                ? `${outline.width * 3} ${outline.width * 2}`
+                : outline.dash === "dotted"
+                  ? `0 ${outline.width * 2}`
+                  : undefined
+              : "5 4"
+          }
+          strokeLinecap="round"
           strokeLinejoin="round"
         />
       )}

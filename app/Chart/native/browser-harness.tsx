@@ -88,7 +88,9 @@ async function waitUntil(check: () => boolean, label: string) {
   }
 }
 function click(text: string) {
-  const button = [...document.querySelectorAll("button")].find((b) => b.textContent === text);
+  const button = [...document.querySelectorAll("button")].find(
+    (b) => b.textContent === text || b.getAttribute("aria-label") === text
+  );
   if (!button || button.disabled) throw new Error(`Button unavailable: ${text}`);
   button.click();
 }
@@ -141,6 +143,7 @@ function lassoPagePoints() {
   });
 }
 async function programmaticLasso() {
+  editor.setCurrentTool("draw");
   const points = lassoPagePoints();
   const id = createShapeId();
   editor.createShape<TLDrawShape>({
@@ -170,8 +173,8 @@ async function programmaticLasso() {
     .find((s) => s.type === "sql-text-area" && s.id !== sourceId) as SQLTextAreaShape;
   const tail = await data.getQueryResultPage({ shapeId: branch.id, offset: 128000, limit: 10 });
   if (tail.rows.length !== 10) throw new Error("Selected result was truncated.");
-  if (!editor.getShape(id) || !editor.getShape(chartId) || !editor.getShape(sourceId))
-    throw new Error("Branch was destructive.");
+  if (editor.getShape(id) || !editor.getShape(chartId) || !editor.getShape(sourceId))
+    throw new Error("The chart must own the outline and preserve the source shapes.");
   return {
     rowCount: branch.props.lastRunStats?.rowCount,
     linked: branch.props.upstreamShapeIds?.includes(sourceId),
