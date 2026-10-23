@@ -370,6 +370,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/session/new", s.sameOriginMutation(s.handleNew))
 	mux.HandleFunc("GET /api/cli/sources", s.handleGetCLISources)
 	mux.HandleFunc("GET /api/cli/sources/{name}/tables", s.handleGetSourceTables)
+	mux.HandleFunc("GET /api/cli/sources/{name}/schemas", s.handleGetSourceSchemas)
 	mux.HandleFunc("POST /api/cli/source-schema", s.sameOriginMutation(s.handleGetSourceSchema))
 	mux.HandleFunc("POST /api/cli/source-stats", s.sameOriginMutation(s.handleGetSourceStats))
 	mux.HandleFunc("POST /api/cli/source-export", s.sameOriginMutation(s.handleExportSourceTable))

@@ -13,6 +13,33 @@ import (
 
 var storeIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
+func (e *Engine) GetSourceSchemas(ctx context.Context, sourceName string) ([]string, error) {
+	if err := e.ensureSourceAvailable(sourceName); err != nil {
+		return nil, err
+	}
+	if e.sourceStatuses[sourceName].Type == "directory" {
+		return []string{}, nil
+	}
+	rows, err := e.db.QueryContext(ctx, `
+		SELECT schema_name FROM duckdb_schemas()
+		WHERE database_name = ? AND (internal = false OR schema_name = 'main')
+		ORDER BY schema_name
+	`, sourceName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	schemas := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		schemas = append(schemas, name)
+	}
+	return schemas, rows.Err()
+}
+
 type StoredTable struct {
 	SourceName string              `json:"sourceName"`
 	SourceType string              `json:"sourceType"`

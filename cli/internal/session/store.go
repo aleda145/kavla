@@ -13,6 +13,12 @@ func (s *Session) StoreDestination(sourceName, schemaName, tableName string) (*e
 	return s.engine.StoreDestination(sourceName, schemaName, tableName)
 }
 
+func (s *Session) GetSourceSchemas(ctx context.Context, sourceName string) ([]string, error) {
+	ctx, cancel := s.OperationContext(ctx)
+	defer cancel()
+	return s.engine.GetSourceSchemas(ctx, sourceName)
+}
+
 func (s *Session) SnapshotQuery(ctx context.Context, req runner.QueryRequest, path string, result *engine.StoredTable) error {
 	if strings.TrimSpace(req.SQL) == "" {
 		return fmt.Errorf("SQL is required")
