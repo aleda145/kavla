@@ -15,6 +15,21 @@ import (
 	"github.com/google/uuid"
 )
 
+func (s *Server) handleGetSourceSchemas(w http.ResponseWriter, r *http.Request) {
+	querySession, done, err := s.beginQueryOperation()
+	if err != nil {
+		writeAPIError(w, http.StatusServiceUnavailable, err)
+		return
+	}
+	defer done()
+	schemas, err := querySession.GetSourceSchemas(r.Context(), r.PathValue("name"))
+	if err != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"schemas": schemas})
+}
+
 func (s *Server) handleStoreQuery(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Query      runner.QueryRequest `json:"query"`
