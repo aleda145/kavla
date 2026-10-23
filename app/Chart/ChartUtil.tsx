@@ -214,8 +214,8 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
     }, [zoomLevel, dpr]);
 
     const option = useMemo(
-      () =>
-        buildChartOption({
+      () => ({
+        ...buildChartOption({
           chartHeight: shape.props.h,
           chartType,
           color,
@@ -226,6 +226,10 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
           x,
           y,
         }),
+        animation: false,
+        // Draw all scatter points together instead of progressively across frames.
+        progressive: 0,
+      }),
       [data, x, y, color, chartType, shape.props.h, resolvedYAxisScale, isStacked, columnTypes]
     );
     const chartStyle = useMemo(() => ({ height: "100%", width: "100%", minWidth: 1, minHeight: 1 }), []);
