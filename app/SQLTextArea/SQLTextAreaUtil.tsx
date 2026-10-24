@@ -40,6 +40,9 @@ import { buildRemoteSQLFromDag, describeQueryExecution, getMissingSourceMessage,
 import { getAutoExpandedSQLShapeSize } from "./sqlShapeSize";
 import { getKnobNames, getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
 import { ensureQueryKnobs } from "../Knob/createKnobs";
+import { isBizMode, useBizMode } from "../client/canvas/bizMode";
+import { getSQLBizSize } from "./sqlBizSummary";
+import { SQLBizBody } from "./SQLBizBody";
 
 export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   private updateSourceName: ((payload: { prevName: string; nextName: string }) => void) | null = null;
@@ -51,7 +54,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     return false;
   }
   override canResize(_shape: SQLTextAreaShape) {
-    return true;
+    return !isBizMode(this.editor);
   }
 
   getDefaultProps(): SQLTextAreaShape["props"] {
@@ -79,9 +82,10 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   }
 
   getGeometry(shape: SQLTextAreaShape) {
+    const size = isBizMode(this.editor) ? getSQLBizSize(shape.props.text, shape.props.w, shape.props.h) : shape.props;
     return new Rectangle2d({
-      width: shape.props.w,
-      height: shape.props.h,
+      width: size.w,
+      height: size.h,
       isFilled: true,
     });
   }
@@ -112,6 +116,8 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   }
 
   component(shape: SQLTextAreaShape) {
+    const bizMode = useBizMode(this.editor);
+    const size = bizMode ? getSQLBizSize(shape.props.text, shape.props.w, shape.props.h) : shape.props;
     const { addToast } = useToasts();
     const { updateSourceName, runRemoteQuery, cancelRemoteQuery } = useData();
     this.updateSourceName = updateSourceName;
@@ -455,7 +461,8 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
           pointerEvents: "all",
           position: "relative",
           padding: 0,
-          height: "100%",
+          width: size.w,
+          height: size.h,
           boxSizing: "border-box",
           overflow: "visible", // Allow tooltips to spill out
           fontFamily: "Inter, sans-serif",
@@ -497,21 +504,25 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
             }
           />
 
-          <SQLTextAreaBody
-            hasFooter={hasFooter}
-            isRemoteRunning={isRemoteRunning || shape.props.isRunning}
-            shape={shape}
-            text={text}
-            onCancel={handleCancel}
-            onChainQuery={handleChainQuery}
-            onCreateChart={handleCreateChart}
-            onFormat={handleFormat}
-            onRun={handleRun}
-            onTextChange={(value) => update({ text: value, isDirty: true })}
-            onToggleTable={handleToggleTable}
-            validator={handleValidate}
-          />
-          <SQLTextAreaFooter shape={shape} />
+          {bizMode ? (
+            <SQLBizBody text={text} />
+          ) : (
+            <SQLTextAreaBody
+              hasFooter={hasFooter}
+              isRemoteRunning={isRemoteRunning || shape.props.isRunning}
+              shape={shape}
+              text={text}
+              onCancel={handleCancel}
+              onChainQuery={handleChainQuery}
+              onCreateChart={handleCreateChart}
+              onFormat={handleFormat}
+              onRun={handleRun}
+              onTextChange={(value) => update({ text: value, isDirty: true })}
+              onToggleTable={handleToggleTable}
+              validator={handleValidate}
+            />
+          )}
+          <SQLTextAreaFooter shape={shape} bizMode={bizMode} />
           <div
             style={{
               position: "absolute",
@@ -529,10 +540,12 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   }
 
   indicator(shape: SQLTextAreaShape) {
-    return <rect width={shape.props.w} height={shape.props.h} rx={12} ry={12} />;
+    const size = isBizMode(this.editor) ? getSQLBizSize(shape.props.text, shape.props.w, shape.props.h) : shape.props;
+    return <rect width={size.w} height={size.h} rx={12} ry={12} />;
   }
 
   override onResize(shape: SQLTextAreaShape, info: TLResizeInfo<SQLTextAreaShape>) {
+    if (isBizMode(this.editor)) return;
     const resized = resizeBox(shape, info);
     return {
       ...resized,
