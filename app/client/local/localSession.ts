@@ -419,7 +419,18 @@ export async function stageSessionBlob(options: {
 
   const descriptor = (await response.json()) as KavlaBlobDescriptor;
   if (!activeSession) return;
-  activeSession.blobs = [...activeSession.blobs.filter((blob) => blob.id !== descriptor.id), descriptor];
+  rememberUploadedBlob(descriptor);
+}
+
+export async function deleteSessionBlob(blob: Pick<KavlaBlobDescriptor, "id" | "tableName">): Promise<void> {
+  const endpoint = blob.tableName ? "uploads" : "blobs";
+  const response = await sessionFetch(`/api/session/${endpoint}/${encodeURIComponent(blob.id)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new Error((await sessionErrorMessage(response)) || `Could not delete asset (status ${response.status})`);
+  }
+  forgetUploadedBlob(blob.id);
 }
 
 export async function downloadSessionBlob(blobId: string): Promise<File> {

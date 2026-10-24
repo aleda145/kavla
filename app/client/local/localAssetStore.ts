@@ -1,6 +1,6 @@
-import { sessionFetch, withBackendActivity } from "../backendCompute";
+import { withBackendActivity } from "../backendCompute";
 import type { TLAssetStore } from "tldraw";
-import { getActiveLocalSession, getSessionBlobUrl, stageSessionBlob } from "./localSession";
+import { deleteSessionBlob, getActiveLocalSession, getSessionBlobUrl, stageSessionBlob } from "./localSession";
 
 function assetBlobId(assetId: string): string {
   return `asset:${assetId}`;
@@ -49,13 +49,10 @@ export const localAssetStore: TLAssetStore = {
 
     await Promise.all(
       assetIds.map(async (assetId) => {
-        const response = await sessionFetch(`/api/session/blobs/${encodeURIComponent(assetBlobId(assetId))}`, {
-          method: "DELETE",
-          credentials: "same-origin",
-        });
-        if (!response.ok && response.status !== 404) {
-          throw new Error(`Could not remove bundled asset ${assetId} (status ${response.status})`);
-        }
+        const blob = getActiveLocalSession()?.blobs.find(
+          (entry) => entry.kind === "asset" && entry.shapeId === assetId
+        );
+        await deleteSessionBlob(blob ?? { id: assetBlobId(assetId) });
       })
     );
   },

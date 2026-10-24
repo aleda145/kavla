@@ -6,6 +6,7 @@ import { createShapeId, useEditor, useValue } from "tldraw";
 import { isBackendComputing } from "../backendCompute";
 import { getCliTerminalDisplay } from "../cliTerminalDisplay";
 import { useCliOutput, useCliStatus } from "../localServer/runtimeStore";
+import { LocalAssetsDialog } from "./LocalAssetsDialog";
 
 const DISCORD_INVITE_URL = "https://discord.gg/aeBGuDdhtP";
 const GITHUB_REPOSITORY_URL = "https://github.com/aleda145/kavla";
@@ -47,6 +48,7 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
   const isComputingRaw = useValue("is DuckDB computing", () => isBackendComputing.get(), []);
   const [isComputing, setIsComputing] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [assetsOpen, setAssetsOpen] = useState(false);
   const [terminalPosition, setTerminalPosition] = useState({ left: 0, top: 0 });
   const terminalTriggerRef = useRef<HTMLButtonElement>(null);
   const terminalPopoverRef = useRef<HTMLDivElement>(null);
@@ -360,8 +362,12 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
         </a>
       </div>
       {fileSize !== null ? (
-        <div
-          aria-label={`Saved Kavla file size: ${formatCompactFileSize(fileSize)}`}
+        <button
+          type="button"
+          aria-label={`View canvas assets. Saved Kavla file size: ${formatCompactFileSize(fileSize)}`}
+          aria-haspopup="dialog"
+          aria-expanded={assetsOpen}
+          onClick={() => setAssetsOpen(true)}
           className="pointer-events-auto select-none border-b-2 border-l-2 border-black bg-white px-2 py-1"
           style={{
             borderRadius: "0 0 0 8px",
@@ -369,12 +375,14 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
             fontSize: 10,
             fontWeight: 850,
             lineHeight: 1,
+            cursor: "pointer",
           }}
-          title="Size of the saved .kavla document on disk"
+          title="View and manage canvas assets"
         >
           {formatCompactFileSize(fileSize)}
-        </div>
+        </button>
       ) : null}
+      {assetsOpen && <LocalAssetsDialog onClose={() => setAssetsOpen(false)} />}
     </div>
   );
 }
