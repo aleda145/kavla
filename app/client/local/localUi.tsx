@@ -1,31 +1,16 @@
+import { CanvasSettingsMenu } from "../CanvasSettingsMenu";
+import { canvasPreferenceActions } from "../canvasPreferences";
 import { memo, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import "../canvas-menu.css";
 import {
   CenteredTopPanelContainer,
   DefaultKeyboardShortcutsDialog,
   DefaultKeyboardShortcutsDialogContent,
-  DefaultMainMenu,
   DefaultToolbar,
   DefaultToolbarContent,
-  EditSubmenu,
-  KeyboardShortcutsMenuItem,
-  LanguageMenu,
   OfflineIndicator,
-  TldrawUiMenuActionItem,
-  TldrawUiMenuGroup,
   TldrawUiMenuItem,
-  TldrawUiMenuSubmenu,
   TldrawUiToolbar,
-  ToggleDebugModeItem,
-  ToggleDynamicSizeModeItem,
-  ToggleEdgeScrollingItem,
-  ToggleFocusModeItem,
-  ToggleGridItem,
-  TogglePasteAtCursorItem,
-  ToggleSnapModeItem,
-  ToggleToolLockItem,
-  ToggleWrapModeItem,
-  ViewSubmenu,
   type TLComponents,
   type TLUiOverrides,
   useBreakpoint,
@@ -47,7 +32,6 @@ import {
   History,
   Loader2,
   Save,
-  Settings,
   Sparkles,
 } from "lucide-react";
 import { AgentLayer } from "../../AgentBlob/AgentOverlay";
@@ -57,12 +41,12 @@ import { LocalRoomInfoPanel } from "./LocalRoomInfoPanel";
 import { KavlaVersionBadge } from "./KavlaVersion";
 import { LineageHighlights } from "../canvas/LineageHighlights";
 import { LocalAgentDialog } from "./LocalAgentDialog";
-import { LocalCanvasSettingsDialog } from "./LocalCanvasSettingsDialog";
 import { LocalSaveDialog } from "./LocalSaveDialog";
 import { LocalSourcesDialog } from "./LocalSourcesDialog";
 import type { SaveLocalSessionOptions, SaveLocalSessionResult } from "./localSession";
 
 export const localUiOverrides: TLUiOverrides = {
+  actions: canvasPreferenceActions,
   tools(editor, tools) {
     tools["sql-text-area"] = {
       id: "sql-text-area",
@@ -133,7 +117,6 @@ function LocalDocumentControls({
   const [dialogMode, setDialogMode] = useState<"load" | "new" | null>(null);
   const [showSources, setShowSources] = useState(false);
   const [showAgentStatus, setShowAgentStatus] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -196,14 +179,12 @@ function LocalDocumentControls({
           .kavla-document-control[data-action="history"] { background: var(--color-orange-100, #ffedd5); }
           .kavla-document-control[data-action="sources"] { background: #dbeafe; }
           .kavla-document-control[data-action="agent"] { background: #ede9fe; }
-          .kavla-document-control[data-action="settings"] { background: #fff; }
           .kavla-document-control[data-action="new"]:hover { background: #fde68a; }
           .kavla-document-control[data-action="save"]:hover { background: #fbcfe8; }
           .kavla-document-control[data-action="load"]:hover { background: #bbf7d0; }
           .kavla-document-control[data-action="history"]:hover { background: var(--color-orange-200, #fed7aa); }
           .kavla-document-control[data-action="sources"]:hover { background: #bfdbfe; }
           .kavla-document-control[data-action="agent"]:hover { background: #ddd6fe; }
-          .kavla-document-control[data-action="settings"]:hover { background: #f1f5f9; }
           .kavla-document-control:active { transform: translateY(1px); }
           .kavla-document-control:disabled { cursor: default; opacity: 0.42; }
         `}
@@ -286,21 +267,6 @@ function LocalDocumentControls({
         <Sparkles color="#6d28d9" size={14} />
         <span className="kavla-control-label">Agent</span>
       </button>
-      <button
-        aria-label="Canvas settings"
-        aria-haspopup="dialog"
-        aria-expanded={showSettings}
-        className="kavla-document-control"
-        data-action="settings"
-        onClick={() => setShowSettings(true)}
-        onPointerDown={(event) => event.stopPropagation()}
-        title="Canvas settings"
-        type="button"
-      >
-        <Settings size={14} />
-        <span className="kavla-control-label">Settings</span>
-      </button>
-      {showSettings ? <LocalCanvasSettingsDialog onClose={() => setShowSettings(false)} /> : null}
       {dialogMode ? (
         <LocalSaveDialog
           documentName={documentName}
@@ -376,35 +342,6 @@ const LocalMenuPanel = memo(function LocalMenuPanel({
     </div>
   );
 });
-
-function CustomMainMenu() {
-  return (
-    <DefaultMainMenu>
-      <TldrawUiMenuGroup id="basic">
-        <EditSubmenu />
-        <ViewSubmenu />
-        <TldrawUiMenuActionItem actionId="insert-media" />
-      </TldrawUiMenuGroup>
-      <TldrawUiMenuGroup id="preferences">
-        <TldrawUiMenuSubmenu id="preferences" label="menu.preferences">
-          <TldrawUiMenuGroup id="preferences-actions">
-            <ToggleSnapModeItem />
-            <ToggleToolLockItem />
-            <ToggleGridItem />
-            <ToggleWrapModeItem />
-            <ToggleFocusModeItem />
-            <ToggleEdgeScrollingItem />
-            <ToggleDynamicSizeModeItem />
-            <TogglePasteAtCursorItem />
-            <ToggleDebugModeItem />
-          </TldrawUiMenuGroup>
-        </TldrawUiMenuSubmenu>
-        <LanguageMenu />
-        <KeyboardShortcutsMenuItem />
-      </TldrawUiMenuGroup>
-    </DefaultMainMenu>
-  );
-}
 
 function LocalToolbar(props: ComponentProps<typeof DefaultToolbar>) {
   const tools = useTools();
@@ -540,7 +477,7 @@ export function useLocalComponents({
         />
       ),
       SharePanel: () => <LocalRoomInfoPanel fileSize={fileSize} />,
-      MainMenu: CustomMainMenu,
+      MainMenu: CanvasSettingsMenu,
       PageMenu: null,
       TopPanel: LocalConnectionStatus,
       OnTheCanvas: LineageHighlights,

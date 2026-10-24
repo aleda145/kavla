@@ -36,7 +36,7 @@ html[data-kavla-just-icons] .kavla-browser-document-control {
   justify-content: center;
 }
 
-html[data-kavla-just-icons] .kavla-document-controls {
+.kavla-document-controls {
   border-bottom-right-radius: 0 !important;
 }
 

@@ -1,10 +1,8 @@
 .kavla-canvas-menu.tlui-menu-zone {
   padding: 0;
-  border-right: 2px solid #000;
-  border-bottom: 2px solid #000;
-  border-bottom-right-radius: 10px;
-  overflow: hidden;
-  background: #fff;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #000;
   font-family: Inter, sans-serif;
 }
@@ -13,7 +11,7 @@
 .kavla-canvas-menu .tlui-toolbar-container {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 0;
 }
 
@@ -33,9 +31,36 @@
   transition: background-color 100ms ease;
 }
 
-.kavla-canvas-menu > .tlui-row > .tlui-button:last-child,
 .kavla-canvas-menu .tlui-button[data-testid="actions-menu.button"] {
   border-bottom: 0;
+}
+
+.kavla-canvas-menu .tlui-toolbar-container {
+  border-right: 2px solid #000;
+  border-bottom: 2px solid #000;
+  border-bottom-right-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.kavla-canvas-menu .tlui-button.kavla-settings-trigger {
+  width: 88px;
+  border-right: 2px solid #000;
+  padding: 0 7px;
+  gap: 5px;
+  justify-content: flex-start;
+  font-weight: 850;
+}
+
+html[data-kavla-just-icons] .kavla-canvas-menu .tlui-button.kavla-settings-trigger {
+  width: 34px;
+  padding: 0;
+  gap: 0;
+  justify-content: center;
+}
+
+.tlui-toolbar__lock-button {
+  display: none;
 }
 
 .kavla-canvas-menu .tlui-button::after {

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { TldrawUiDropdownMenuCheckboxItem } from "tldraw";
 import "./just-icons.css";
 
 const STORAGE_KEY = "kavla.just-icons";
@@ -36,28 +37,22 @@ function subscribe(listener: () => void) {
   };
 }
 
-export function JustIconsToggle() {
+export function JustIconsMenuItem() {
   const checked = useSyncExternalStore(subscribe, () => justIcons);
   const mobile = useSyncExternalStore(subscribe, () => isMobile);
   return (
-    <label
-      className={`flex items-center justify-between gap-4 text-sm font-bold ${mobile ? "cursor-default" : "cursor-pointer"}`}
-      title={mobile ? "Always on for mobile" : undefined}
+    <TldrawUiDropdownMenuCheckboxItem
+      checked={checked}
+      disabled={mobile}
+      title={mobile ? "Always on for mobile" : "Just icons"}
+      onSelect={() => {
+        if (isMobile) return;
+        const value = !justIcons;
+        localStorage.setItem(STORAGE_KEY, String(value));
+        updateJustIcons(value);
+      }}
     >
-      Just icons
-      <input
-        type="checkbox"
-        role="switch"
-        checked={checked}
-        disabled={mobile}
-        onChange={(event) => {
-          if (isMobile) return;
-          const value = event.currentTarget.checked;
-          localStorage.setItem(STORAGE_KEY, String(value));
-          updateJustIcons(value);
-        }}
-        className="relative h-6 w-10 shrink-0 cursor-pointer appearance-none rounded-full border-2 border-black bg-white transition-colors checked:bg-black after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-black after:transition-transform checked:after:translate-x-4 checked:after:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-default disabled:opacity-60"
-      />
-    </label>
+      <span className="tlui-button__label">Just icons</span>
+    </TldrawUiDropdownMenuCheckboxItem>
   );
 }

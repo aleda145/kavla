@@ -1,3 +1,4 @@
+import { applyCanvasPreferences } from "../canvasPreferences";
 import { parseRecoverableCanvas } from "./parseRecoverableCanvas";
 import { getAgentRuns, isAgentRunActive, cancelAgentRun } from "../localServer/agentRuns";
 import {
@@ -513,6 +514,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const onMount = useCallback(
     async (editor: Editor) => {
       editorRef.current = editor;
+      applyCanvasPreferences(editor);
       editor.updateInstanceState({
         isReadonly: true,
       });

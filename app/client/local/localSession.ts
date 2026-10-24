@@ -1,3 +1,4 @@
+import { applyCanvasPreferences } from "../canvasPreferences";
 import { parseRecoverableCanvas } from "./parseRecoverableCanvas";
 import { canvasApiURL, disconnectCanvas } from "../canvasConnection";
 import { sessionFetch, setBackendDocument, resetBackendCaches } from "../backendCompute";
@@ -196,6 +197,7 @@ function acceptLocalSession(session: KavlaLocalSession): KavlaLocalSession {
 export function loadCanvasJson(editor: Editor, canvasJson: string, onWarning?: (message: string) => void): void {
   const recovered = parseRecoverableCanvas(editor, canvasJson);
   editor.loadSnapshot(recovered.snapshot);
+  applyCanvasPreferences(editor);
   const cameraRecords = readCameraRecords(canvasJson);
   if (cameraRecords.length > 0) {
     const activeCameraIds = new Set(
