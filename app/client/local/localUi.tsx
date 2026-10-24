@@ -47,6 +47,7 @@ import { LocalNavigationPanel } from "./LocalNavigationPanel";
 import { KavlaVersionBadge } from "./KavlaVersion";
 import { LineageHighlights } from "../canvas/LineageHighlights";
 import { AutoPlacementDebug } from "../canvas/AutoPlacementDebug";
+import { SelectionStylePanel } from "../canvas/SelectionStylePanel";
 import { LocalAgentDialog } from "./LocalAgentDialog";
 import { LocalSaveDialog } from "./LocalSaveDialog";
 import { LocalSourcesDialog } from "./LocalSourcesDialog";
@@ -511,6 +512,7 @@ export function useLocalComponents({
   return useMemo(
     () => ({
       Toolbar: LocalToolbar,
+      StylePanel: SelectionStylePanel,
       KeyboardShortcutsDialog: (props) => {
         const tools = useTools();
         const actions = useActions();
