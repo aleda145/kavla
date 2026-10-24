@@ -132,20 +132,20 @@ function describe(expression: ast.Expression, depth = 0): string | null {
 }
 
 function summarize(sql: string): BizSummary {
-  if (!sql.trim()) return { steps: [], note: "No query yet. Turn off Biz mode to write one." };
+  if (!sql.trim()) return { steps: [], note: "No query yet. Use the briefcase toggle to write SQL." };
   // Keep controls recognizable without substituting their current values.
   const result = parse(
     mapKnobParameters(sql, (name) => `"{${name}}"`),
     Dialect.DuckDB
   );
   if (!result.success || !Array.isArray(result.ast) || result.ast.length !== 1) {
-    return { steps: [], note: "This query cannot be summarized yet. Turn off Biz mode to inspect the SQL." };
+    return { steps: [], note: "This query cannot be summarized yet. Use the briefcase toggle to inspect the SQL." };
   }
   const root = result.ast[0] as ast.Expression;
   if (!("select" in root)) {
     return {
       steps: [],
-      note: "An overview is not available for this query type. Turn off Biz mode to inspect the SQL.",
+      note: "An overview is not available for this query type. Use the briefcase toggle to inspect the SQL.",
     };
   }
 
@@ -258,7 +258,7 @@ function summarize(sql: string): BizSummary {
   )
     partial = true;
 
-  return { steps, note: partial ? "Partial overview. Turn off Biz mode for the full query logic." : null };
+  return { steps, note: partial ? "Partial overview. Use the briefcase toggle for the full query logic." : null };
 }
 
 export function getSQLBizSummary(sql: string): BizSummary {

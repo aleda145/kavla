@@ -53,8 +53,8 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   override isAspectRatioLocked(_shape: SQLTextAreaShape) {
     return false;
   }
-  override canResize(_shape: SQLTextAreaShape) {
-    return !isBizMode(this.editor);
+  override canResize(shape: SQLTextAreaShape) {
+    return !isBizMode(this.editor, shape.id);
   }
 
   getDefaultProps(): SQLTextAreaShape["props"] {
@@ -82,7 +82,9 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   }
 
   getGeometry(shape: SQLTextAreaShape) {
-    const size = isBizMode(this.editor) ? getSQLBizSize(shape.props.text, shape.props.w, shape.props.h) : shape.props;
+    const size = isBizMode(this.editor, shape.id)
+      ? getSQLBizSize(shape.props.text, shape.props.w, shape.props.h)
+      : shape.props;
     return new Rectangle2d({
       width: size.w,
       height: size.h,
@@ -116,7 +118,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   }
 
   component(shape: SQLTextAreaShape) {
-    const bizMode = useBizMode(this.editor);
+    const bizMode = useBizMode(this.editor, shape.id);
     const size = bizMode ? getSQLBizSize(shape.props.text, shape.props.w, shape.props.h) : shape.props;
     const { addToast } = useToasts();
     const { updateSourceName, runRemoteQuery, cancelRemoteQuery } = useData();
@@ -470,12 +472,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       >
         <ShapeEngineTabs
           tabs={queryExecutionState.tabs}
-          style={{
-            position: "absolute",
-            top: -46,
-            left: 0,
-            right: 0,
-          }}
+          style={{ position: "absolute", top: -46, left: 0, right: 0 }}
         />
         <div
           style={{
@@ -540,12 +537,14 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   }
 
   indicator(shape: SQLTextAreaShape) {
-    const size = isBizMode(this.editor) ? getSQLBizSize(shape.props.text, shape.props.w, shape.props.h) : shape.props;
+    const size = isBizMode(this.editor, shape.id)
+      ? getSQLBizSize(shape.props.text, shape.props.w, shape.props.h)
+      : shape.props;
     return <rect width={size.w} height={size.h} rx={12} ry={12} />;
   }
 
   override onResize(shape: SQLTextAreaShape, info: TLResizeInfo<SQLTextAreaShape>) {
-    if (isBizMode(this.editor)) return;
+    if (isBizMode(this.editor, shape.id)) return;
     const resized = resizeBox(shape, info);
     return {
       ...resized,

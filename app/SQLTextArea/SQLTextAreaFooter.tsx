@@ -49,7 +49,7 @@ export function SQLTextAreaFooter({ shape, bizMode = false }: { shape: SQLTextAr
     if (bizMode) {
       return (
         <div style={{ ...footerStyle, color: "#b91c1c", background: "#fef2f2" }}>
-          Query failed. Turn off Biz mode to see the error.
+          Query failed. Use the briefcase toggle to see the SQL error.
         </div>
       );
     }
