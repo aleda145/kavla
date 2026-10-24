@@ -270,10 +270,38 @@ export function getSQLBizSummary(sql: string): BizSummary {
   return summary;
 }
 
+export function getSQLBizFlow(summary: BizSummary): BizStep[] {
+  const selection = summary.steps.find((step) => step.label === "Select");
+  const hasAggregate = summary.steps.some((step) => step.label === "Aggregate");
+  const source = summary.steps.find((step) => step.label === "Read");
+  // The source tab already provides context. Keep the main flow focused on
+  // transformations, and attach selected metrics to the aggregation step.
+  const steps = summary.steps
+    .filter(
+      (step) => step.label !== "Read" && !(step.label === "Select" && (hasAggregate || step.detail === "all columns"))
+    )
+    .map((step) =>
+      step.label === "Aggregate" && selection ? { ...step, detail: `${step.detail}\n${selection.detail}` } : step
+    );
+  if (!steps.length) {
+    if (source) steps.push(source);
+    else if (selection) steps.push(selection);
+  } else if (source) {
+    steps[0] = { ...steps[0], detail: `Source: ${source.detail}\n${steps[0].detail}` };
+  }
+  if (steps.length <= 4) return steps;
+  const middle = steps.slice(2, -1);
+  return [
+    ...steps.slice(0, 2),
+    { label: `+${middle.length} steps`, detail: middle.map((step) => `${step.label}: ${step.detail}`).join("\n") },
+    steps[steps.length - 1],
+  ];
+}
+
 export function getSQLBizSize(sql: string, width: number, height: number) {
   const summary = getSQLBizSummary(sql);
   return {
-    w: Math.min(width, 420),
-    h: Math.min(height, 360, 114 + summary.steps.length * 46 + (summary.note ? 48 : 0)),
+    w: Math.min(width, 400),
+    h: Math.min(height, summary.note ? 230 : 210),
   };
 }

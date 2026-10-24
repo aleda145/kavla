@@ -121,6 +121,9 @@ export function SQLTextAreaFooter({ shape, bizMode = false }: { shape: SQLTextAr
 
   if (shape.props.lastRunStats) {
     const { executionTime, rowCount, runnerName } = shape.props.lastRunStats;
+    if (bizMode) {
+      return <div style={footerStyle}>{rowCount.toLocaleString()} rows</div>;
+    }
     return (
       <div style={footerStyle}>
         <div style={{ display: "flex", gap: "4px", justifyContent: "center", alignItems: "center" }}>
