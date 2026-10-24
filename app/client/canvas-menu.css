@@ -1,0 +1,103 @@
+.kavla-canvas-menu.tlui-menu-zone {
+  padding: 0;
+  border-right: 2px solid #000;
+  border-bottom: 2px solid #000;
+  border-bottom-right-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  color: #000;
+  font-family: Inter, sans-serif;
+}
+
+.kavla-canvas-menu > .tlui-row,
+.kavla-canvas-menu .tlui-toolbar-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.kavla-canvas-menu .tlui-button {
+  height: 28px;
+  width: 32px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 2px solid #000;
+  border-radius: 0;
+  background: #fff;
+  color: #000;
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: none;
+  transition: background-color 100ms ease;
+}
+
+.kavla-canvas-menu > .tlui-row > .tlui-button:last-child,
+.kavla-canvas-menu .tlui-button[data-testid="actions-menu.button"] {
+  border-bottom: 0;
+}
+
+.kavla-canvas-menu .tlui-button::after {
+  display: none;
+}
+
+.kavla-canvas-menu .tlui-button > .tlui-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.kavla-canvas-menu .tlui-button:not(:disabled):hover {
+  background: #f1f5f9;
+}
+
+.kavla-canvas-menu .tlui-button[data-testid="quick-actions.delete"]:not(:disabled):hover {
+  background: #fee2e2;
+}
+
+.kavla-canvas-menu .tlui-button[data-state="open"],
+.kavla-canvas-menu .tlui-button[data-isactive="true"] {
+  background: #fef3c7;
+}
+
+.kavla-canvas-menu .tlui-button:not(:disabled):active {
+  background: #e2e8f0;
+}
+
+.kavla-canvas-menu .tlui-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+  box-shadow: none;
+}
+
+.kavla-canvas-menu .tlui-button:focus-visible {
+  outline: 2px solid #000 !important;
+  outline-offset: -4px !important;
+  border-radius: 0 !important;
+}
+
+/* These menus are portalled outside the left-hand control strip. */
+.tlui-menu:has([data-testid^="main-menu"]),
+.tlui-menu[data-testid^="main-menu"],
+.tlui-popover__content:has(.tlui-actions-menu) {
+  --color-panel: #fff;
+  --color-text-1: #000;
+  --color-text-3: #64748b;
+  --color-muted-2: #f1f5f9;
+  --color-hint: #fef3c7;
+  --color-divider: #000;
+  --color-focus: #000;
+  border: 2px solid #000;
+  border-radius: 8px;
+  background: #fff;
+  color: #000;
+  font-family: Inter, sans-serif;
+  font-weight: 700;
+  box-shadow: 4px 4px 0 #000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kavla-canvas-menu .tlui-button {
+    transition: none;
+  }
+}

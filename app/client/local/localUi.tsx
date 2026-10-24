@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import "../canvas-menu.css";
 import {
   CenteredTopPanelContainer,
   DefaultKeyboardShortcutsDialog,
@@ -359,7 +360,7 @@ const LocalMenuPanel = memo(function LocalMenuPanel({
         onSaveDocument={onSaveDocument}
       />
       {(MainMenu || PageMenu || showQuickActions) && (
-        <nav ref={ref} className="tlui-menu-zone">
+        <nav ref={ref} className="tlui-menu-zone kavla-canvas-menu">
           <div className="tlui-row">
             {MainMenu && <MainMenu />}
             {PageMenu && !isSinglePageMode && <PageMenu />}
