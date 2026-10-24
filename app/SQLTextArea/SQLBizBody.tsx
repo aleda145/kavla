@@ -31,6 +31,22 @@ const icons = {
   "Filter window": Filter,
 };
 
+const colors: Record<keyof typeof icons, string> = {
+  Read: "#dbeafe",
+  Join: "#fed7aa",
+  Filter: "#99f6e4",
+  Aggregate: "#fbcfe8",
+  Select: "#fef08a",
+  Sort: "#bbf7d0",
+  Limit: "#bae6fd",
+  Skip: "#e7e5e4",
+  Prepare: "#fde68a",
+  Window: "#a5f3fc",
+  Deduplicate: "#d9f99d",
+  "Filter groups": "#99f6e4",
+  "Filter window": "#99f6e4",
+};
+
 export function SQLBizBody({ text }: { text: string }) {
   const summary = getSQLBizSummary(text);
   const steps = getSQLBizFlow(summary);
@@ -140,7 +156,7 @@ export function SQLBizBody({ text }: { text: string }) {
                         boxSizing: "border-box",
                         border: "2px solid #000",
                         borderRadius: 12,
-                        background: step.label === "Read" ? "#dbeafe" : "#fef08a",
+                        background: colors[step.label as keyof typeof colors] ?? "#e5e7eb",
                       }}
                     >
                       <Icon size={23} strokeWidth={2} aria-hidden />
@@ -162,7 +178,7 @@ export function SQLBizBody({ text }: { text: string }) {
       )}
       {summary.note && (
         <div title={summary.note} style={{ fontSize: 10, color: "#737373", textAlign: "center" }}>
-          {steps.length ? "Partial overview · view SQL for full logic" : "Turn off Biz mode to view SQL"}
+          {steps.length ? "Partial overview · view SQL for full logic" : "Use the briefcase toggle to view SQL"}
         </div>
       )}
       {detail &&

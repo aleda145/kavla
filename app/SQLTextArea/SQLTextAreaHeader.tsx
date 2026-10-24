@@ -1,7 +1,8 @@
-import { Asterisk } from "lucide-react";
+import { Asterisk, BriefcaseBusiness } from "lucide-react";
 import type { Editor } from "tldraw";
 import EditableText from "../util/EditableText";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
+import { setQueryBizMode, useBizMode } from "../client/canvas/bizMode";
 
 interface SQLTextAreaHeaderProps {
   editor: Editor;
@@ -10,6 +11,7 @@ interface SQLTextAreaHeaderProps {
 }
 
 export function SQLTextAreaHeader({ editor, shape, onNameChange }: SQLTextAreaHeaderProps) {
+  const bizMode = useBizMode(editor, shape.id);
   return (
     <div
       style={{
@@ -25,7 +27,7 @@ export function SQLTextAreaHeader({ editor, shape, onNameChange }: SQLTextAreaHe
       }}
     >
       <EditableText text={shape.props.name} onSave={onNameChange} editor={editor} shapeId={shape.id} />
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
         {shape.props.isDirty && (
           <span
             title="Query has been updated and not yet run"
@@ -39,6 +41,18 @@ export function SQLTextAreaHeader({ editor, shape, onNameChange }: SQLTextAreaHe
             ⚠️ STALE
           </span>
         )}
+        <button
+          type="button"
+          aria-label="Biz mode for this query"
+          aria-pressed={bizMode}
+          title={bizMode ? "Show SQL for this query" : "Show flow for this query"}
+          onClick={() => setQueryBizMode(editor, shape.id, !bizMode)}
+          onPointerDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+          className="flex h-6 w-7 items-center justify-center rounded border-2 border-black bg-teal-100 p-0 text-black shadow-[2px_2px_0_#000] cursor-pointer hover:bg-teal-200 aria-pressed:bg-teal-200 aria-pressed:translate-x-px aria-pressed:translate-y-px aria-pressed:shadow-none active:translate-x-px active:translate-y-px active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+        >
+          <BriefcaseBusiness size={14} aria-hidden />
+        </button>
       </div>
     </div>
   );
