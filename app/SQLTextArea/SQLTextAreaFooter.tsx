@@ -33,7 +33,7 @@ function Timer({ startTime }: { startTime: number }) {
   return <span>{elapsed.toFixed(1)}s</span>;
 }
 
-export function SQLTextAreaFooter({ shape }: { shape: SQLTextAreaShape }) {
+export function SQLTextAreaFooter({ shape, bizMode = false }: { shape: SQLTextAreaShape; bizMode?: boolean }) {
   const { addToast } = useToasts();
 
   if (shape.props.isRunning && shape.props.queryStartTime) {
@@ -46,6 +46,13 @@ export function SQLTextAreaFooter({ shape }: { shape: SQLTextAreaShape }) {
   }
 
   if (shape.props.error) {
+    if (bizMode) {
+      return (
+        <div style={{ ...footerStyle, color: "#b91c1c", background: "#fef2f2" }}>
+          Query failed. Turn off Biz mode to see the error.
+        </div>
+      );
+    }
     const errorMessage = getErrorMessage(shape.props.error);
     const copyError = () => {
       void navigator.clipboard.writeText(errorMessage);
