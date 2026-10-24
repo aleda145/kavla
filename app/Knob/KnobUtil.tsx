@@ -438,7 +438,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
         )}
         <button
           ref={buttonRef}
-          className="kavla-knob-settings-button"
+          className="kavla-knob-settings-button kavla-icon-control"
           type="button"
           aria-label="Knob options"
           title="Knob options"
@@ -450,7 +450,7 @@ function Knob({ shape, editor }: { shape: KnobShape; editor: Editor }) {
           }}
         >
           <Settings2 size={14} />
-          <span>Options</span>
+          <span className="kavla-control-label">Options</span>
         </button>
       </div>
       <div className="kavla-knob-body">

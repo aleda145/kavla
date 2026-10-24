@@ -264,7 +264,7 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
                       type="button"
                     >
                       <Pin size={10} strokeWidth={2.5} />
-                      Pin to canvas
+                      <span className="kavla-control-label">Pin to canvas</span>
                     </button>
                   </div>
                   <div

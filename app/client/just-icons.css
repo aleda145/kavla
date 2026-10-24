@@ -1,0 +1,50 @@
+.kavla-icon-only {
+  display: none;
+}
+
+/* Keep control names available to screen readers when their labels are hidden. */
+html[data-kavla-just-icons] .kavla-control-label {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+html[data-kavla-just-icons] .kavla-icon-only {
+  display: block;
+}
+
+html[data-kavla-just-icons] .kavla-label-mode-icon {
+  display: none;
+}
+
+html[data-kavla-just-icons] .kavla-icon-control {
+  gap: 0 !important;
+  justify-content: center !important;
+}
+
+html[data-kavla-just-icons] .kavla-document-control,
+html[data-kavla-just-icons] .kavla-browser-document-control {
+  width: 32px;
+  padding: 0;
+  gap: 0;
+  justify-content: center;
+}
+
+html[data-kavla-just-icons] .kavla-shape-actions {
+  min-width: 0 !important;
+  flex-shrink: 0;
+}
+
+html[data-kavla-just-icons] .kavla-shape-actions button {
+  width: 36px !important;
+  min-width: 36px !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  gap: 0 !important;
+}

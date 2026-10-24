@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, Loader2 } from "lucide-react";
+import { Database, Download, FileSpreadsheet, Loader2 } from "lucide-react";
 import type { TableDownloadFormat } from "../../util/downloadTable";
 
 interface TableDownloadButtonsProps {
@@ -74,8 +74,21 @@ export function TableDownloadButtons({
           cursor: isDisabled ? "not-allowed" : "pointer",
         }}
       >
-        {isCurrentDownload ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-        <span style={{ fontSize: 10 }}>{isCurrentDownload ? "DOWNLOADING" : label}</span>
+        {isCurrentDownload ? (
+          <Loader2 size={14} className="animate-spin" />
+        ) : (
+          <>
+            <Download size={14} className="kavla-label-mode-icon" aria-hidden="true" />
+            {format === "csv" ? (
+              <FileSpreadsheet size={14} className="kavla-icon-only" aria-hidden="true" />
+            ) : (
+              <Database size={14} className="kavla-icon-only" aria-hidden="true" />
+            )}
+          </>
+        )}
+        <span className="kavla-control-label" style={{ fontSize: 10 }}>
+          {isCurrentDownload ? "DOWNLOADING" : label}
+        </span>
       </button>
     );
   };

@@ -228,7 +228,7 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
               title="Upload a CSV, Parquet, JSON, or NDJSON file"
             >
               <Upload size={18} />
-              <span>Pick a file</span>
+              <span className="kavla-control-label">Pick a file</span>
             </button>
             {uploadedSources.map(renderSourceButton)}
             <button
@@ -244,6 +244,7 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
                 height: 46,
                 padding: "8px 12px",
               }}
+              title="Browse demo data"
               onClick={onDemoClick}
               onPointerDown={(event) => {
                 event.stopPropagation();
@@ -251,7 +252,7 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
               }}
             >
               <Search aria-hidden="true" size={18} />
-              <span>Demo data</span>
+              <span className="kavla-control-label">Demo data</span>
             </button>
           </div>
           <div
@@ -290,7 +291,7 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
               title="Open source settings to connect a data source"
             >
               <Database aria-hidden="true" size={18} />
-              <span>Add a source</span>
+              <span className="kavla-control-label">Add a source</span>
             </button>
           </div>
         </div>

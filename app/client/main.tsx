@@ -1,9 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
+import { initializeJustIcons } from "./justIcons";
 
 import { TldrawUiToastsProvider } from "tldraw";
 import LocalKavlaApp from "./local/LocalKavlaApp";
+
+initializeJustIcons();
 
 const CANVAS_ACTIVE_CLASS = "room-canvas-active";
 const ALLOW_MIDDLE_CLICK_ATTR = "data-allow-middle-click";

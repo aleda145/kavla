@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Loader2, Maximize2, Minimize2, Send, Sparkles, Square, Trash2 } from "lucide-react";
+import { ScanEye, ChevronDown, Loader2, Maximize2, Minimize2, Send, Sparkles, Square, Trash2 } from "lucide-react";
 import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useAgentModels, useAgentStatus } from "../client/localServer/agentStore";
 import { useData } from "../client/useLocalServer";
@@ -420,8 +420,9 @@ function AgentChatOverlay() {
   const launcher = (
     <button
       type="button"
-      className="agent-chat-launcher"
+      className="agent-chat-launcher kavla-icon-control"
       data-kavla-agent-ui
+      title={isOpen ? "Close agent chat" : "Open agent chat"}
       aria-label={isOpen ? "Close agent chat" : "Open agent chat"}
       aria-expanded={isOpen}
       onPointerDown={stopOverlayEvent}
@@ -432,7 +433,9 @@ function AgentChatOverlay() {
       }}
     >
       <Sparkles size={16} color="#6d28d9" aria-hidden="true" />
-      <span style={{ color: "#000" }}>Agent</span>
+      <span className="kavla-control-label" style={{ color: "#000" }}>
+        Agent
+      </span>
     </button>
   );
 
@@ -513,14 +516,18 @@ function AgentChatOverlay() {
                 >
                   {isCat ? (
                     <>
-                      <span style={{ textDecoration: "line-through", opacity: 0.55 }}>Analyst</span>
-                      <span>Cat</span>
+                      <span className="kavla-control-label" style={{ textDecoration: "line-through", opacity: 0.55 }}>
+                        Analyst
+                      </span>
+                      <span className="kavla-control-label">Cat</span>
                       <img src="/cat.svg" alt="Cat" style={{ width: 24, height: 24, objectFit: "contain" }} />
                     </>
                   ) : (
                     <>
                       <Sparkles size={16} color="#6d28d9" aria-hidden="true" />
-                      <span style={{ color: "#000" }}>Agent</span>
+                      <span className="kavla-control-label" style={{ color: "#000" }}>
+                        Agent
+                      </span>
                     </>
                   )}
                 </strong>
@@ -549,7 +556,8 @@ function AgentChatOverlay() {
                       cursor: "pointer",
                     }}
                   >
-                    Follow
+                    <ScanEye size={13} className="kavla-icon-only" aria-hidden="true" />
+                    <span className="kavla-control-label">Follow</span>
                   </button>
                   <button
                     aria-label="Clear chat"

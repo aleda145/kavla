@@ -1,3 +1,4 @@
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { SQL_RESULT_BUTTON_CLASS } from "./sql-result-area-styles";
 
 interface SQLResultAreaFooterProps {
@@ -56,6 +57,7 @@ export function SQLResultAreaFooter({
               event.stopPropagation();
               if (event.pointerType === "touch") onPreviousPage();
             }}
+            title="Previous page"
             disabled={previousDisabled}
             className={SQL_RESULT_BUTTON_CLASS}
             style={{
@@ -66,7 +68,8 @@ export function SQLResultAreaFooter({
               cursor: previousDisabled ? "not-allowed" : "pointer",
             }}
           >
-            Prev
+            <ChevronLeft size={14} className="kavla-icon-only" aria-hidden="true" />
+            <span className="kavla-control-label">Prev</span>
           </button>
           <span style={{ minWidth: 96, textAlign: "center" }}>
             Page {(pageIndex + 1).toLocaleString()} / {pageCount.toLocaleString()}
@@ -80,6 +83,7 @@ export function SQLResultAreaFooter({
               event.stopPropagation();
               if (event.pointerType === "touch") onNextPage();
             }}
+            title="Next page"
             disabled={nextDisabled}
             className={SQL_RESULT_BUTTON_CLASS}
             style={{
@@ -90,7 +94,8 @@ export function SQLResultAreaFooter({
               cursor: nextDisabled ? "not-allowed" : "pointer",
             }}
           >
-            Next
+            <ChevronRight size={14} className="kavla-icon-only" aria-hidden="true" />
+            <span className="kavla-control-label">Next</span>
           </button>
         </div>
       ) : null}

@@ -13,6 +13,7 @@ interface SQLResultAreaActionBarProps {
 export function SQLResultAreaActionBar({ isCopied, isDisabled, onCopy, onDownload }: SQLResultAreaActionBarProps) {
   return (
     <div
+      className="kavla-shape-actions"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -46,7 +47,9 @@ export function SQLResultAreaActionBar({ isCopied, isDisabled, onCopy, onDownloa
           }}
         >
           {isCopied ? <Check size={14} /> : <Copy size={14} />}
-          <span style={{ fontSize: 10 }}>{isCopied ? "COPIED!" : "COPY"}</span>
+          <span className="kavla-control-label" style={{ fontSize: 10 }}>
+            {isCopied ? "COPIED!" : "COPY"}
+          </span>
         </button>
 
         <TableDownloadButtons buttonClassName={SQL_RESULT_BUTTON_CLASS} disabled={isDisabled} onDownload={onDownload} />

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { JustIconsToggle } from "../justIcons";
 import { Loader2, Settings, X } from "lucide-react";
 import { useCliStatus } from "../localServer/runtimeStore";
 import { listCanvasSnapshots, setCanvasHistoryLimit } from "./localSession";
@@ -143,6 +144,9 @@ export function LocalCanvasSettingsDialog({ onClose }: { onClose: () => void }) 
           </button>
         </div>
         <div className="min-h-0 overflow-y-auto p-5">
+          <div className="mb-5">
+            <JustIconsToggle />
+          </div>
           {!cliConnected ? (
             <p className="text-sm">CLI disconnected.</p>
           ) : loading ? (

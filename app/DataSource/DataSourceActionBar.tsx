@@ -121,6 +121,7 @@ export function DataSourceActionBar({
 
   return (
     <div
+      className="kavla-shape-actions"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -145,7 +146,7 @@ export function DataSourceActionBar({
         className={buttonClassName}
         style={{ width: "100%", justifyContent: "center", touchAction: "none", backgroundColor: "#dbeafe" }}
       >
-        <RefreshCw size={16} /> {isSelectingSource ? "Keep" : "Change"}
+        <RefreshCw size={16} /> <span className="kavla-control-label">{isSelectingSource ? "Keep" : "Change"}</span>
       </button>
 
       <button
@@ -158,7 +159,8 @@ export function DataSourceActionBar({
         className={buttonClassName}
         style={{ width: "100%", justifyContent: "center", touchAction: "none", backgroundColor: "#fef9c3" }}
       >
-        <Search size={16} /> {selectedColumns.size > 0 ? "Query These" : "Query"}
+        <Search size={16} />{" "}
+        <span className="kavla-control-label">{selectedColumns.size > 0 ? "Query These" : "Query"}</span>
       </button>
     </div>
   );

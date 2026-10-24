@@ -218,7 +218,7 @@ function LocalDocumentControls({
         type="button"
       >
         <FilePlus2 size={14} />
-        New
+        <span className="kavla-control-label">New</span>
       </button>
       <button
         aria-label="Save Kavla document"
@@ -231,7 +231,7 @@ function LocalDocumentControls({
         type="button"
       >
         {saving ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
-        Save
+        <span className="kavla-control-label">Save</span>
       </button>
       <button
         aria-label="Load Kavla document"
@@ -244,7 +244,7 @@ function LocalDocumentControls({
         type="button"
       >
         <FolderOpen size={14} />
-        Load
+        <span className="kavla-control-label">Load</span>
       </button>
       <button
         aria-label="Canvas history"
@@ -257,7 +257,7 @@ function LocalDocumentControls({
         type="button"
       >
         <History size={14} />
-        History
+        <span className="kavla-control-label">History</span>
       </button>
       <button
         aria-label="Configure Kavla sources"
@@ -270,7 +270,7 @@ function LocalDocumentControls({
         type="button"
       >
         <Database size={14} />
-        Sources
+        <span className="kavla-control-label">Sources</span>
       </button>
       <button
         aria-label="Agent connection settings"
@@ -283,7 +283,7 @@ function LocalDocumentControls({
         type="button"
       >
         <Sparkles color="#6d28d9" size={14} />
-        Agent
+        <span className="kavla-control-label">Agent</span>
       </button>
       <button
         aria-label="Canvas settings"
@@ -297,7 +297,7 @@ function LocalDocumentControls({
         type="button"
       >
         <Settings size={14} />
-        Settings
+        <span className="kavla-control-label">Settings</span>
       </button>
       {showSettings ? <LocalCanvasSettingsDialog onClose={() => setShowSettings(false)} /> : null}
       {dialogMode ? (
@@ -485,7 +485,9 @@ function DataToolButton({
         }}
       >
         {children}
-        <span style={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }}>{label}</span>
+        <span className="kavla-control-label" style={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }}>
+          {label}
+        </span>
       </div>
     </div>
   );

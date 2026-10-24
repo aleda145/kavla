@@ -42,6 +42,7 @@ export function SQLTextAreaActionBar({
 
   return (
     <div
+      className="kavla-shape-actions"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -69,7 +70,7 @@ export function SQLTextAreaActionBar({
         }}
         title="Create Chart"
       >
-        <BarChart3 size={16} /> Chart
+        <BarChart3 size={16} /> <span className="kavla-control-label">Chart</span>
       </button>
 
       <button
@@ -89,11 +90,11 @@ export function SQLTextAreaActionBar({
       >
         {shape.props.showTable ? (
           <>
-            <Eye size={16} /> Table
+            <Eye size={16} /> <span className="kavla-control-label">Table</span>
           </>
         ) : (
           <>
-            <EyeOff size={16} /> Table
+            <EyeOff size={16} /> <span className="kavla-control-label">Table</span>
           </>
         )}
       </button>
@@ -113,7 +114,7 @@ export function SQLTextAreaActionBar({
         }}
         title="Chain Query"
       >
-        <Search size={16} /> Query
+        <Search size={16} /> <span className="kavla-control-label">Query</span>
       </button>
 
       <button
@@ -135,16 +136,16 @@ export function SQLTextAreaActionBar({
         {shape.props.isRunning ? (
           isRemoteRunning ? (
             <>
-              <Square size={16} /> Stop
+              <Square size={16} /> <span className="kavla-control-label">Stop</span>
             </>
           ) : (
             <>
-              <span className="animate-spin">⏳</span> Running
+              <span className="animate-spin">⏳</span> <span className="kavla-control-label">Running</span>
             </>
           )
         ) : (
           <>
-            <Play size={16} /> Run
+            <Play size={16} /> <span className="kavla-control-label">Run</span>
           </>
         )}
       </button>
