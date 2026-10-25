@@ -147,12 +147,227 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
   return (
     <div className="pointer-events-none flex flex-col items-end">
       <div
-        className="pointer-events-auto flex select-none items-center gap-2 border-b-2 border-l-2 border-black bg-white p-3"
+        className="pointer-events-auto flex flex-col select-none items-end gap-3 border-b-2 border-l-2 border-black bg-white p-3"
         style={{ borderRadius: "0 0 0 12px" }}
       >
+        <div className="flex items-center gap-2">
+          <div
+            style={{ position: "relative" }}
+            onPointerEnter={(event) => {
+              if (event.pointerType !== "mouse") return;
+              cancelTerminalClose();
+              setTerminalOpen(true);
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType === "mouse") scheduleTerminalClose();
+            }}
+          >
+            <button
+              ref={terminalTriggerRef}
+              aria-expanded={terminalOpen}
+              aria-haspopup="dialog"
+              aria-label={cliConnected ? "Kavla CLI connected" : "Kavla CLI disconnected"}
+              onClick={() => {
+                cancelTerminalClose();
+                setTerminalOpen(true);
+              }}
+              onFocus={() => {
+                cancelTerminalClose();
+                setTerminalOpen(true);
+              }}
+              onBlur={scheduleTerminalClose}
+              style={{
+                ...lightStyle,
+                backgroundColor: "#dcfce7",
+                color: cliConnected ? "#15803d" : "#166534",
+                cursor: "help",
+              }}
+              title="Kavla CLI"
+              type="button"
+            >
+              <Terminal size={12} strokeWidth={3} />
+            </button>
+
+            {terminalOpen &&
+              createPortal(
+                <div
+                  ref={terminalPopoverRef}
+                  role="dialog"
+                  aria-label="Kavla CLI terminal"
+                  onWheel={(event) => event.stopPropagation()}
+                  onPointerEnter={cancelTerminalClose}
+                  onPointerLeave={scheduleTerminalClose}
+                  style={{
+                    position: "fixed",
+                    left: terminalPosition.left,
+                    top: terminalPosition.top,
+                    width: "min(360px, calc(100vw - 16px))",
+                    zIndex: 2147483647,
+                  }}
+                >
+                  <div
+                    style={{
+                      backgroundColor: "#1a1a2e",
+                      border: "2px solid #000",
+                      borderRadius: 4,
+                      boxShadow: "3px 3px 0 0 #000",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        alignItems: "center",
+                        backgroundColor: "#16213e",
+                        borderBottom: "1px solid #0f3460",
+                        display: "flex",
+                        gap: 6,
+                        padding: "6px 10px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          backgroundColor:
+                            cliTerminalDisplay.tone === "connected"
+                              ? "#4ade80"
+                              : cliTerminalDisplay.tone === "disconnected"
+                                ? "#ef4444"
+                                : "#94a3b8",
+                          borderRadius: "50%",
+                          height: 8,
+                          width: 8,
+                        }}
+                      />
+                      <span
+                        style={{
+                          color: "#94a3b8",
+                          fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                          fontSize: 10,
+                          fontWeight: 600,
+                        }}
+                      >
+                        kavla cli — {cliTerminalDisplay.headerLabel}
+                      </span>
+                      <button
+                        onClick={pinTerminalToCanvas}
+                        style={{
+                          alignItems: "center",
+                          backgroundColor: "#fff",
+                          border: "2px solid #000",
+                          borderRadius: 4,
+                          boxShadow: "2px 2px 0 0 rgba(0,0,0,0.2)",
+                          color: "#000",
+                          cursor: "pointer",
+                          display: "flex",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          gap: 4,
+                          height: 24,
+                          marginLeft: "auto",
+                          padding: "0 8px",
+                        }}
+                        title="Pin to canvas"
+                        type="button"
+                      >
+                        <Pin size={10} strokeWidth={2.5} />
+                        <span className="kavla-control-label">Pin to canvas</span>
+                      </button>
+                    </div>
+                    <div
+                      ref={terminalOutputRef}
+                      onWheel={(event) => event.stopPropagation()}
+                      style={{
+                        color: "#e2e8f0",
+                        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                        fontSize: 10,
+                        lineHeight: 1.6,
+                        maxHeight: 200,
+                        minHeight: 42,
+                        overflowY: "auto",
+                        padding: "8px 10px",
+                      }}
+                    >
+                      {cliTerminalDisplay.hasHistory ? (
+                        cliOutput.map((entry, index) => (
+                          <div
+                            key={`${entry.timestamp}-${index}`}
+                            style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}
+                          >
+                            {entry.line}
+                          </div>
+                        ))
+                      ) : (
+                        <div style={{ color: "#64748b", fontStyle: "italic" }}>{cliTerminalDisplay.emptyStateText}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
+          </div>
+
+          <div
+            aria-label={isComputing ? "DuckDB is computing" : "DuckDB is idle"}
+            role="status"
+            style={{
+              ...lightStyle,
+              backgroundColor: isComputing ? "#fef08a" : "#f1f5f9",
+            }}
+            title={isComputing ? "DuckDB is computing" : "DuckDB is idle"}
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              style={{
+                width: 12,
+                height: 12,
+                fill: isComputing ? "#000" : "#94a3b8",
+                transition: "fill 0.2s ease",
+              }}
+            >
+              <path d={siDuckdb.path} />
+            </svg>
+          </div>
+
+          <a
+            aria-label="View Kavla on GitHub"
+            data-allow-middle-click
+            href={GITHUB_REPOSITORY_URL}
+            rel="noopener noreferrer"
+            style={{
+              ...lightStyle,
+              backgroundColor: "#f1f5f9",
+              color: "#000",
+              textDecoration: "none",
+            }}
+            target="_blank"
+            title="View Kavla on GitHub"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: "currentColor" }}>
+              <path d={siGithub.path} />
+            </svg>
+          </a>
+
+          <a
+            aria-label="Join the Kavla Discord"
+            data-allow-middle-click
+            href={DISCORD_INVITE_URL}
+            rel="noopener noreferrer"
+            style={{
+              ...lightStyle,
+              backgroundColor: "#eef2ff",
+              color: "#5865f2",
+              textDecoration: "none",
+            }}
+            target="_blank"
+            title="Join the Kavla Discord"
+          >
+            <DiscordIcon />
+          </a>
+        </div>
         <div
           role="group"
           aria-label="Canvas query mode"
+          className="pointer-events-auto select-none"
           style={{ ...lightStyle, padding: 0, overflow: "hidden", flexShrink: 0 }}
         >
           {(["SQL", "Biz"] as const).map((mode) => {
@@ -169,7 +384,7 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
                 onPointerDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => event.stopPropagation()}
                 title={isBiz ? "Show query flows for all queries" : "Show SQL for all queries"}
-                className="hover:brightness-95 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-black"
+                className="focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -178,8 +393,8 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
                   padding: "0 7px",
                   border: 0,
                   borderLeft: isBiz ? "2px solid #000" : undefined,
-                  backgroundColor: selected ? "#99f6e4" : "#fff",
-                  color: selected ? "#000" : "#525252",
+                  backgroundColor: selected ? "#000" : "#fff",
+                  color: selected ? "#fff" : "#000",
                   cursor: "pointer",
                   fontFamily: "Inter, sans-serif",
                   fontSize: 11,
@@ -193,218 +408,6 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
             );
           })}
         </div>
-        <div
-          style={{ position: "relative" }}
-          onPointerEnter={(event) => {
-            if (event.pointerType !== "mouse") return;
-            cancelTerminalClose();
-            setTerminalOpen(true);
-          }}
-          onPointerLeave={(event) => {
-            if (event.pointerType === "mouse") scheduleTerminalClose();
-          }}
-        >
-          <button
-            ref={terminalTriggerRef}
-            aria-expanded={terminalOpen}
-            aria-haspopup="dialog"
-            aria-label={cliConnected ? "Kavla CLI connected" : "Kavla CLI disconnected"}
-            onClick={() => {
-              cancelTerminalClose();
-              setTerminalOpen(true);
-            }}
-            onFocus={() => {
-              cancelTerminalClose();
-              setTerminalOpen(true);
-            }}
-            onBlur={scheduleTerminalClose}
-            style={{
-              ...lightStyle,
-              backgroundColor: "#dcfce7",
-              color: cliConnected ? "#15803d" : "#166534",
-              cursor: "help",
-            }}
-            title="Kavla CLI"
-            type="button"
-          >
-            <Terminal size={12} strokeWidth={3} />
-          </button>
-
-          {terminalOpen &&
-            createPortal(
-              <div
-                ref={terminalPopoverRef}
-                role="dialog"
-                aria-label="Kavla CLI terminal"
-                onWheel={(event) => event.stopPropagation()}
-                onPointerEnter={cancelTerminalClose}
-                onPointerLeave={scheduleTerminalClose}
-                style={{
-                  position: "fixed",
-                  left: terminalPosition.left,
-                  top: terminalPosition.top,
-                  width: "min(360px, calc(100vw - 16px))",
-                  zIndex: 2147483647,
-                }}
-              >
-                <div
-                  style={{
-                    backgroundColor: "#1a1a2e",
-                    border: "2px solid #000",
-                    borderRadius: 4,
-                    boxShadow: "3px 3px 0 0 #000",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      alignItems: "center",
-                      backgroundColor: "#16213e",
-                      borderBottom: "1px solid #0f3460",
-                      display: "flex",
-                      gap: 6,
-                      padding: "6px 10px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        backgroundColor:
-                          cliTerminalDisplay.tone === "connected"
-                            ? "#4ade80"
-                            : cliTerminalDisplay.tone === "disconnected"
-                              ? "#ef4444"
-                              : "#94a3b8",
-                        borderRadius: "50%",
-                        height: 8,
-                        width: 8,
-                      }}
-                    />
-                    <span
-                      style={{
-                        color: "#94a3b8",
-                        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                        fontSize: 10,
-                        fontWeight: 600,
-                      }}
-                    >
-                      kavla cli — {cliTerminalDisplay.headerLabel}
-                    </span>
-                    <button
-                      onClick={pinTerminalToCanvas}
-                      style={{
-                        alignItems: "center",
-                        backgroundColor: "#fff",
-                        border: "2px solid #000",
-                        borderRadius: 4,
-                        boxShadow: "2px 2px 0 0 rgba(0,0,0,0.2)",
-                        color: "#000",
-                        cursor: "pointer",
-                        display: "flex",
-                        fontSize: 10,
-                        fontWeight: 700,
-                        gap: 4,
-                        height: 24,
-                        marginLeft: "auto",
-                        padding: "0 8px",
-                      }}
-                      title="Pin to canvas"
-                      type="button"
-                    >
-                      <Pin size={10} strokeWidth={2.5} />
-                      <span className="kavla-control-label">Pin to canvas</span>
-                    </button>
-                  </div>
-                  <div
-                    ref={terminalOutputRef}
-                    onWheel={(event) => event.stopPropagation()}
-                    style={{
-                      color: "#e2e8f0",
-                      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                      fontSize: 10,
-                      lineHeight: 1.6,
-                      maxHeight: 200,
-                      minHeight: 42,
-                      overflowY: "auto",
-                      padding: "8px 10px",
-                    }}
-                  >
-                    {cliTerminalDisplay.hasHistory ? (
-                      cliOutput.map((entry, index) => (
-                        <div
-                          key={`${entry.timestamp}-${index}`}
-                          style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}
-                        >
-                          {entry.line}
-                        </div>
-                      ))
-                    ) : (
-                      <div style={{ color: "#64748b", fontStyle: "italic" }}>{cliTerminalDisplay.emptyStateText}</div>
-                    )}
-                  </div>
-                </div>
-              </div>,
-              document.body
-            )}
-        </div>
-
-        <div
-          aria-label={isComputing ? "DuckDB is computing" : "DuckDB is idle"}
-          role="status"
-          style={{
-            ...lightStyle,
-            backgroundColor: isComputing ? "#fef08a" : "#f1f5f9",
-          }}
-          title={isComputing ? "DuckDB is computing" : "DuckDB is idle"}
-        >
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            style={{
-              width: 12,
-              height: 12,
-              fill: isComputing ? "#000" : "#94a3b8",
-              transition: "fill 0.2s ease",
-            }}
-          >
-            <path d={siDuckdb.path} />
-          </svg>
-        </div>
-
-        <a
-          aria-label="View Kavla on GitHub"
-          data-allow-middle-click
-          href={GITHUB_REPOSITORY_URL}
-          rel="noopener noreferrer"
-          style={{
-            ...lightStyle,
-            backgroundColor: "#f1f5f9",
-            color: "#000",
-            textDecoration: "none",
-          }}
-          target="_blank"
-          title="View Kavla on GitHub"
-        >
-          <svg aria-hidden="true" viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: "currentColor" }}>
-            <path d={siGithub.path} />
-          </svg>
-        </a>
-
-        <a
-          aria-label="Join the Kavla Discord"
-          data-allow-middle-click
-          href={DISCORD_INVITE_URL}
-          rel="noopener noreferrer"
-          style={{
-            ...lightStyle,
-            backgroundColor: "#eef2ff",
-            color: "#5865f2",
-            textDecoration: "none",
-          }}
-          target="_blank"
-          title="Join the Kavla Discord"
-        >
-          <DiscordIcon />
-        </a>
       </div>
       {fileSize !== null ? (
         <button
