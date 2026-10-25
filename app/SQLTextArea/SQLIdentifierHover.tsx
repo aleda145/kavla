@@ -10,36 +10,49 @@ import type { RemoteSourceInfo } from "./remote-column-stats";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import type { SQLHighlightTarget } from "./StaticSQLHighlighter";
 import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
+import { usePopupPlacement } from "./usePopupPlacement";
+import { useExclusivePopup } from "./useExclusivePopup";
 
 export function SQLIdentifierHover({
   target,
+  ownerShapeId,
   tableId,
   columns,
   children,
 }: {
   target: SQLHighlightTarget;
+  ownerShapeId: TLShapeId;
   tableId?: TLShapeId;
   columns?: { name: string; type: string }[];
   children: ReactNode;
 }) {
-  const [rect, setRect] = useState<DOMRect | null>(null);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const popup = useRef<HTMLDivElement>(null);
+  const position = usePopupPlacement(anchor, popup, ownerShapeId);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const cancelClose = () => clearTimeout(timer.current);
+  const claimPopup = useExclusivePopup(Boolean(anchor), () => {
+    clearTimeout(timer.current);
+    setAnchor(null);
+  });
+  const open = (element: HTMLElement) => {
+    cancelClose();
+    if (claimPopup(element)) setAnchor(element);
+  };
   const closeSoon = () => {
     cancelClose();
-    timer.current = setTimeout(() => setRect(null), 300);
+    timer.current = setTimeout(() => setAnchor(null), 600);
   };
 
   useEffect(() => () => clearTimeout(timer.current), []);
   useEffect(() => {
-    if (!rect) return;
+    if (!anchor) return;
     const dismiss = (event: Event) => {
       if (event.target instanceof Node && popup.current?.contains(event.target)) return;
-      setRect(null);
+      setAnchor(null);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setRect(null);
+      if (event.key === "Escape") setAnchor(null);
     };
     window.addEventListener("wheel", dismiss, true);
     window.addEventListener("resize", dismiss);
@@ -51,50 +64,49 @@ export function SQLIdentifierHover({
       document.removeEventListener("pointerdown", dismiss, true);
       document.removeEventListener("keydown", escape);
     };
-  }, [rect]);
+  }, [anchor]);
 
   return (
     <span
+      data-sql-identifier
       tabIndex={0}
       title=""
       role="button"
       aria-label={target.kind === "column" ? `${target.column.name}: ${target.column.type}` : target.tableName}
       aria-haspopup="dialog"
-      aria-expanded={Boolean(rect)}
+      aria-expanded={Boolean(anchor)}
       style={{ cursor: "help" }}
       onPointerEnter={(event) => {
-        cancelClose();
-        setRect(event.currentTarget.getBoundingClientRect());
+        open(event.currentTarget);
       }}
       onPointerLeave={closeSoon}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();
-        cancelClose();
-        setRect(event.currentTarget.getBoundingClientRect());
+        open(event.currentTarget);
       }}
       onFocus={(event) => {
-        cancelClose();
-        setRect(event.currentTarget.getBoundingClientRect());
+        open(event.currentTarget);
       }}
       onBlur={(event) => {
         if (!popup.current?.contains(event.relatedTarget)) closeSoon();
       }}
       onKeyDown={(event) => {
         event.stopPropagation();
-        if (event.key === "Escape") setRect(null);
+        if (event.key === "Escape") setAnchor(null);
         if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
           event.preventDefault();
-          setRect(event.currentTarget.getBoundingClientRect());
+          open(event.currentTarget);
         }
       }}
     >
       {children}
-      {rect &&
+      {anchor &&
         createPortal(
           <div
             ref={popup}
             data-sql-identifier-tooltip
+            data-sql-popup
             role="dialog"
             aria-label={
               target.kind === "column" ? `${target.column.name} column details` : `${target.tableName} schema`
@@ -114,8 +126,7 @@ export function SQLIdentifierHover({
             onWheel={(event) => event.stopPropagation()}
             style={{
               position: "fixed",
-              left: Math.max(8, Math.min(rect.left, window.innerWidth - 420)),
-              top: Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 360)),
+              ...position,
               maxWidth: "calc(100vw - 16px)",
               maxHeight: "min(350px, calc(100vh - 16px))",
               overflow: "auto",
