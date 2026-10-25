@@ -1,8 +1,6 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
-  ArrowRight,
-  ArrowDown,
   ArrowDownWideNarrow,
   Blocks,
   Brush,
@@ -19,7 +17,13 @@ import {
   Sigma,
   type LucideIcon,
 } from "lucide-react";
-import { getSQLBizCardWidth, getSQLBizDirection, getSQLBizSummary, type BizOperation } from "./sqlBizSummary";
+import {
+  getSQLBizCardWidth,
+  getSQLBizColumns,
+  getSQLBizSummary,
+  SQL_BIZ_CARD_GAP,
+  type BizOperation,
+} from "./sqlBizSummary";
 
 import { useSchemaRegistry } from "../hooks/useSchemaRegistry";
 import { buildSqlSchemaIndex } from "./schema-index";
@@ -80,15 +84,35 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
     />
   );
   const summary = getSQLBizSummary(text);
-  const vertical = getSQLBizDirection(summary, shape.props) === "vertical";
-  const Connector = vertical ? ArrowDown : ArrowRight;
   const tooltipId = useId();
   const container = useRef<HTMLDivElement>(null);
+  const errorMessage = useRef<HTMLPreElement>(null);
+  const [available, setAvailable] = useState({ w: 0, h: 0 });
+  const columns = getSQLBizColumns(summary, available);
+  const grid = columns.length > 1 && columns.length < summary.steps.length;
+
+  useLayoutEffect(() => {
+    const element = container.current;
+    if (!element) return;
+    const measure = () => {
+      const errorHeight = errorMessage.current ? errorMessage.current.offsetHeight + 12 : 0;
+      const next = {
+        w: Math.max(0, element.clientWidth - 28),
+        h: Math.max(0, element.clientHeight - 24 - errorHeight),
+      };
+      setAvailable((previous) => (previous.w === next.w && previous.h === next.h ? previous : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    if (errorMessage.current) observer.observe(errorMessage.current);
+    return () => observer.disconnect();
+  }, [summary.error]);
   const popover = useRef<HTMLDivElement>(null);
   const [detail, setDetail] = useState<{ index: number; rect: DOMRect } | null>(null);
   const activeStep = detail ? summary.steps[detail.index] : undefined;
 
-  useEffect(() => setDetail(null), [text]);
+  useEffect(() => setDetail(null), [text, available.w, available.h]);
   useEffect(() => {
     if (!detail) return;
     const dismiss = () => setDetail(null);
@@ -134,12 +158,14 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
         <ol
           aria-label="Query operations in order"
           style={{
-            display: "flex",
-            flexDirection: vertical ? "column" : "row",
-            alignItems: "center",
+            display: "grid",
+            gridTemplateColumns: columns.map((width) => `${width}px`).join(" "),
+            alignItems: "start",
+            justifyItems: "center",
+            gap: SQL_BIZ_CARD_GAP,
             listStyle: "none",
             width: "max-content",
-            margin: vertical ? "auto" : "auto 0",
+            margin: grid ? "0 auto" : "auto",
             padding: 0,
             flexShrink: 0,
           }}
@@ -148,34 +174,9 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
             const { Icon, color } = operations[step.label];
             const label = step.label === "CONDITIONAL" ? "CLASSIFY" : step.label;
             const card = step.card ?? { primary: step.detail };
-            const previous = summary.steps[index - 1];
-            const sameScope = previous?.scope === step.scope;
             const showDetail = (element: HTMLElement) => setDetail({ index, rect: element.getBoundingClientRect() });
             return (
-              <li
-                key={index}
-                style={{
-                  display: "flex",
-                  flexDirection: vertical ? "column" : "row",
-                  alignItems: "center",
-                  flexShrink: 0,
-                }}
-              >
-                {index > 0 &&
-                  (sameScope ? (
-                    <Connector
-                      size={14}
-                      aria-hidden
-                      style={{ margin: vertical ? "4px 0" : "0 4px", color: "#737373", flexShrink: 0 }}
-                    />
-                  ) : (
-                    <span
-                      aria-hidden
-                      style={{ width: 22, height: vertical ? 22 : undefined, textAlign: "center", color: "#a3a3a3" }}
-                    >
-                      ·
-                    </span>
-                  ))}
+              <li key={index} style={{ display: "flex", minWidth: 0 }}>
                 <div
                   role="button"
                   tabIndex={0}
@@ -308,6 +309,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
       ) : null}
       {summary.error && (
         <pre
+          ref={errorMessage}
           role="alert"
           onPointerDown={(event) => event.stopPropagation()}
           style={{
