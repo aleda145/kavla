@@ -46,13 +46,6 @@ export function SQLTextAreaFooter({ shape, bizMode = false }: { shape: SQLTextAr
   }
 
   if (shape.props.error) {
-    if (bizMode) {
-      return (
-        <div style={{ ...footerStyle, color: "#b91c1c", background: "#fef2f2" }}>
-          Query failed. Use the briefcase toggle to see the SQL error.
-        </div>
-      );
-    }
     const errorMessage = getErrorMessage(shape.props.error);
     const copyError = () => {
       void navigator.clipboard.writeText(errorMessage);
@@ -64,6 +57,8 @@ export function SQLTextAreaFooter({ shape, bizMode = false }: { shape: SQLTextAr
         style={{
           display: "flex",
           background: "#fef2f2",
+          maxHeight: bizMode ? 110 : undefined,
+          flexShrink: bizMode ? 0 : undefined,
           borderTop: "4px solid #000",
           borderBottomLeftRadius: 8,
           borderBottomRightRadius: 8,
@@ -71,9 +66,11 @@ export function SQLTextAreaFooter({ shape, bizMode = false }: { shape: SQLTextAr
       >
         <textarea
           readOnly
+          aria-label="Query error"
           onPointerDown={(event) => event.stopPropagation()}
           style={{
             flex: 1,
+            minHeight: 0,
             border: "none",
             outline: "none",
             resize: "none",

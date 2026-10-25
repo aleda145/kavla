@@ -2,7 +2,7 @@ import { ast, Dialect, parse } from "@polyglot-sql/sdk";
 import { mapKnobParameters } from "../Knob/knobSQL";
 
 export type BizStep = { label: string; detail: string };
-export type BizSummary = { steps: BizStep[]; note: string | null };
+export type BizSummary = { steps: BizStep[]; note: string | null; error?: string };
 
 const cache = new Map<string, BizSummary>();
 const aggregateNames: Record<string, string> = {
@@ -138,7 +138,10 @@ function summarize(sql: string): BizSummary {
     mapKnobParameters(sql, (name) => `"{${name}}"`),
     Dialect.DuckDB
   );
-  if (!result.success || !Array.isArray(result.ast) || result.ast.length !== 1) {
+  if (!result.success) {
+    return { steps: [], note: null, error: result.error ?? "SQL parsing failed." };
+  }
+  if (!Array.isArray(result.ast) || result.ast.length !== 1) {
     return { steps: [], note: "This query cannot be summarized yet. Use the briefcase toggle to inspect the SQL." };
   }
   const root = result.ast[0] as ast.Expression;
@@ -151,11 +154,9 @@ function summarize(sql: string): BizSummary {
 
   const query = root.select;
   const steps: BizStep[] = [];
-  let partial = false;
   const explain = (expression: ast.Expression): string => {
     const description = describe(expression);
     if (description !== null) return description;
-    partial = true;
     if ("alias" in expression) return `${expression.alias.alias.name}: calculated value`;
     if ("subquery" in expression) return expression.subquery.alias?.name ?? "a nested query";
     return "an expression (see SQL)";
@@ -172,7 +173,6 @@ function summarize(sql: string): BizSummary {
   };
 
   if (query.with) {
-    partial = true;
     steps.push({
       label: "Prepare",
       detail: `Intermediate queries: ${query.with.ctes.map((cte) => cte.alias.name).join(", ")}`,
@@ -217,7 +217,6 @@ function summarize(sql: string): BizSummary {
   }
   if (query.having) steps.push({ label: "Filter groups", detail: explain(query.having.this) });
   if (hasWindow) {
-    partial = true;
     steps.push({ label: "Window", detail: "Calculate across related rows, keeping individual rows" });
   }
   if (query.qualify) steps.push({ label: "Filter window", detail: explain(query.qualify.this) });
@@ -241,24 +240,7 @@ function summarize(sql: string): BizSummary {
   }
   if (query.offset) steps.push({ label: "Skip", detail: `${explain(query.offset.this)} rows` });
   if (query.limit) steps.push({ label: "Limit", detail: `Keep up to ${explain(query.limit.this)} rows` });
-  if (
-    query.sample ||
-    query.top ||
-    query.fetch ||
-    query.prewhere ||
-    query.connect ||
-    query.into ||
-    query.lateral_views.length ||
-    query.distribute_by ||
-    query.cluster_by ||
-    query.sort_by ||
-    query.group_by?.totals ||
-    query.exclude?.length ||
-    query.limit_by?.length
-  )
-    partial = true;
-
-  return { steps, note: partial ? "Partial overview. Use the briefcase toggle for the full query logic." : null };
+  return { steps, note: null };
 }
 
 export function getSQLBizSummary(sql: string): BizSummary {
@@ -302,6 +284,6 @@ export function getSQLBizSize(sql: string, width: number, height: number) {
   const summary = getSQLBizSummary(sql);
   return {
     w: Math.min(width, 400),
-    h: Math.min(height, summary.note ? 230 : 210),
+    h: Math.min(height, summary.note || summary.error ? 230 : 210),
   };
 }

@@ -88,15 +88,17 @@ export function SQLBizBody({ text }: { text: string }) {
     <div
       ref={container}
       aria-label="Query flow"
+      onWheel={(event) => event.stopPropagation()}
       style={{
         flex: 1,
         minHeight: 0,
+        overflow: "auto",
         display: "flex",
         flexDirection: "column",
-        justifyContent: "center",
+        justifyContent: summary.error ? "flex-start" : "center",
         padding: "12px 14px",
         gap: 12,
-        background: "#fffef5",
+        background: "#fff",
       }}
     >
       {steps.length ? (
@@ -173,13 +175,29 @@ export function SQLBizBody({ text }: { text: string }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, color: "#737373" }}>
           <FileQuestion size={26} aria-hidden />
-          <span style={{ fontSize: 12, fontWeight: 700 }}>{text.trim() ? "No overview yet" : "No query yet"}</span>
+          <span style={{ fontSize: 12, fontWeight: 700 }}>
+            {summary.error ? "SQL error" : text.trim() ? "No overview yet" : "No query yet"}
+          </span>
         </div>
       )}
-      {summary.note && (
-        <div title={summary.note} style={{ fontSize: 10, color: "#737373", textAlign: "center" }}>
-          {steps.length ? "Partial overview · view SQL for full logic" : "Use the briefcase toggle to view SQL"}
-        </div>
+      {summary.error && (
+        <pre
+          role="alert"
+          onPointerDown={(event) => event.stopPropagation()}
+          style={{
+            margin: 0,
+            fontSize: 12,
+            color: "#b91c1c",
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+            flexShrink: 0,
+          }}
+        >
+          {summary.error}
+        </pre>
+      )}
+      {summary.note && !steps.length && (
+        <div style={{ fontSize: 10, color: "#737373", textAlign: "center" }}>{summary.note}</div>
       )}
       {detail &&
         activeStep &&
