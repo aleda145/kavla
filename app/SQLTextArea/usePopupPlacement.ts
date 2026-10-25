@@ -111,20 +111,9 @@ export function usePopupPlacement(
           { left: body.right, right: ownerBounds.right, top: body.top, bottom: body.bottom }
         );
       }
-      for (const shape of editor.getCurrentPageShapes()) {
-        if (body && shape.id === ownerShapeId) continue;
-        if (["arrow", "line", "draw", "highlight", "frame", "group"].includes(shape.type)) continue;
-        const bounds = editor.getShapePageBounds(shape);
-        if (!bounds) continue;
-        const start = editor.pageToScreen({ x: bounds.x, y: bounds.y });
-        const end = editor.pageToScreen({ x: bounds.maxX, y: bounds.maxY });
-        const rect = { left: start.x, top: start.y, right: end.x, bottom: end.y };
-        if (overlap(rect, screen)) obstacles.push(rect);
-      }
-      // Protect individual operation cards and already-open popups as well.
-      for (const other of document.querySelectorAll<HTMLElement>("[data-sql-biz-card], [data-sql-popup]")) {
-        if (other === element || element.contains(other)) continue;
-        const rect = other.getBoundingClientRect();
+      // Only the current query's cards constrain placement; other shapes may be covered.
+      for (const card of owner?.querySelectorAll<HTMLElement>("[data-sql-biz-card]") ?? []) {
+        const rect = card.getBoundingClientRect();
         if (overlap(rect, screen)) obstacles.push(rect);
       }
       const rect = element.getBoundingClientRect();
