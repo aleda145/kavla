@@ -72,7 +72,7 @@ export async function executeSQLShape(
         id: tableId,
         type: "sql-result-table",
         x: current.x,
-        y: current.y + current.props.h + 60,
+        y: current.y + editor.getShapeGeometry(current).bounds.height + 60,
         props: { sourceShapeId: id, w: 400, h: 300 },
       });
       editor.updateShape<SQLTextAreaShape>({ id, type: "sql-text-area", props: { linkedTableId: tableId } });

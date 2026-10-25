@@ -1,85 +1,74 @@
-import { Fragment, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  ArrowDownWideNarrow,
   ArrowRight,
+  ArrowDownWideNarrow,
+  Blocks,
+  Brush,
+  Calculator,
   Columns3,
+  Combine,
   Database,
-  Ellipsis,
   FileQuestion,
   Filter,
+  GitBranch,
   GitMerge,
   Layers,
   ListFilter,
   Sigma,
+  type LucideIcon,
 } from "lucide-react";
-import { getSQLBizFlow, getSQLBizSummary } from "./sqlBizSummary";
+import { getSQLBizSummary, type BizOperation } from "./sqlBizSummary";
 
-const icons = {
-  Read: Database,
-  Join: GitMerge,
-  Filter,
-  Aggregate: Sigma,
-  Select: Columns3,
-  Sort: ArrowDownWideNarrow,
-  Limit: ListFilter,
-  Skip: ListFilter,
-  Prepare: Layers,
-  Window: Layers,
-  Deduplicate: Layers,
-  "Filter groups": Filter,
-  "Filter window": Filter,
-};
-
-const colors: Record<keyof typeof icons, string> = {
-  Read: "#dbeafe",
-  Join: "#fed7aa",
-  Filter: "#99f6e4",
-  Aggregate: "#fbcfe8",
-  Select: "#fef08a",
-  Sort: "#bbf7d0",
-  Limit: "#bae6fd",
-  Skip: "#e7e5e4",
-  Prepare: "#fde68a",
-  Window: "#a5f3fc",
-  Deduplicate: "#d9f99d",
-  "Filter groups": "#99f6e4",
-  "Filter window": "#99f6e4",
+const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
+  READ: { Icon: Database, color: "#dbeafe" },
+  JOIN: { Icon: GitMerge, color: "#fed7aa" },
+  FILTER: { Icon: Filter, color: "#99f6e4" },
+  CALCULATE: { Icon: Calculator, color: "#fde68a" },
+  BUCKET: { Icon: Blocks, color: "#ffedd5" },
+  CLEAN: { Icon: Brush, color: "#ccfbf1" },
+  CONDITIONAL: { Icon: GitBranch, color: "#fecaca" },
+  AGGREGATE: { Icon: Sigma, color: "#fbcfe8" },
+  "FILTER GROUPS": { Icon: Filter, color: "#99f6e4" },
+  WINDOW: { Icon: Layers, color: "#a5f3fc" },
+  "FILTER WINDOW": { Icon: Filter, color: "#99f6e4" },
+  SELECT: { Icon: Columns3, color: "#fef08a" },
+  DEDUPLICATE: { Icon: Layers, color: "#d9f99d" },
+  SORT: { Icon: ArrowDownWideNarrow, color: "#bbf7d0" },
+  SKIP: { Icon: ListFilter, color: "#e7e5e4" },
+  LIMIT: { Icon: ListFilter, color: "#bae6fd" },
+  COMBINE: { Icon: Combine, color: "#cbd5e1" },
 };
 
 export function SQLBizBody({ text }: { text: string }) {
   const summary = getSQLBizSummary(text);
-  const steps = getSQLBizFlow(summary);
   const tooltipId = useId();
   const container = useRef<HTMLDivElement>(null);
   const popover = useRef<HTMLDivElement>(null);
   const [detail, setDetail] = useState<{ index: number; rect: DOMRect } | null>(null);
-  const activeStep = detail ? steps[detail.index] : undefined;
+  const activeStep = detail ? summary.steps[detail.index] : undefined;
 
-  useEffect(() => {
-    setDetail(null);
-  }, [text]);
-
+  useEffect(() => setDetail(null), [text]);
   useEffect(() => {
     if (!detail) return;
     const dismiss = () => setDetail(null);
-    const onPointerDown = (event: PointerEvent) => {
-      if (
-        event.target instanceof Node &&
-        !container.current?.contains(event.target) &&
-        !popover.current?.contains(event.target)
-      )
-        dismiss();
-    };
-    const onWheel = (event: WheelEvent) => {
+    const outside = (event: Event) => {
       if (event.target instanceof Node && !popover.current?.contains(event.target)) dismiss();
     };
-    document.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("wheel", onWheel, true);
+    const pointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !container.current?.contains(event.target)) outside(event);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dismiss();
+    };
+    document.addEventListener("pointerdown", pointer);
+    document.addEventListener("keydown", escape);
+    window.addEventListener("wheel", outside, true);
     window.addEventListener("resize", dismiss);
     return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("wheel", onWheel, true);
+      document.removeEventListener("pointerdown", pointer);
+      document.removeEventListener("keydown", escape);
+      window.removeEventListener("wheel", outside, true);
       window.removeEventListener("resize", dismiss);
     };
   }, [detail]);
@@ -87,117 +76,180 @@ export function SQLBizBody({ text }: { text: string }) {
   return (
     <div
       ref={container}
-      aria-label="Query flow"
+      aria-label="Query pipeline"
       onWheel={(event) => event.stopPropagation()}
+      onScroll={() => setDetail(null)}
       style={{
         flex: 1,
         minHeight: 0,
         overflow: "auto",
         display: "flex",
         flexDirection: "column",
-        justifyContent: summary.error ? "flex-start" : "center",
         padding: "12px 14px",
-        gap: 12,
         background: "#fff",
       }}
     >
-      {steps.length ? (
-        <div
-          role="list"
+      {summary.steps.length ? (
+        <ol
           aria-label="Query operations in order"
-          style={{ display: "flex", alignItems: "flex-start", justifyContent: "center" }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            listStyle: "none",
+            width: "max-content",
+            margin: "auto 0",
+            padding: 0,
+            flexShrink: 0,
+          }}
         >
-          {steps.map((step, index) => {
-            const Icon = icons[step.label as keyof typeof icons] ?? Ellipsis;
+          {summary.steps.map((step, index) => {
+            const { Icon, color } = operations[step.label];
+            const label = step.label === "CONDITIONAL" ? "CLASSIFY" : step.label;
+            const card = step.card ?? { primary: step.detail };
+            const previous = summary.steps[index - 1];
+            const sameScope = previous?.scope === step.scope;
             const showDetail = (element: HTMLButtonElement) =>
               setDetail({ index, rect: element.getBoundingClientRect() });
             return (
-              <Fragment key={index}>
-                {index > 0 && (
-                  <ArrowRight size={18} aria-hidden style={{ flexShrink: 0, marginTop: 15, color: "#a3a3a3" }} />
-                )}
-                <div role="listitem" style={{ flex: "1 1 0", minWidth: 0, maxWidth: 90 }}>
-                  <button
-                    type="button"
-                    title={detail?.index === index ? undefined : `${step.label}\n${step.detail}`}
-                    aria-label={`${step.label}: ${step.detail}`}
-                    aria-describedby={detail?.index === index ? tooltipId : undefined}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onFocus={(event) => showDetail(event.currentTarget)}
-                    onBlur={(event) => {
-                      if (!popover.current?.contains(event.relatedTarget)) setDetail(null);
-                    }}
-                    onClick={(event) => showDetail(event.currentTarget)}
-                    onKeyDown={(event) => {
-                      event.stopPropagation();
-                      if (event.key === "Escape") setDetail(null);
-                    }}
-                    className="group rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: 7,
-                      width: "100%",
-                      padding: 0,
-                      border: 0,
-                      background: "none",
-                      color: "#171717",
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                    }}
-                  >
+              <li key={index} style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+                {index > 0 &&
+                  (sameScope ? (
+                    <ArrowRight size={14} aria-hidden style={{ margin: "0 4px", color: "#737373" }} />
+                  ) : (
+                    <span aria-hidden style={{ width: 22, textAlign: "center", color: "#a3a3a3" }}>
+                      ·
+                    </span>
+                  ))}
+                <button
+                  type="button"
+                  title={
+                    detail?.index === index
+                      ? undefined
+                      : `${step.scope ? `${step.scope}\n` : ""}${label}\n${step.detail}`
+                  }
+                  aria-label={`${step.scope ? `${step.scope}: ` : ""}${label}: ${step.detail}`}
+                  aria-describedby={detail?.index === index ? tooltipId : undefined}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onFocus={(event) => showDetail(event.currentTarget)}
+                  onClick={(event) => showDetail(event.currentTarget)}
+                  onBlur={(event) => {
+                    if (!popover.current?.contains(event.relatedTarget)) setDetail(null);
+                  }}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === "Escape") setDetail(null);
+                  }}
+                  className="hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "stretch",
+                    width: 132,
+                    minHeight: 82,
+                    padding: "9px 8px",
+                    boxSizing: "border-box",
+                    border: "2px solid #000",
+                    borderRadius: 12,
+                    background: color,
+                    color: "#000",
+                    textAlign: "left",
+                    fontFamily: "Inter, sans-serif",
+                    cursor: "pointer",
+                  }}
+                >
+                  {step.scope && (
                     <span
-                      className="group-hover:-translate-y-0.5 transition-transform"
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: 46,
-                        height: 46,
-                        boxSizing: "border-box",
-                        border: "2px solid #000",
-                        borderRadius: 12,
-                        background: colors[step.label as keyof typeof colors] ?? "#e5e7eb",
+                        fontSize: 9,
+                        color: "#525252",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        marginBottom: 4,
                       }}
                     >
-                      <Icon size={23} strokeWidth={2} aria-hidden />
+                      {step.scope}
                     </span>
-                    <span style={{ fontSize: 11, lineHeight: "14px", fontWeight: 800, textAlign: "center" }}>
-                      {step.label}
+                  )}
+                  <span
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontSize: 10,
+                      lineHeight: "14px",
+                      fontWeight: 800,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <Icon size={13} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
+                    {label}
+                  </span>
+                  <span
+                    style={{
+                      display: "-webkit-box",
+                      WebkitBoxOrient: "vertical",
+                      WebkitLineClamp: 2,
+                      overflow: "hidden",
+                      overflowWrap: "anywhere",
+                      fontSize: 12,
+                      lineHeight: "16px",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {card.primary}
+                  </span>
+                  {card.secondary && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        lineHeight: "14px",
+                        color: "#444",
+                        marginTop: 3,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {card.secondary}
                     </span>
-                  </button>
-                </div>
-              </Fragment>
+                  )}
+                </button>
+              </li>
             );
           })}
+        </ol>
+      ) : !summary.error ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            color: "#737373",
+            padding: "12px 0",
+          }}
+        >
+          <FileQuestion size={22} aria-hidden />
+          <span style={{ fontSize: 12 }}>{summary.note ?? "No query yet."}</span>
         </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, color: "#737373" }}>
-          <FileQuestion size={26} aria-hidden />
-          <span style={{ fontSize: 12, fontWeight: 700 }}>
-            {summary.error ? "SQL error" : text.trim() ? "No overview yet" : "No query yet"}
-          </span>
-        </div>
-      )}
+      ) : null}
       {summary.error && (
         <pre
           role="alert"
           onPointerDown={(event) => event.stopPropagation()}
           style={{
-            margin: 0,
+            margin: summary.steps.length ? "12px 0 0" : 0,
             fontSize: 12,
             color: "#b91c1c",
             whiteSpace: "pre-wrap",
             overflowWrap: "anywhere",
+            userSelect: "text",
             flexShrink: 0,
           }}
         >
           {summary.error}
         </pre>
-      )}
-      {summary.note && !steps.length && (
-        <div style={{ fontSize: 10, color: "#737373", textAlign: "center" }}>{summary.note}</div>
       )}
       {detail &&
         activeStep &&
@@ -207,6 +259,8 @@ export function SQLBizBody({ text }: { text: string }) {
             id={tooltipId}
             role="tooltip"
             tabIndex={0}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) => event.stopPropagation()}
             onBlur={(event) => {
               if (!container.current?.contains(event.relatedTarget)) setDetail(null);
             }}
@@ -214,31 +268,40 @@ export function SQLBizBody({ text }: { text: string }) {
               event.stopPropagation();
               if (event.key === "Escape") setDetail(null);
             }}
-            onPointerDown={(event) => event.stopPropagation()}
-            onWheel={(event) => event.stopPropagation()}
             style={{
               position: "fixed",
-              left: Math.max(12, Math.min(detail.rect.left + detail.rect.width / 2 - 140, window.innerWidth - 292)),
-              top: Math.max(12, Math.min(detail.rect.bottom + 10, window.innerHeight - 232)),
-              width: 280,
-              maxHeight: 220,
+              left: Math.max(12, Math.min(detail.rect.left, window.innerWidth - 332)),
+              top: Math.max(12, Math.min(detail.rect.bottom + 8, window.innerHeight - 252)),
+              width: 320,
+              maxHeight: 240,
               overflow: "auto",
-              boxSizing: "border-box",
               padding: "10px 12px",
+              boxSizing: "border-box",
               border: "2px solid #000",
               borderRadius: 8,
-              background: "#fff",
               boxShadow: "4px 4px 0 #000",
+              background: "#fff",
+              color: "#171717",
               fontFamily: "Inter, sans-serif",
               fontSize: 12,
-              lineHeight: "18px",
-              color: "#171717",
               pointerEvents: "all",
               zIndex: 999999,
             }}
           >
-            <strong>{activeStep.label}</strong>
-            <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{activeStep.detail}</div>
+            <strong>{activeStep.label === "CONDITIONAL" ? "CLASSIFY" : activeStep.label}</strong>
+            {activeStep.scope && <div style={{ marginTop: 4, color: "#666" }}>{activeStep.scope}</div>}
+            <pre
+              style={{
+                margin: "6px 0 0",
+                fontFamily: "monospace",
+                lineHeight: "18px",
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+                userSelect: "text",
+              }}
+            >
+              {activeStep.detail}
+            </pre>
           </div>,
           document.body
         )}
