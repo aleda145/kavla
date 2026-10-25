@@ -513,12 +513,24 @@ export function getSQLBizSummary(sql: string): BizSummary {
   return summary;
 }
 
+export function getSQLBizCardWidth(step: BizStep) {
+  const card = step.card ?? { primary: step.detail };
+  // Match the monospace card text, leaving room for padding and borders.
+  const primaryWidth = Math.max(...card.primary.split("\n").map((line) => Array.from(line).length)) * 7.3;
+  const secondaryWidth =
+    Math.max(0, ...(card.secondary ?? "").split("\n").map((line) => Array.from(line).length)) * 6.1;
+  return Math.ceil(Math.max(132, primaryWidth + 24, secondaryWidth + 24));
+}
+
 export function getSQLBizSize(sql: string, width: number, hasQueryError = false) {
   // Reserve room for the full action bar, plus the error footer when present.
   const summary = getSQLBizSummary(sql);
-  const flowWidth = summary.steps.length * 132 + Math.max(0, summary.steps.length - 1) * 22 + 152;
+  const flowWidth =
+    summary.steps.reduce((total, step) => total + getSQLBizCardWidth(step), 0) +
+    Math.max(0, summary.steps.length - 1) * 22 +
+    152;
   return {
-    w: Math.min(840, Math.max(400, Math.min(width, 600), flowWidth)),
+    w: Math.max(400, width, flowWidth),
     h: hasQueryError || summary.error ? 360 : 280,
   };
 }

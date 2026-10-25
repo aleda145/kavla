@@ -55,7 +55,7 @@ export function SQLTextAreaBody({
         }}
       >
         {bizMode ? (
-          <SQLBizBody text={text} />
+          <SQLBizBody text={text} shape={shape} />
         ) : (
           <LazySQLEditor
             shapeId={shape.id}
