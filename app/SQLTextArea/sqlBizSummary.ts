@@ -522,17 +522,11 @@ export function getSQLBizCardWidth(step: BizStep) {
   return Math.ceil(Math.max(132, primaryWidth + 24, secondaryWidth + 24));
 }
 
-type BizShapeSize = {
-  w: number;
-  h: number;
-  error?: string | null;
-  lastRunStats?: { rowCount: number } | null;
-  isRunning?: boolean;
-  queryStartTime?: number | null;
-};
+export const SQL_BIZ_CARD_GAP = 12;
 
-export function getSQLBizDirection(summary: BizSummary, size: BizShapeSize) {
+export function getSQLBizColumns(summary: BizSummary, available: { w: number; h: number }): number[] {
   const widths = summary.steps.map(getSQLBizCardWidth);
+  if (!widths.length) return [];
   const heights = summary.steps.map((step) => {
     const card = step.card ?? { primary: step.detail };
     return Math.max(
@@ -543,26 +537,24 @@ export function getSQLBizDirection(summary: BizSummary, size: BizShapeSize) {
         (step.scope ? 18 : 0)
     );
   });
-  const connectors = Math.max(0, summary.steps.length - 1) * 22;
-  const footerHeight = size.error ? 110 : size.lastRunStats || (size.isRunning && size.queryStartTime) ? 38 : 0;
-  const frameHeight = 44 + 8 + footerHeight + (summary.error ? 72 : 0);
-  // Include pipeline padding, the compact action bar, and the outer border.
-  const horizontal = {
-    w: Math.max(240, widths.reduce((sum, width) => sum + width, 0) + connectors + 84),
-    h: frameHeight + Math.max(116, Math.max(82, ...heights) + 24),
-  };
-  const vertical = {
-    w: Math.max(240, Math.max(132, ...widths) + 84),
-    h: frameHeight + Math.max(116, heights.reduce((sum, height) => sum + height, 0) + connectors + 24),
-  };
-  // Prefer the layout with the least proportional overflow inside the SQL box.
-  // If both fit, follow its proportions. Manual resizing uses the same decision.
-  const overflow = (candidate: { w: number; h: number }) =>
-    Math.max(0, candidate.w / Math.max(1, size.w) - 1) + Math.max(0, candidate.h / Math.max(1, size.h) - 1);
-  const horizontalOverflow = overflow(horizontal);
-  const verticalOverflow = overflow(vertical);
-  return summary.steps.length > 1 &&
-    (verticalOverflow < horizontalOverflow || (verticalOverflow === horizontalOverflow && size.h > size.w))
-    ? "vertical"
-    : "horizontal";
+  const gaps = (widths.length - 1) * SQL_BIZ_CARD_GAP;
+  const widest = Math.max(...widths);
+  const horizontalFits =
+    widths.reduce((sum, width) => sum + width, 0) + gaps <= available.w && Math.max(...heights) <= available.h;
+  const verticalFits = widest <= available.w && heights.reduce((sum, height) => sum + height, 0) + gaps <= available.h;
+
+  if (horizontalFits && (!verticalFits || available.w >= available.h)) return widths;
+  if (verticalFits) return [widest];
+
+  // Fill rows left to right, using as many columns as the available width permits.
+  for (let count = widths.length; count >= 2; count--) {
+    const columns = Array<number>(count).fill(0);
+    widths.forEach((width, index) => {
+      columns[index % count] = Math.max(columns[index % count], width);
+    });
+    if (columns.reduce((sum, width) => sum + width, 0) + (count - 1) * SQL_BIZ_CARD_GAP <= available.w) {
+      return columns;
+    }
+  }
+  return [widest];
 }
