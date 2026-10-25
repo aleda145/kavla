@@ -1,4 +1,5 @@
 import { BarChart3, Eye, EyeOff, Play, Search, Square } from "lucide-react";
+import type { CSSProperties } from "react";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 
 const buttonBaseClass =
@@ -12,6 +13,7 @@ const ctaButtonClass =
   "h-9 px-4 text-xs font-black bg-orange-100 text-black border-2 border-black hover:bg-orange-200 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all tracking-tight flex items-center gap-2 justify-center rounded cursor-pointer";
 
 interface SQLTextAreaActionBarProps {
+  bizMode?: boolean;
   hasFooter: boolean;
   isRemoteRunning: boolean;
   shape: SQLTextAreaShape;
@@ -23,6 +25,7 @@ interface SQLTextAreaActionBarProps {
 }
 
 export function SQLTextAreaActionBar({
+  bizMode = false,
   hasFooter,
   isRemoteRunning,
   shape,
@@ -32,6 +35,8 @@ export function SQLTextAreaActionBar({
   onRun,
   onToggleTable,
 }: SQLTextAreaActionBarProps) {
+  const compactButtonStyle: CSSProperties = bizMode ? { height: 24, minHeight: 24, padding: 0, flexShrink: 0 } : {};
+  const labelStyle: CSSProperties | undefined = bizMode ? { display: "none" } : undefined;
   const runOrCancel = () => {
     if (shape.props.isRunning) {
       onCancel();
@@ -48,10 +53,13 @@ export function SQLTextAreaActionBar({
         flexDirection: "column",
         justifyContent: "flex-end",
         alignItems: "center",
-        padding: 8,
+        padding: bizMode ? 4 : 8,
+        width: bizMode ? 48 : undefined,
+        flexShrink: 0,
+        boxSizing: "border-box",
         backgroundColor: "#f3f4f6",
         borderLeft: "4px solid #000",
-        gap: 8,
+        gap: bizMode ? 4 : 8,
         borderBottomRightRadius: hasFooter ? 0 : 8,
       }}
     >
@@ -63,14 +71,19 @@ export function SQLTextAreaActionBar({
         }}
         className={`${buttonBaseClass} ${buttonShadowClass}`}
         style={{
+          ...compactButtonStyle,
           width: "100%",
           justifyContent: "center",
           touchAction: "none",
           backgroundColor: "#fce7f3", // Pink match (ChartUtil)
         }}
+        aria-label="Create Chart"
         title="Create Chart"
       >
-        <BarChart3 size={16} /> <span className="kavla-control-label">Chart</span>
+        <BarChart3 size={16} />{" "}
+        <span className="kavla-control-label" style={labelStyle}>
+          Chart
+        </span>
       </button>
 
       <button
@@ -81,20 +94,28 @@ export function SQLTextAreaActionBar({
         }}
         className={`${buttonBaseClass} ${shape.props.showTable ? buttonPressedClass : buttonShadowClass}`}
         style={{
+          ...compactButtonStyle,
           width: "100%",
           justifyContent: "center",
           touchAction: "none",
           backgroundColor: shape.props.showTable ? "#dcfce7" : "#fff",
         }}
+        aria-label={shape.props.showTable ? "Hide Table" : "Show Table"}
         title={shape.props.showTable ? "Hide Table" : "Show Table"}
       >
         {shape.props.showTable ? (
           <>
-            <Eye size={16} /> <span className="kavla-control-label">Table</span>
+            <Eye size={16} />{" "}
+            <span className="kavla-control-label" style={labelStyle}>
+              Table
+            </span>
           </>
         ) : (
           <>
-            <EyeOff size={16} /> <span className="kavla-control-label">Table</span>
+            <EyeOff size={16} />{" "}
+            <span className="kavla-control-label" style={labelStyle}>
+              Table
+            </span>
           </>
         )}
       </button>
@@ -107,14 +128,19 @@ export function SQLTextAreaActionBar({
         }}
         className={`${buttonBaseClass} ${buttonShadowClass}`}
         style={{
+          ...compactButtonStyle,
           width: "100%",
           justifyContent: "center",
           touchAction: "none",
           backgroundColor: "#fef9c3", // Yellow match (Self)
         }}
+        aria-label="Chain Query"
         title="Chain Query"
       >
-        <Search size={16} /> <span className="kavla-control-label">Query</span>
+        <Search size={16} />{" "}
+        <span className="kavla-control-label" style={labelStyle}>
+          Query
+        </span>
       </button>
 
       <button
@@ -125,27 +151,38 @@ export function SQLTextAreaActionBar({
         }}
         className={ctaButtonClass}
         style={{
+          ...compactButtonStyle,
           width: "100%",
           touchAction: "none",
           opacity: shape.props.isRunning && !isRemoteRunning ? 0.5 : 1,
           cursor: shape.props.isRunning && !isRemoteRunning ? "not-allowed" : "pointer",
         }}
         disabled={shape.props.isRunning && !isRemoteRunning}
+        aria-label={shape.props.isRunning ? "Cancel Query" : "Run Query"}
         title={shape.props.isRunning ? (isRemoteRunning ? "Cancel Query" : "Query is running locally") : "Run Query"}
       >
         {shape.props.isRunning ? (
           isRemoteRunning ? (
             <>
-              <Square size={16} /> <span className="kavla-control-label">Stop</span>
+              <Square size={16} />{" "}
+              <span className="kavla-control-label" style={labelStyle}>
+                Stop
+              </span>
             </>
           ) : (
             <>
-              <span className="animate-spin">⏳</span> <span className="kavla-control-label">Running</span>
+              <span className="animate-spin">⏳</span>{" "}
+              <span className="kavla-control-label" style={labelStyle}>
+                Running
+              </span>
             </>
           )
         ) : (
           <>
-            <Play size={16} /> <span className="kavla-control-label">Run</span>
+            <Play size={16} />{" "}
+            <span className="kavla-control-label" style={labelStyle}>
+              Run
+            </span>
           </>
         )}
       </button>

@@ -524,18 +524,38 @@ export function getSQLBizCardWidth(step: BizStep) {
 
 export function getSQLBizSize(
   sql: string,
-  size: { w: number; h: number; isManuallyResized?: boolean },
-  hasQueryError = false
+  size: {
+    w: number;
+    h: number;
+    isManuallyResized?: boolean;
+    error?: string | null;
+    lastRunStats?: { rowCount: number } | null;
+    isRunning?: boolean;
+    queryStartTime?: number | null;
+  }
 ) {
   if (size.isManuallyResized) return { w: size.w, h: size.h };
-  // Reserve room for the full action bar, plus the error footer when present.
+  // Fit the card row, its padding, the compact action bar, and the outer border.
   const summary = getSQLBizSummary(sql);
   const flowWidth =
     summary.steps.reduce((total, step) => total + getSQLBizCardWidth(step), 0) +
     Math.max(0, summary.steps.length - 1) * 22 +
-    152;
+    84;
+  const cardHeight = Math.max(
+    82,
+    ...summary.steps.map((step) => {
+      const card = step.card ?? { primary: step.detail };
+      return (
+        52 +
+        card.primary.split("\n").length * 16 +
+        (card.secondary ? 3 + card.secondary.split("\n").length * 14 : 0) +
+        (step.scope ? 18 : 0)
+      );
+    })
+  );
+  const footerHeight = size.error ? 110 : size.lastRunStats || (size.isRunning && size.queryStartTime) ? 38 : 0;
   return {
-    w: Math.max(400, size.w, flowWidth),
-    h: hasQueryError || summary.error ? 360 : 280,
+    w: Math.max(240, flowWidth),
+    h: 44 + 8 + Math.max(116, cardHeight + 24) + footerHeight + (summary.error ? 72 : 0),
   };
 }

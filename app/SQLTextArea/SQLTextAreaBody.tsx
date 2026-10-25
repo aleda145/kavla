@@ -69,6 +69,7 @@ export function SQLTextAreaBody({
       </div>
 
       <SQLTextAreaActionBar
+        bizMode={bizMode}
         hasFooter={hasFooter}
         isRemoteRunning={isRemoteRunning}
         shape={shape}
