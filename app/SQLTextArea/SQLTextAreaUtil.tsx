@@ -82,7 +82,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
   getGeometry(shape: SQLTextAreaShape) {
     const size = isBizMode(this.editor, shape.id)
-      ? getSQLBizSize(shape.props.w, Boolean(shape.props.error))
+      ? getSQLBizSize(shape.props.text, shape.props.w, Boolean(shape.props.error))
       : shape.props;
     return new Rectangle2d({
       width: size.w,
@@ -118,7 +118,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
   component(shape: SQLTextAreaShape) {
     const bizMode = useBizMode(this.editor, shape.id);
-    const size = bizMode ? getSQLBizSize(shape.props.w, Boolean(shape.props.error)) : shape.props;
+    const size = bizMode ? getSQLBizSize(shape.props.text, shape.props.w, Boolean(shape.props.error)) : shape.props;
     const { addToast } = useToasts();
     const { updateSourceName, runRemoteQuery, cancelRemoteQuery } = useData();
     this.updateSourceName = updateSourceName;
@@ -142,7 +142,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         type: "sql-result-table",
         id: newShapeId,
         x: currentShape.x,
-        y: currentShape.y + currentShape.props.h + 60,
+        y: currentShape.y + this.editor.getShapeGeometry(currentShape).bounds.height + 60,
         props: {
           sourceShapeId: currentShape.id,
           w: 400,
@@ -356,7 +356,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       this.editor.createShape({
         type: "sql-text-area",
         id: newShapeId,
-        x: shape.x + shape.props.w + 60,
+        x: shape.x + this.editor.getShapeGeometry(shape).bounds.width + 60,
         y: shape.y,
         props: {
           text: `SELECT\n  *\nFROM\n  ${shape.props.name}`,
@@ -534,7 +534,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
   indicator(shape: SQLTextAreaShape) {
     const size = isBizMode(this.editor, shape.id)
-      ? getSQLBizSize(shape.props.w, Boolean(shape.props.error))
+      ? getSQLBizSize(shape.props.text, shape.props.w, Boolean(shape.props.error))
       : shape.props;
     return <rect width={size.w} height={size.h} rx={12} ry={12} />;
   }
