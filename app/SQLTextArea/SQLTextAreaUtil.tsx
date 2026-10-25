@@ -81,9 +81,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   }
 
   getGeometry(shape: SQLTextAreaShape) {
-    const size = isBizMode(this.editor, shape.id)
-      ? getSQLBizSize(shape.props.text, shape.props, Boolean(shape.props.error))
-      : shape.props;
+    const size = isBizMode(this.editor, shape.id) ? getSQLBizSize(shape.props.text, shape.props) : shape.props;
     return new Rectangle2d({
       width: size.w,
       height: size.h,
@@ -118,7 +116,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
   component(shape: SQLTextAreaShape) {
     const bizMode = useBizMode(this.editor, shape.id);
-    const size = bizMode ? getSQLBizSize(shape.props.text, shape.props, Boolean(shape.props.error)) : shape.props;
+    const size = bizMode ? getSQLBizSize(shape.props.text, shape.props) : shape.props;
     const { addToast } = useToasts();
     const { updateSourceName, runRemoteQuery, cancelRemoteQuery } = useData();
     this.updateSourceName = updateSourceName;
@@ -533,9 +531,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   }
 
   indicator(shape: SQLTextAreaShape) {
-    const size = isBizMode(this.editor, shape.id)
-      ? getSQLBizSize(shape.props.text, shape.props, Boolean(shape.props.error))
-      : shape.props;
+    const size = isBizMode(this.editor, shape.id) ? getSQLBizSize(shape.props.text, shape.props) : shape.props;
     return <rect width={size.w} height={size.h} rx={12} ry={12} />;
   }
 
@@ -545,7 +541,12 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     const initialShape = bizMode
       ? { ...shape, props: { ...shape.props, w: info.initialBounds.width, h: info.initialBounds.height } }
       : shape;
-    const resized = resizeBox(initialShape, info, bizMode ? { minWidth: 240, minHeight: 280 } : undefined);
+    const footerHeight = shape.props.error ? 110 : shape.props.lastRunStats || shape.props.isRunning ? 38 : 0;
+    const resized = resizeBox(
+      initialShape,
+      info,
+      bizMode ? { minWidth: 240, minHeight: 168 + footerHeight } : undefined
+    );
     return {
       ...resized,
       props: {

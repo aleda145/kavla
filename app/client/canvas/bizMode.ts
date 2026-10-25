@@ -29,7 +29,7 @@ export function isBizMode(editor: Editor, shapeId?: TLShapeId) {
 
 function fitQueryToMode(shape: SQLTextAreaShape, enabled: boolean) {
   const size = enabled
-    ? getSQLBizSize(shape.props.text, { w: 400, h: 300 }, Boolean(shape.props.error))
+    ? getSQLBizSize(shape.props.text, { ...shape.props, isManuallyResized: false })
     : getAutoExpandedSQLShapeSize(shape.props.text);
   return {
     id: shape.id,
