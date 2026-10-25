@@ -522,7 +522,12 @@ export function getSQLBizCardWidth(step: BizStep) {
   return Math.ceil(Math.max(132, primaryWidth + 24, secondaryWidth + 24));
 }
 
-export function getSQLBizSize(sql: string, width: number, hasQueryError = false) {
+export function getSQLBizSize(
+  sql: string,
+  size: { w: number; h: number; isManuallyResized?: boolean },
+  hasQueryError = false
+) {
+  if (size.isManuallyResized) return { w: size.w, h: size.h };
   // Reserve room for the full action bar, plus the error footer when present.
   const summary = getSQLBizSummary(sql);
   const flowWidth =
@@ -530,7 +535,7 @@ export function getSQLBizSize(sql: string, width: number, hasQueryError = false)
     Math.max(0, summary.steps.length - 1) * 22 +
     152;
   return {
-    w: Math.max(400, width, flowWidth),
+    w: Math.max(400, size.w, flowWidth),
     h: hasQueryError || summary.error ? 360 : 280,
   };
 }
