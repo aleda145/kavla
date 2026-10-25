@@ -63,6 +63,8 @@ const buttonBaseClass =
   "h-9 px-3 border-2 border-black text-black font-bold text-xs flex items-center justify-center gap-2 rounded cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all active:translate-y-[1px]";
 ```
 
+There is also a "just icons" mode. app/client/justIcons.tsx . If its enabled, we should not have any text for a UI element, just the icon.
+
 ### Dropdowns / Overlays
 
 Hard drop shadows identify floating UI (such as chat) as separate from canvas shapes.
