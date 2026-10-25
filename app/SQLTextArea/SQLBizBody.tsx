@@ -29,6 +29,8 @@ import { useSchemaRegistry } from "../hooks/useSchemaRegistry";
 import { buildSqlSchemaIndex } from "./schema-index";
 import { StaticSQLHighlighter, type SQLHighlightTarget } from "./StaticSQLHighlighter";
 import { SQLIdentifierHover } from "./SQLIdentifierHover";
+import { usePopupPlacement } from "./usePopupPlacement";
+import { useExclusivePopup } from "./useExclusivePopup";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 
 const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
@@ -63,6 +65,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
     return (
       <SQLIdentifierHover
         target={target}
+        ownerShapeId={shape.id}
         tableId={schema.tableNameToId.get(tableName)}
         columns={schema.fullSchemaConfig[tableName]}
       >
@@ -70,7 +73,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
       </SQLIdentifierHover>
     );
   };
-  const highlight = (sql: string) => (
+  const highlight = (sql: string, interactive = true) => (
     <StaticSQLHighlighter
       inline
       sql={sql}
@@ -80,7 +83,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
       queries={schema.queries}
       columnMapping={schema.columnMapping}
       upstreamTableNames={upstreamTableNames}
-      renderIdentifier={renderIdentifier}
+      renderIdentifier={interactive ? renderIdentifier : undefined}
     />
   );
   const summary = getSQLBizSummary(text);
@@ -109,13 +112,31 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
     return () => observer.disconnect();
   }, [summary.error]);
   const popover = useRef<HTMLDivElement>(null);
-  const [detail, setDetail] = useState<{ index: number; rect: DOMRect } | null>(null);
+  const [detail, setDetail] = useState<{ index: number; anchor: HTMLElement; pinned: boolean } | null>(null);
+  const position = usePopupPlacement(detail?.anchor ?? null, popover, shape.id);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const cancelHoverTimer = () => clearTimeout(hoverTimer.current);
+  const claimPopup = useExclusivePopup(Boolean(detail), () => {
+    clearTimeout(hoverTimer.current);
+    setDetail(null);
+  });
+  const closeHoverSoon = () => {
+    cancelHoverTimer();
+    hoverTimer.current = setTimeout(() => setDetail((current) => (current?.pinned ? current : null)), 600);
+  };
+  useEffect(() => () => clearTimeout(hoverTimer.current), []);
   const activeStep = detail ? summary.steps[detail.index] : undefined;
 
-  useEffect(() => setDetail(null), [text, available.w, available.h]);
+  useEffect(() => {
+    clearTimeout(hoverTimer.current);
+    setDetail(null);
+  }, [text, available.w, available.h]);
   useEffect(() => {
     if (!detail) return;
-    const dismiss = () => setDetail(null);
+    const dismiss = () => {
+      clearTimeout(hoverTimer.current);
+      setDetail(null);
+    };
     const outside = (event: Event) => {
       if (event.target instanceof Element && event.target.closest("[data-sql-identifier-tooltip]")) return;
       if (event.target instanceof Node && !popover.current?.contains(event.target)) dismiss();
@@ -141,6 +162,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
   return (
     <div
       ref={container}
+      data-sql-biz-body
       aria-label="Query pipeline"
       onWheel={(event) => event.stopPropagation()}
       onScroll={() => setDetail(null)}
@@ -174,17 +196,33 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
             const { Icon, color } = operations[step.label];
             const label = step.label === "CONDITIONAL" ? "CLASSIFY" : step.label;
             const card = step.card ?? { primary: step.detail };
-            const showDetail = (element: HTMLElement) => setDetail({ index, rect: element.getBoundingClientRect() });
+            const showDetail = (anchor: HTMLElement) => {
+              cancelHoverTimer();
+              if (claimPopup(anchor)) setDetail({ index, anchor, pinned: true });
+            };
             return (
               <li key={index} style={{ display: "flex", minWidth: 0 }}>
                 <div
                   role="button"
                   tabIndex={0}
-                  title={
-                    detail?.index === index
-                      ? undefined
-                      : `${step.scope ? `${step.scope}\n` : ""}${label}\n${step.detail}`
-                  }
+                  data-sql-biz-card
+                  onPointerEnter={(event) => {
+                    if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
+                    if (event.target instanceof Element && event.target.closest("[data-sql-identifier]")) return;
+                    cancelHoverTimer();
+                    if (detail?.pinned) return;
+                    const anchor = event.currentTarget;
+                    hoverTimer.current = setTimeout(() => {
+                      if (claimPopup(anchor)) setDetail({ index, anchor, pinned: false });
+                    }, 200);
+                  }}
+                  onPointerOver={(event) => {
+                    if (event.target instanceof Element && event.target.closest("[data-sql-identifier]")) {
+                      cancelHoverTimer();
+                      setDetail((current) => (current?.pinned ? current : null));
+                    }
+                  }}
+                  onPointerLeave={closeHoverSoon}
                   aria-label={`${step.scope ? `${step.scope}: ` : ""}${label}: ${step.detail}`}
                   aria-describedby={detail?.index === index ? tooltipId : undefined}
                   onPointerDown={(event) => event.stopPropagation()}
@@ -330,6 +368,13 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
         createPortal(
           <div
             ref={popover}
+            data-sql-popup
+            onPointerEnter={cancelHoverTimer}
+            onPointerLeave={closeHoverSoon}
+            onFocus={() => {
+              cancelHoverTimer();
+              setDetail((current) => (current ? { ...current, pinned: true } : null));
+            }}
             id={tooltipId}
             role="tooltip"
             tabIndex={0}
@@ -353,10 +398,10 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
             }}
             style={{
               position: "fixed",
-              left: Math.max(12, Math.min(detail.rect.left, window.innerWidth - 332)),
-              top: Math.max(12, Math.min(detail.rect.bottom + 8, window.innerHeight - 252)),
+              ...position,
               width: 320,
-              maxHeight: 240,
+              maxWidth: "calc(100vw - 16px)",
+              maxHeight: "min(240px, calc(100vh - 16px))",
               overflow: "auto",
               padding: "10px 12px",
               boxSizing: "border-box",
@@ -383,7 +428,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
                 userSelect: "text",
               }}
             >
-              {highlight(activeStep.detail)}
+              {highlight(activeStep.detail, false)}
             </pre>
           </div>,
           document.body
