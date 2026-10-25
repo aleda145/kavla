@@ -49,7 +49,7 @@ export function SQLTextAreaHeader({ editor, shape, onNameChange }: SQLTextAreaHe
           onClick={() => setQueryBizMode(editor, shape.id, !bizMode)}
           onPointerDown={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
-          className="flex h-6 w-7 items-center justify-center rounded border-2 border-black bg-teal-100 p-0 text-black shadow-[2px_2px_0_#000] cursor-pointer hover:bg-teal-200 aria-pressed:bg-teal-200 aria-pressed:translate-x-px aria-pressed:translate-y-px aria-pressed:shadow-none active:translate-x-px active:translate-y-px active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+          className="flex h-6 w-7 items-center justify-center rounded border-2 border-black bg-white p-0 text-black shadow-none cursor-pointer aria-pressed:translate-x-px aria-pressed:translate-y-px aria-pressed:shadow-none active:translate-x-px active:translate-y-px active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
         >
           {bizMode ? <BriefcaseBusiness size={14} aria-hidden /> : <Code2 size={14} aria-hidden />}
         </button>
