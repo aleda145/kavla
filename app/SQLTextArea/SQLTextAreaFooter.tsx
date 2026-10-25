@@ -33,7 +33,7 @@ function Timer({ startTime }: { startTime: number }) {
   return <span>{elapsed.toFixed(1)}s</span>;
 }
 
-export function SQLTextAreaFooter({ shape, bizMode = false }: { shape: SQLTextAreaShape; bizMode?: boolean }) {
+export function SQLTextAreaFooter({ shape }: { shape: SQLTextAreaShape }) {
   const { addToast } = useToasts();
 
   if (shape.props.isRunning && shape.props.queryStartTime) {
@@ -57,8 +57,6 @@ export function SQLTextAreaFooter({ shape, bizMode = false }: { shape: SQLTextAr
         style={{
           display: "flex",
           background: "#fef2f2",
-          maxHeight: bizMode ? 110 : undefined,
-          flexShrink: bizMode ? 0 : undefined,
           borderTop: "4px solid #000",
           borderBottomLeftRadius: 8,
           borderBottomRightRadius: 8,
@@ -118,9 +116,6 @@ export function SQLTextAreaFooter({ shape, bizMode = false }: { shape: SQLTextAr
 
   if (shape.props.lastRunStats) {
     const { executionTime, rowCount, runnerName } = shape.props.lastRunStats;
-    if (bizMode) {
-      return <div style={footerStyle}>{rowCount.toLocaleString()} rows</div>;
-    }
     return (
       <div style={footerStyle}>
         <div style={{ display: "flex", gap: "4px", justifyContent: "center", alignItems: "center" }}>
