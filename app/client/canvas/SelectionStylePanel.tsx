@@ -3,6 +3,7 @@ import {
   createShapeId,
   DefaultStylePanel,
   DefaultStylePanelContent,
+  TldrawUiButton,
   type Editor,
   type TLShapeId,
   type TLUiStylePanelProps,
@@ -32,22 +33,35 @@ const operations = [
   {
     operation: "UNION ALL",
     icon: Layers,
+    color: "#ef4444",
     description: "Stack all rows, keeping duplicates. Columns match by position.",
   },
-  { operation: "UNION", icon: Merge, description: "Combine rows and remove duplicates. Columns match by position." },
-  { operation: "JOIN", icon: Columns3, description: "Join matching rows using keys you choose." },
+  {
+    operation: "UNION",
+    icon: Merge,
+    color: "#b91c1c",
+    description: "Combine rows and remove duplicates. Columns match by position.",
+  },
+  { operation: "JOIN", icon: Columns3, color: "#2563eb", description: "Join matching rows using keys you choose." },
   {
     operation: "INTERSECT",
     icon: Scan,
+    color: "#15803d",
     description: "Keep distinct rows present in every input. Columns match by position.",
   },
   {
     operation: "EXCEPT",
     icon: CircleMinus,
+    color: "#c2410c",
     description: "Keep rows in A that are absent from the other inputs. Choose A before running.",
   },
-  { operation: "DIFF", icon: Diff, description: "Compare two datasets to find added, removed, or changed records." },
-] satisfies { operation: SelectionOperation; icon: typeof Merge; description: string }[];
+  {
+    operation: "DIFF",
+    icon: Diff,
+    color: "#0e7490",
+    description: "Compare two datasets to find added, removed, or changed records.",
+  },
+] satisfies { operation: SelectionOperation; icon: typeof Merge; color: string; description: string }[];
 
 function getSelectedInputs(editor: Editor): SQLDependencyShape[] {
   const inputs = new Map<TLShapeId, SQLDependencyShape>();
@@ -168,8 +182,17 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
     <DefaultStylePanel {...props}>
       <DefaultStylePanelContent styles={styles} />
       {inputs.length >= 2 && (
-        <div className="tlui-style-panel__section" style={{ display: "grid", gap: 6 }}>
-          {operations.map(({ operation, icon: Icon, description }) => {
+        <div
+          className="tlui-style-panel__section"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            padding: 4,
+            backgroundColor: "#fff",
+            borderRadius: 8,
+          }}
+        >
+          {operations.map(({ operation, icon: Icon, color, description }) => {
             const error =
               operation === "DIFF"
                 ? inputs.length !== 2
@@ -179,20 +202,19 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
                   ? getKeyOperationError(inputs)
                   : getSetOperationError(inputs);
             return (
-              <button
+              <TldrawUiButton
                 key={operation}
-                type="button"
+                type="icon"
                 data-testid={`selection.${operation.toLowerCase().replaceAll(" ", "-")}`}
                 aria-label={`${operation} selected data`}
-                title={error || description}
+                title={`${operation}: ${error || description}`}
                 disabled={Boolean(error)}
-                className="h-9 w-full px-3 border-2 border-black bg-yellow-100 hover:bg-yellow-200 text-black font-bold text-xs flex items-center justify-center gap-2 rounded cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all active:translate-y-[1px] disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ width: "100%", minWidth: 0, height: 32, color, opacity: error ? 0.4 : 1 }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={() => selectOperation(operation)}
               >
-                <Icon size={16} />
-                <span className="kavla-control-label">{operation}</span>
-              </button>
+                <Icon size={18} aria-hidden="true" />
+              </TldrawUiButton>
             );
           })}
         </div>
