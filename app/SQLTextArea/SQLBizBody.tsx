@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowRight,
@@ -18,15 +18,21 @@ import {
   Sigma,
   type LucideIcon,
 } from "lucide-react";
-import { getSQLBizSummary, type BizOperation } from "./sqlBizSummary";
+import { getSQLBizCardWidth, getSQLBizSummary, type BizOperation } from "./sqlBizSummary";
+
+import { useSchemaRegistry } from "../hooks/useSchemaRegistry";
+import { buildSqlSchemaIndex } from "./schema-index";
+import { StaticSQLHighlighter, type SQLHighlightTarget } from "./StaticSQLHighlighter";
+import { SQLIdentifierHover } from "./SQLIdentifierHover";
+import type { SQLTextAreaShape } from "./sql-text-area-types";
 
 const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
-  READ: { Icon: Database, color: "#dbeafe" },
+  READ: { Icon: Database, color: "#bfdbfe" },
   JOIN: { Icon: GitMerge, color: "#fed7aa" },
   FILTER: { Icon: Filter, color: "#99f6e4" },
   CALCULATE: { Icon: Calculator, color: "#fde68a" },
-  BUCKET: { Icon: Blocks, color: "#ffedd5" },
-  CLEAN: { Icon: Brush, color: "#ccfbf1" },
+  BUCKET: { Icon: Blocks, color: "#fed7aa" },
+  CLEAN: { Icon: Brush, color: "#99f6e4" },
   CONDITIONAL: { Icon: GitBranch, color: "#fecaca" },
   AGGREGATE: { Icon: Sigma, color: "#fbcfe8" },
   "FILTER GROUPS": { Icon: Filter, color: "#99f6e4" },
@@ -40,7 +46,38 @@ const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
   COMBINE: { Icon: Combine, color: "#cbd5e1" },
 };
 
-export function SQLBizBody({ text }: { text: string }) {
+export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaShape }) {
+  const registry = useSchemaRegistry();
+  const schema = useMemo(() => buildSqlSchemaIndex(registry), [registry]);
+  const upstreamTableNames = (shape.props.upstreamShapeIds ?? []).flatMap((id) => {
+    const entry = registry[id];
+    return entry ? [entry.tableName] : [];
+  });
+  const renderIdentifier = (content: ReactNode, target: SQLHighlightTarget) => {
+    const tableName = target.kind === "column" ? target.column.tableName : target.tableName;
+    return (
+      <SQLIdentifierHover
+        target={target}
+        tableId={schema.tableNameToId.get(tableName)}
+        columns={schema.fullSchemaConfig[tableName]}
+      >
+        {content}
+      </SQLIdentifierHover>
+    );
+  };
+  const highlight = (sql: string) => (
+    <StaticSQLHighlighter
+      inline
+      sql={sql}
+      contextSql={text}
+      validTableNames={schema.tableNames}
+      sources={schema.sources}
+      queries={schema.queries}
+      columnMapping={schema.columnMapping}
+      upstreamTableNames={upstreamTableNames}
+      renderIdentifier={renderIdentifier}
+    />
+  );
   const summary = getSQLBizSummary(text);
   const tooltipId = useId();
   const container = useRef<HTMLDivElement>(null);
@@ -53,6 +90,7 @@ export function SQLBizBody({ text }: { text: string }) {
     if (!detail) return;
     const dismiss = () => setDetail(null);
     const outside = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest("[data-sql-identifier-tooltip]")) return;
       if (event.target instanceof Node && !popover.current?.contains(event.target)) dismiss();
     };
     const pointer = (event: PointerEvent) => {
@@ -108,8 +146,7 @@ export function SQLBizBody({ text }: { text: string }) {
             const card = step.card ?? { primary: step.detail };
             const previous = summary.steps[index - 1];
             const sameScope = previous?.scope === step.scope;
-            const showDetail = (element: HTMLButtonElement) =>
-              setDetail({ index, rect: element.getBoundingClientRect() });
+            const showDetail = (element: HTMLElement) => setDetail({ index, rect: element.getBoundingClientRect() });
             return (
               <li key={index} style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
                 {index > 0 &&
@@ -120,8 +157,9 @@ export function SQLBizBody({ text }: { text: string }) {
                       ·
                     </span>
                   ))}
-                <button
-                  type="button"
+                <div
+                  role="button"
+                  tabIndex={0}
                   title={
                     detail?.index === index
                       ? undefined
@@ -130,27 +168,42 @@ export function SQLBizBody({ text }: { text: string }) {
                   aria-label={`${step.scope ? `${step.scope}: ` : ""}${label}: ${step.detail}`}
                   aria-describedby={detail?.index === index ? tooltipId : undefined}
                   onPointerDown={(event) => event.stopPropagation()}
-                  onFocus={(event) => showDetail(event.currentTarget)}
+                  onFocus={(event) => {
+                    if (event.target === event.currentTarget) showDetail(event.currentTarget);
+                  }}
                   onClick={(event) => showDetail(event.currentTarget)}
                   onBlur={(event) => {
-                    if (!popover.current?.contains(event.relatedTarget)) setDetail(null);
+                    if (
+                      event.relatedTarget instanceof Element &&
+                      event.relatedTarget.closest("[data-sql-identifier-tooltip]")
+                    )
+                      return;
+                    if (
+                      !event.currentTarget.contains(event.relatedTarget) &&
+                      !popover.current?.contains(event.relatedTarget)
+                    )
+                      setDetail(null);
                   }}
                   onKeyDown={(event) => {
                     event.stopPropagation();
                     if (event.key === "Escape") setDetail(null);
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      showDetail(event.currentTarget);
+                    }
                   }}
                   className="hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
                   style={{
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "stretch",
-                    width: 132,
+                    width: getSQLBizCardWidth(step),
                     minHeight: 82,
                     padding: "9px 8px",
                     boxSizing: "border-box",
                     border: "2px solid #000",
                     borderRadius: 12,
-                    background: color,
+                    background: "#fff",
                     color: "#000",
                     textAlign: "left",
                     fontFamily: "Inter, sans-serif",
@@ -180,6 +233,12 @@ export function SQLBizBody({ text }: { text: string }) {
                       lineHeight: "14px",
                       fontWeight: 800,
                       marginBottom: 8,
+                      alignSelf: "flex-start",
+                      padding: "3px 6px",
+                      borderRadius: 999,
+                      border: "1px solid #000",
+                      background: color,
+                      whiteSpace: "nowrap",
                     }}
                   >
                     <Icon size={13} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
@@ -187,17 +246,13 @@ export function SQLBizBody({ text }: { text: string }) {
                   </span>
                   <span
                     style={{
-                      display: "-webkit-box",
-                      WebkitBoxOrient: "vertical",
-                      WebkitLineClamp: 2,
-                      overflow: "hidden",
-                      overflowWrap: "anywhere",
+                      whiteSpace: "pre",
                       fontSize: 12,
                       lineHeight: "16px",
                       fontWeight: 700,
                     }}
                   >
-                    {card.primary}
+                    {highlight(card.primary)}
                   </span>
                   {card.secondary && (
                     <span
@@ -206,15 +261,13 @@ export function SQLBizBody({ text }: { text: string }) {
                         lineHeight: "14px",
                         color: "#444",
                         marginTop: 3,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
+                        whiteSpace: "pre",
                       }}
                     >
-                      {card.secondary}
+                      {highlight(card.secondary)}
                     </span>
                   )}
-                </button>
+                </div>
               </li>
             );
           })}
@@ -262,7 +315,16 @@ export function SQLBizBody({ text }: { text: string }) {
             onPointerDown={(event) => event.stopPropagation()}
             onWheel={(event) => event.stopPropagation()}
             onBlur={(event) => {
-              if (!container.current?.contains(event.relatedTarget)) setDetail(null);
+              if (
+                event.relatedTarget instanceof Element &&
+                event.relatedTarget.closest("[data-sql-identifier-tooltip]")
+              )
+                return;
+              if (
+                !event.currentTarget.contains(event.relatedTarget) &&
+                !container.current?.contains(event.relatedTarget)
+              )
+                setDetail(null);
             }}
             onKeyDown={(event) => {
               event.stopPropagation();
@@ -300,7 +362,7 @@ export function SQLBizBody({ text }: { text: string }) {
                 userSelect: "text",
               }}
             >
-              {activeStep.detail}
+              {highlight(activeStep.detail)}
             </pre>
           </div>,
           document.body

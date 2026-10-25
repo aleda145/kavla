@@ -16,8 +16,13 @@ import {
 
 const parser = DuckDBDialect.language.parser;
 
+export type SQLHighlightTarget = { kind: "column"; column: SqlColumnDefinition } | { kind: "table"; tableName: string };
+
 interface StaticSQLHighlighterProps {
   sql: string;
+  inline?: boolean;
+  contextSql?: string;
+  renderIdentifier?: (content: React.ReactNode, target: SQLHighlightTarget) => React.ReactNode;
   validTableNames?: Set<string>;
   sources?: Set<string>;
   queries?: Set<string>;
@@ -26,11 +31,21 @@ interface StaticSQLHighlighterProps {
 }
 
 export const StaticSQLHighlighter = memo(
-  ({ sql, validTableNames, sources, queries, columnMapping, upstreamTableNames }: StaticSQLHighlighterProps) => {
+  ({
+    sql,
+    inline = false,
+    contextSql,
+    renderIdentifier,
+    validTableNames,
+    sources,
+    queries,
+    columnMapping,
+    upstreamTableNames,
+  }: StaticSQLHighlighterProps) => {
     const editor = useEditor();
     const spansByLine = useMemo(() => {
       const tableNames = createSqlNameLookup(validTableNames ?? []);
-      const mentionedTables = findMentionedTables(sql, tableNames);
+      const mentionedTables = findMentionedTables(contextSql ?? sql, tableNames);
       const upstreamTables = new Set(upstreamTableNames ?? []);
       const tree = parser.parse(sql);
       let tokens: { from: number; to: number; classes?: string; knobName?: string }[] = [];
@@ -91,11 +106,7 @@ export const StaticSQLHighlighter = memo(
 
             // Parser styling takes precedence inside literals and comments so their
             // contents are not mistaken for schema identifiers.
-            const isSafe =
-              token.classes &&
-              (token.classes.includes("string") ||
-                token.classes.includes("comment") ||
-                token.classes.includes("number"));
+            const isSafe = /String|Comment|Number/.test(tree.resolveInner(intersectionStart, 1).name);
 
             if (token.knobName !== undefined) {
               const name = token.knobName;
@@ -135,11 +146,12 @@ export const StaticSQLHighlighter = memo(
                 columnMapping,
                 upstreamTables,
                 mentionedTables,
-                sql
+                sql,
+                renderIdentifier
               );
 
               const mergedNodes = highlighted.map((node, _i) => {
-                if (React.isValidElement(node) && token.classes) {
+                if (React.isValidElement(node) && node.type !== React.Fragment && token.classes) {
                   const element = node as React.ReactElement<{ className?: string }>;
                   const existingClass = element.props.className || "";
                   const newClass = `${existingClass} ${token.classes}`.trim();
@@ -166,7 +178,31 @@ export const StaticSQLHighlighter = memo(
 
         return lineNodes;
       });
-    }, [sql, validTableNames, sources, queries, columnMapping, upstreamTableNames, editor]);
+    }, [
+      sql,
+      contextSql,
+      renderIdentifier,
+      validTableNames,
+      sources,
+      queries,
+      columnMapping,
+      upstreamTableNames,
+      editor,
+    ]);
+
+    if (inline) {
+      return (
+        <span style={{ fontFamily: "monospace", color: "#000" }}>
+          <style>{defaultHighlightStyle.module?.getRules()}</style>
+          {spansByLine.map((line, index) => (
+            <React.Fragment key={index}>
+              {index > 0 && <br />}
+              {line}
+            </React.Fragment>
+          ))}
+        </span>
+      );
+    }
 
     const lineCount = spansByLine.length;
     // Match CodeMirror's gutter padding while allowing for every line-number digit.
@@ -256,7 +292,8 @@ const renderWithHighlights = (
   columnMapping?: Record<string, SqlColumnDefinition[]>,
   upstreamTableNames?: ReadonlySet<string>,
   mentionedTables?: ReadonlySet<string>,
-  fullSql?: string
+  fullSql?: string,
+  renderIdentifier?: StaticSQLHighlighterProps["renderIdentifier"]
 ) => {
   const hasTables = tableNames.size > 0;
   const hasColumns = columnMapping && Object.keys(columnMapping).length > 0;
@@ -303,10 +340,11 @@ const renderWithHighlights = (
         // Source tables use the default blue style.
       }
 
+      const content = <span style={style}>{text.slice(identifier.from, identifier.to)}</span>;
       parts.push(
-        <span key={keyOffset + identifier.from} style={style}>
-          {text.slice(identifier.from, identifier.to)}
-        </span>
+        <React.Fragment key={keyOffset + identifier.from}>
+          {renderIdentifier ? renderIdentifier(content, { kind: "table", tableName }) : content}
+        </React.Fragment>
       );
 
       lastIndex = identifier.to;
@@ -323,14 +361,15 @@ const renderWithHighlights = (
       const type = prioritizedDef.type;
       const colorClass = getColumnTypeMutedColor(type);
 
-      parts.push(
-        <span
-          key={keyOffset + identifier.from}
-          className={`${colorClass} rounded-none text-black`}
-          style={{ fontFamily: "monospace" }}
-        >
+      const content = (
+        <span className={`${colorClass} rounded-none text-black`} style={{ fontFamily: "monospace" }}>
           {text.slice(identifier.from, identifier.to)}
         </span>
+      );
+      parts.push(
+        <React.Fragment key={keyOffset + identifier.from}>
+          {renderIdentifier ? renderIdentifier(content, { kind: "column", column: prioritizedDef }) : content}
+        </React.Fragment>
       );
 
       lastIndex = identifier.to;
