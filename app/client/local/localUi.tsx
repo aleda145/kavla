@@ -25,7 +25,6 @@ import {
 import { useCliStatus } from "../localServer/runtimeStore";
 import {
   Asterisk,
-  BriefcaseBusiness,
   Database,
   FilePlus2,
   FileTerminal,
@@ -41,7 +40,6 @@ import { createOrFocusAgentChat } from "../../AgentBlob/agent-chat-store";
 import { LocalRoomInfoPanel } from "./LocalRoomInfoPanel";
 import { KavlaVersionBadge } from "./KavlaVersion";
 import { LineageHighlights } from "../canvas/LineageHighlights";
-import { setBizMode, useBizMode } from "../canvas/bizMode";
 import { LocalAgentDialog } from "./LocalAgentDialog";
 import { LocalSaveDialog } from "./LocalSaveDialog";
 import { LocalSourcesDialog } from "./LocalSourcesDialog";
@@ -115,7 +113,6 @@ function LocalDocumentControls({
   onSaveDocument,
 }: LocalDocumentControlsProps) {
   const editor = useEditor();
-  const bizMode = useBizMode(editor);
   const { isMobile, setIsMobileOpen } = useAgentChatLayout();
   const [dialogMode, setDialogMode] = useState<"load" | "new" | null>(null);
   const [showSources, setShowSources] = useState(false);
@@ -182,9 +179,6 @@ function LocalDocumentControls({
           .kavla-document-control[data-action="history"] { background: var(--color-orange-100, #ffedd5); }
           .kavla-document-control[data-action="sources"] { background: #dbeafe; }
           .kavla-document-control[data-action="agent"] { background: #ede9fe; }
-          .kavla-document-control[data-action="biz"] { background: #fff; }
-          .kavla-document-control[data-action="biz"][aria-pressed="true"] { background: #fde047; }
-          .kavla-document-control[data-action="biz"]:hover { background: #fef08a; }
           .kavla-document-control[data-action="new"]:hover { background: #fde68a; }
           .kavla-document-control[data-action="save"]:hover { background: #fbcfe8; }
           .kavla-document-control[data-action="load"]:hover { background: #bbf7d0; }
@@ -272,19 +266,6 @@ function LocalDocumentControls({
       >
         <Sparkles color="#6d28d9" size={14} />
         <span className="kavla-control-label">Agent</span>
-      </button>
-      <button
-        aria-label="Biz mode"
-        aria-pressed={bizMode}
-        className="kavla-document-control"
-        data-action="biz"
-        onClick={() => setBizMode(editor, !bizMode)}
-        onPointerDown={(event) => event.stopPropagation()}
-        title={bizMode ? "Turn off Biz mode to show SQL" : "Show query steps instead of SQL"}
-        type="button"
-      >
-        <BriefcaseBusiness size={14} />
-        Biz mode
       </button>
       {dialogMode ? (
         <LocalSaveDialog

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Pin, Terminal } from "lucide-react";
+import { BriefcaseBusiness, Code2, Pin, Terminal } from "lucide-react";
 import { siDuckdb, siGithub } from "simple-icons";
 import { createShapeId, useEditor, useValue } from "tldraw";
 import { isBackendComputing } from "../backendCompute";
+import { setBizMode, useBizMode } from "../canvas/bizMode";
 import { getCliTerminalDisplay } from "../cliTerminalDisplay";
 import { useCliOutput, useCliStatus } from "../localServer/runtimeStore";
 import { LocalAssetsDialog } from "./LocalAssetsDialog";
@@ -42,6 +43,7 @@ function formatCompactFileSize(fileSize: number): string {
 
 export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
   const editor = useEditor();
+  const bizMode = useBizMode(editor);
   const cliConnected = useCliStatus();
   const cliOutput = useCliOutput();
   const cliTerminalDisplay = getCliTerminalDisplay(cliConnected, cliOutput);
@@ -148,6 +150,49 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
         className="pointer-events-auto flex select-none items-center gap-2 border-b-2 border-l-2 border-black bg-white p-3"
         style={{ borderRadius: "0 0 0 12px" }}
       >
+        <div
+          role="group"
+          aria-label="Canvas query mode"
+          style={{ ...lightStyle, padding: 0, overflow: "hidden", flexShrink: 0 }}
+        >
+          {(["SQL", "Biz"] as const).map((mode) => {
+            const isBiz = mode === "Biz";
+            const selected = bizMode === isBiz;
+            const Icon = isBiz ? BriefcaseBusiness : Code2;
+            return (
+              <button
+                key={mode}
+                type="button"
+                aria-label={`Show ${mode} mode for all queries`}
+                aria-pressed={selected}
+                onClick={() => setBizMode(editor, isBiz)}
+                onPointerDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                title={isBiz ? "Show query flows for all queries" : "Show SQL for all queries"}
+                className="hover:brightness-95 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-black"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: "100%",
+                  padding: "0 7px",
+                  border: 0,
+                  borderLeft: isBiz ? "2px solid #000" : undefined,
+                  backgroundColor: selected ? "#99f6e4" : "#fff",
+                  color: selected ? "#000" : "#525252",
+                  cursor: "pointer",
+                  fontFamily: "Inter, sans-serif",
+                  fontSize: 11,
+                  fontWeight: 850,
+                  gap: 5,
+                }}
+              >
+                <Icon size={14} aria-hidden />
+                <span>{mode}</span>
+              </button>
+            );
+          })}
+        </div>
         <div
           style={{ position: "relative" }}
           onPointerEnter={(event) => {
