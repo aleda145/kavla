@@ -40,7 +40,7 @@ import { buildRemoteSQLFromDag, describeQueryExecution, getMissingSourceMessage,
 import { getAutoExpandedSQLShapeSize } from "./sqlShapeSize";
 import { getKnobNames, getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
 import { ensureQueryKnobs } from "../Knob/createKnobs";
-import { isBizMode, useBizMode } from "../client/canvas/bizMode";
+import { useBizMode } from "../client/canvas/bizMode";
 
 export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   private updateSourceName: ((payload: { prevName: string; nextName: string }) => void) | null = null;
@@ -503,7 +503,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
             onToggleTable={handleToggleTable}
             validator={handleValidate}
           />
-          <SQLTextAreaFooter shape={shape} bizMode={bizMode} />
+          <SQLTextAreaFooter shape={shape} />
           <div
             style={{
               position: "absolute",
@@ -525,9 +525,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   }
 
   override onResize(shape: SQLTextAreaShape, info: TLResizeInfo<SQLTextAreaShape>) {
-    const bizMode = isBizMode(this.editor, shape.id);
-    const footerHeight = shape.props.error ? 110 : shape.props.lastRunStats || shape.props.isRunning ? 38 : 0;
-    const resized = resizeBox(shape, info, bizMode ? { minWidth: 240, minHeight: 168 + footerHeight } : undefined);
+    const resized = resizeBox(shape, info);
     return {
       ...resized,
       props: {
