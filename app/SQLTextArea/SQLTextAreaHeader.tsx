@@ -1,4 +1,4 @@
-import { Asterisk, BriefcaseBusiness } from "lucide-react";
+import { Asterisk, BriefcaseBusiness, Code2 } from "lucide-react";
 import type { Editor } from "tldraw";
 import EditableText from "../util/EditableText";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
@@ -45,13 +45,13 @@ export function SQLTextAreaHeader({ editor, shape, onNameChange }: SQLTextAreaHe
           type="button"
           aria-label="Biz mode for this query"
           aria-pressed={bizMode}
-          title={bizMode ? "Show SQL for this query" : "Show flow for this query"}
+          title={bizMode ? "Biz mode · click to show SQL" : "SQL mode · click to show Biz flow"}
           onClick={() => setQueryBizMode(editor, shape.id, !bizMode)}
           onPointerDown={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
           className="flex h-6 w-7 items-center justify-center rounded border-2 border-black bg-teal-100 p-0 text-black shadow-[2px_2px_0_#000] cursor-pointer hover:bg-teal-200 aria-pressed:bg-teal-200 aria-pressed:translate-x-px aria-pressed:translate-y-px aria-pressed:shadow-none active:translate-x-px active:translate-y-px active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
         >
-          <BriefcaseBusiness size={14} aria-hidden />
+          {bizMode ? <BriefcaseBusiness size={14} aria-hidden /> : <Code2 size={14} aria-hidden />}
         </button>
       </div>
     </div>
