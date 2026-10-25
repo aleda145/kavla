@@ -16,7 +16,13 @@ import { connectShapes, disconnectShapes, setShapeUpstreamConnections } from "..
 import { getUniqueName } from "../util/getUniqueName";
 import { useData } from "../client/useLocalServer";
 import { useEffect, useState } from "react";
-import { validateBackendQuery } from "../client/backendCompute";
+import { backendRequest, validateBackendQuery, withBackendActivity } from "../client/backendCompute";
+import { transpileRemoteSQL } from "../client/localServer/runtimeStore";
+import { rememberUploadedBlob, type KavlaBlobDescriptor } from "../client/local/localSession";
+import type { ColumnMetadata, DataSourceShape } from "../DataSource/data-source-types";
+import { calculateDataSourceHeight, calculateDataSourceWidth } from "../DataSource/ingestLocalDataSourceFile";
+import { StoreQueryDialog, type StoreDestination } from "./StoreQueryDialog";
+import { toValidSqlName } from "../util/sql";
 import { ShapeEngineTabs } from "../util/ShapeEngineTabs";
 import {
   type EditorValidationIssue,
@@ -116,6 +122,79 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     const { updateSourceName, runRemoteQuery, cancelRemoteQuery } = useData();
     this.updateSourceName = updateSourceName;
     const [isRemoteRunning, setIsRemoteRunning] = useState(false);
+    const [storeOpen, setStoreOpen] = useState(false);
+
+    const handleStore = async (destination: StoreDestination) => {
+      const current = this.editor.getShape<SQLTextAreaShape>(shape.id);
+      if (!current) throw new Error("The query was deleted.");
+      if (current.props.isRunning) throw new Error("Wait for the current query to finish before storing it.");
+      ensureQueryKnobs(this.editor, current, current.props.text);
+      const dag = walkSQLDag(this.editor, current.props.text);
+      if (!dag.ok) throw new Error(dag.error.message);
+      if (dag.plan.nextUpstreamShapeIds.includes(shape.id)) throw new Error("A query cannot read from its own output.");
+      const { sourceName, sourceType, sourceNativePreview } = dag.plan.executionState;
+      const executionEngine = sourceNativePreview ? sourceType || undefined : undefined;
+      const sql = buildRemoteSQLFromDag(current.props.text, dag.plan.orderedDependencies, this.editor);
+      const result = await withBackendActivity(async () => {
+        const response = await backendRequest("/api/session/store", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...destination,
+            query: {
+              sql: executionEngine && sourceName ? transpileRemoteSQL(sql, sourceName, executionEngine) : sql,
+              sourceName,
+              executionEngine,
+              shapeId: current.id,
+              queryName: current.props.name,
+            },
+          }),
+        });
+        return (await response.json()) as {
+          sourceName: string;
+          sourceType: string;
+          tableName: string;
+          tableRef: string;
+          rowCount: number;
+          schema: ColumnMetadata[];
+          blob?: KavlaBlobDescriptor;
+          warning?: string;
+        };
+      });
+      if (result.blob) rememberUploadedBlob(result.blob);
+      const newShapeId = createShapeId();
+      this.editor.run(() => {
+        this.editor.createShape<DataSourceShape>({
+          id: newShapeId,
+          type: "data-source",
+          parentId: current.parentId,
+          x: current.x + current.props.w + 80,
+          y: current.y,
+          props: {
+            name: getUniqueName(this.editor, result.tableName),
+            filename: result.blob?.fileName ?? result.tableRef,
+            sourceName: result.sourceName,
+            sourceType: result.sourceType,
+            remoteTableRef: result.tableRef,
+            metadata: result.schema,
+            rowCount: result.rowCount,
+            w: calculateDataSourceWidth(result.schema, result.tableRef),
+            h: calculateDataSourceHeight(result.schema, result.rowCount),
+          },
+        });
+        if (this.editor.getShape(current.id)) {
+          setShapeUpstreamConnections(this.editor, current.id, dag.plan.nextUpstreamShapeIds as TLShapeId[]);
+          connectShapes(this.editor, current.id, newShapeId);
+        }
+      });
+      this.editor.select(newShapeId);
+      this.editor.zoomToSelection({ animation: { duration: 250 } });
+      addToast({
+        title: result.warning ? "Stored with a warning" : "Result stored",
+        description: result.warning ?? `${result.rowCount.toLocaleString()} rows in ${result.tableRef}`,
+        severity: result.warning ? "warning" : "success",
+      });
+    };
 
     const ensureResultTable = async () => {
       const currentShape = this.editor.getShape<SQLTextAreaShape>(shape.id);
@@ -461,6 +540,13 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
           fontFamily: "Inter, sans-serif",
         }}
       >
+        {storeOpen && (
+          <StoreQueryDialog
+            defaultTableName={toValidSqlName(`${shape.props.name}_stored`)}
+            onClose={() => setStoreOpen(false)}
+            onStore={handleStore}
+          />
+        )}
         <ShapeEngineTabs
           tabs={queryExecutionState.tabs}
           style={{
@@ -507,6 +593,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
             onCreateChart={handleCreateChart}
             onFormat={handleFormat}
             onRun={handleRun}
+            onStore={() => setStoreOpen(true)}
             onTextChange={(value) => update({ text: value, isDirty: true })}
             onToggleTable={handleToggleTable}
             validator={handleValidate}

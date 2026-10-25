@@ -1,4 +1,4 @@
-import { BarChart3, Eye, EyeOff, Play, Search, Square } from "lucide-react";
+import { BarChart3, Database, Eye, EyeOff, Play, Search, Square } from "lucide-react";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 
 const buttonBaseClass =
@@ -19,6 +19,7 @@ interface SQLTextAreaActionBarProps {
   onChainQuery: () => void;
   onCreateChart: () => void;
   onRun: () => void;
+  onStore: () => void;
   onToggleTable: () => void;
 }
 
@@ -30,6 +31,7 @@ export function SQLTextAreaActionBar({
   onChainQuery,
   onCreateChart,
   onRun,
+  onStore,
   onToggleTable,
 }: SQLTextAreaActionBarProps) {
   const runOrCancel = () => {
@@ -48,13 +50,27 @@ export function SQLTextAreaActionBar({
         flexDirection: "column",
         justifyContent: "flex-end",
         alignItems: "center",
-        padding: 8,
+        padding: 6,
         backgroundColor: "#f3f4f6",
         borderLeft: "4px solid #000",
-        gap: 8,
+        gap: 6,
         borderBottomRightRadius: hasFooter ? 0 : 8,
       }}
     >
+      <button
+        onClick={onStore}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          if (event.pointerType === "touch") onStore();
+        }}
+        disabled={shape.props.isRunning}
+        className={`${buttonBaseClass} ${buttonShadowClass} disabled:opacity-50 disabled:cursor-not-allowed`}
+        style={{ width: "100%", backgroundColor: "#dbeafe", touchAction: "none" }}
+        title="Store the query result in a source"
+      >
+        <Database size={16} /> Store
+      </button>
+
       <button
         onClick={onCreateChart}
         onPointerDown={(event) => {

@@ -22,6 +22,14 @@ func (postgresAdapter) Type() string {
 	return "postgres"
 }
 
+func (p *postgresAdapter) AttachSQL(catalogName string, readOnly bool) string {
+	mode := "READ_WRITE"
+	if readOnly {
+		mode = "READ_ONLY"
+	}
+	return fmt.Sprintf("ATTACH %s AS %s (TYPE postgres, %s)", sqlSingleQuoted(p.connection), doubleQuotedQualified([]string{catalogName}), mode)
+}
+
 func (postgresAdapter) StartupRequirements(src kavlaconfig.SourceConfig) (*StartupRequirements, error) {
 	return &StartupRequirements{}, nil
 }
