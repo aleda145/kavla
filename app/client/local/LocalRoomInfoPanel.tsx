@@ -384,7 +384,7 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
                 onPointerDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => event.stopPropagation()}
                 title={isBiz ? "Show query flows for all queries" : "Show SQL for all queries"}
-                className="focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
+                className="kavla-icon-control focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -403,7 +403,7 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
                 }}
               >
                 <Icon size={14} aria-hidden />
-                <span>{mode}</span>
+                <span className="kavla-control-label">{mode}</span>
               </button>
             );
           })}
