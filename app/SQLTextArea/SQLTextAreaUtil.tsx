@@ -42,7 +42,6 @@ import { getKnobNames, getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
 import { ensureQueryKnobs } from "../Knob/createKnobs";
 import { isBizMode, useBizMode } from "../client/canvas/bizMode";
 import { getSQLBizSize } from "./sqlBizSummary";
-import { SQLBizBody } from "./SQLBizBody";
 
 export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   private updateSourceName: ((payload: { prevName: string; nextName: string }) => void) | null = null;
@@ -83,7 +82,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
   getGeometry(shape: SQLTextAreaShape) {
     const size = isBizMode(this.editor, shape.id)
-      ? getSQLBizSize(shape.props.text, shape.props.w, shape.props.h)
+      ? getSQLBizSize(shape.props.w, Boolean(shape.props.error))
       : shape.props;
     return new Rectangle2d({
       width: size.w,
@@ -119,7 +118,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
   component(shape: SQLTextAreaShape) {
     const bizMode = useBizMode(this.editor, shape.id);
-    const size = bizMode ? getSQLBizSize(shape.props.text, shape.props.w, shape.props.h) : shape.props;
+    const size = bizMode ? getSQLBizSize(shape.props.w, Boolean(shape.props.error)) : shape.props;
     const { addToast } = useToasts();
     const { updateSourceName, runRemoteQuery, cancelRemoteQuery } = useData();
     this.updateSourceName = updateSourceName;
@@ -501,24 +500,21 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
             }
           />
 
-          {bizMode ? (
-            <SQLBizBody text={text} />
-          ) : (
-            <SQLTextAreaBody
-              hasFooter={hasFooter}
-              isRemoteRunning={isRemoteRunning || shape.props.isRunning}
-              shape={shape}
-              text={text}
-              onCancel={handleCancel}
-              onChainQuery={handleChainQuery}
-              onCreateChart={handleCreateChart}
-              onFormat={handleFormat}
-              onRun={handleRun}
-              onTextChange={(value) => update({ text: value, isDirty: true })}
-              onToggleTable={handleToggleTable}
-              validator={handleValidate}
-            />
-          )}
+          <SQLTextAreaBody
+            bizMode={bizMode}
+            hasFooter={hasFooter}
+            isRemoteRunning={isRemoteRunning || shape.props.isRunning}
+            shape={shape}
+            text={text}
+            onCancel={handleCancel}
+            onChainQuery={handleChainQuery}
+            onCreateChart={handleCreateChart}
+            onFormat={handleFormat}
+            onRun={handleRun}
+            onTextChange={(value) => update({ text: value, isDirty: true })}
+            onToggleTable={handleToggleTable}
+            validator={handleValidate}
+          />
           <SQLTextAreaFooter shape={shape} bizMode={bizMode} />
           <div
             style={{
@@ -538,7 +534,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
   indicator(shape: SQLTextAreaShape) {
     const size = isBizMode(this.editor, shape.id)
-      ? getSQLBizSize(shape.props.text, shape.props.w, shape.props.h)
+      ? getSQLBizSize(shape.props.w, Boolean(shape.props.error))
       : shape.props;
     return <rect width={size.w} height={size.h} rx={12} ry={12} />;
   }

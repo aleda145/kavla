@@ -280,10 +280,10 @@ export function getSQLBizFlow(summary: BizSummary): BizStep[] {
   ];
 }
 
-export function getSQLBizSize(sql: string, width: number, height: number) {
-  const summary = getSQLBizSummary(sql);
+export function getSQLBizSize(width: number, hasQueryError = false) {
+  // Reserve room for the full action bar, plus the error footer when present.
   return {
-    w: Math.min(width, 400),
-    h: Math.min(height, summary.note || summary.error ? 230 : 210),
+    w: Math.max(400, Math.min(width, 440)),
+    h: hasQueryError ? 360 : 280,
   };
 }

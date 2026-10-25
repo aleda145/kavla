@@ -1,9 +1,11 @@
 import type { EditorValidationIssue } from "./editor-validation";
 import { LazySQLEditor } from "./LazySQLEditor";
 import { SQLTextAreaActionBar } from "./SQLTextAreaActionBar";
+import { SQLBizBody } from "./SQLBizBody";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 
 interface SQLTextAreaBodyProps {
+  bizMode: boolean;
   hasFooter: boolean;
   isRemoteRunning: boolean;
   shape: SQLTextAreaShape;
@@ -19,6 +21,7 @@ interface SQLTextAreaBodyProps {
 }
 
 export function SQLTextAreaBody({
+  bizMode,
   hasFooter,
   isRemoteRunning,
   shape,
@@ -42,6 +45,8 @@ export function SQLTextAreaBody({
     >
       <div
         style={{
+          display: bizMode ? "flex" : undefined,
+          flexDirection: bizMode ? "column" : undefined,
           flex: 1,
           minHeight: 0,
           minWidth: 0,
@@ -49,14 +54,18 @@ export function SQLTextAreaBody({
           overflow: "hidden",
         }}
       >
-        <LazySQLEditor
-          shapeId={shape.id}
-          text={text}
-          onChange={onTextChange}
-          onRun={onRun}
-          onFormat={onFormat}
-          validator={validator}
-        />
+        {bizMode ? (
+          <SQLBizBody text={text} />
+        ) : (
+          <LazySQLEditor
+            shapeId={shape.id}
+            text={text}
+            onChange={onTextChange}
+            onRun={onRun}
+            onFormat={onFormat}
+            validator={validator}
+          />
+        )}
       </div>
 
       <SQLTextAreaActionBar
