@@ -52,8 +52,8 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   override isAspectRatioLocked(_shape: SQLTextAreaShape) {
     return false;
   }
-  override canResize(shape: SQLTextAreaShape) {
-    return !isBizMode(this.editor, shape.id);
+  override canResize() {
+    return true;
   }
 
   getDefaultProps(): SQLTextAreaShape["props"] {
@@ -82,7 +82,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
   getGeometry(shape: SQLTextAreaShape) {
     const size = isBizMode(this.editor, shape.id)
-      ? getSQLBizSize(shape.props.text, shape.props.w, Boolean(shape.props.error))
+      ? getSQLBizSize(shape.props.text, shape.props, Boolean(shape.props.error))
       : shape.props;
     return new Rectangle2d({
       width: size.w,
@@ -118,7 +118,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
   component(shape: SQLTextAreaShape) {
     const bizMode = useBizMode(this.editor, shape.id);
-    const size = bizMode ? getSQLBizSize(shape.props.text, shape.props.w, Boolean(shape.props.error)) : shape.props;
+    const size = bizMode ? getSQLBizSize(shape.props.text, shape.props, Boolean(shape.props.error)) : shape.props;
     const { addToast } = useToasts();
     const { updateSourceName, runRemoteQuery, cancelRemoteQuery } = useData();
     this.updateSourceName = updateSourceName;
@@ -534,14 +534,18 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
   indicator(shape: SQLTextAreaShape) {
     const size = isBizMode(this.editor, shape.id)
-      ? getSQLBizSize(shape.props.text, shape.props.w, Boolean(shape.props.error))
+      ? getSQLBizSize(shape.props.text, shape.props, Boolean(shape.props.error))
       : shape.props;
     return <rect width={size.w} height={size.h} rx={12} ry={12} />;
   }
 
   override onResize(shape: SQLTextAreaShape, info: TLResizeInfo<SQLTextAreaShape>) {
-    if (isBizMode(this.editor, shape.id)) return;
-    const resized = resizeBox(shape, info);
+    const bizMode = isBizMode(this.editor, shape.id);
+    // Start from the visible bounds, which can be larger than the stored SQL size.
+    const initialShape = bizMode
+      ? { ...shape, props: { ...shape.props, w: info.initialBounds.width, h: info.initialBounds.height } }
+      : shape;
+    const resized = resizeBox(initialShape, info, bizMode ? { minWidth: 240, minHeight: 280 } : undefined);
     return {
       ...resized,
       props: {
