@@ -522,40 +522,47 @@ export function getSQLBizCardWidth(step: BizStep) {
   return Math.ceil(Math.max(132, primaryWidth + 24, secondaryWidth + 24));
 }
 
-export function getSQLBizSize(
-  sql: string,
-  size: {
-    w: number;
-    h: number;
-    isManuallyResized?: boolean;
-    error?: string | null;
-    lastRunStats?: { rowCount: number } | null;
-    isRunning?: boolean;
-    queryStartTime?: number | null;
-  }
-) {
-  if (size.isManuallyResized) return { w: size.w, h: size.h };
-  // Fit the card row, its padding, the compact action bar, and the outer border.
-  const summary = getSQLBizSummary(sql);
-  const flowWidth =
-    summary.steps.reduce((total, step) => total + getSQLBizCardWidth(step), 0) +
-    Math.max(0, summary.steps.length - 1) * 22 +
-    84;
-  const cardHeight = Math.max(
-    82,
-    ...summary.steps.map((step) => {
-      const card = step.card ?? { primary: step.detail };
-      return (
-        52 +
+type BizShapeSize = {
+  w: number;
+  h: number;
+  error?: string | null;
+  lastRunStats?: { rowCount: number } | null;
+  isRunning?: boolean;
+  queryStartTime?: number | null;
+};
+
+export function getSQLBizDirection(summary: BizSummary, size: BizShapeSize) {
+  const widths = summary.steps.map(getSQLBizCardWidth);
+  const heights = summary.steps.map((step) => {
+    const card = step.card ?? { primary: step.detail };
+    return Math.max(
+      82,
+      52 +
         card.primary.split("\n").length * 16 +
         (card.secondary ? 3 + card.secondary.split("\n").length * 14 : 0) +
         (step.scope ? 18 : 0)
-      );
-    })
-  );
+    );
+  });
+  const connectors = Math.max(0, summary.steps.length - 1) * 22;
   const footerHeight = size.error ? 110 : size.lastRunStats || (size.isRunning && size.queryStartTime) ? 38 : 0;
-  return {
-    w: Math.max(240, flowWidth),
-    h: 44 + 8 + Math.max(116, cardHeight + 24) + footerHeight + (summary.error ? 72 : 0),
+  const frameHeight = 44 + 8 + footerHeight + (summary.error ? 72 : 0);
+  // Include pipeline padding, the compact action bar, and the outer border.
+  const horizontal = {
+    w: Math.max(240, widths.reduce((sum, width) => sum + width, 0) + connectors + 84),
+    h: frameHeight + Math.max(116, Math.max(82, ...heights) + 24),
   };
+  const vertical = {
+    w: Math.max(240, Math.max(132, ...widths) + 84),
+    h: frameHeight + Math.max(116, heights.reduce((sum, height) => sum + height, 0) + connectors + 24),
+  };
+  // Prefer the layout with the least proportional overflow inside the SQL box.
+  // If both fit, follow its proportions. Manual resizing uses the same decision.
+  const overflow = (candidate: { w: number; h: number }) =>
+    Math.max(0, candidate.w / Math.max(1, size.w) - 1) + Math.max(0, candidate.h / Math.max(1, size.h) - 1);
+  const horizontalOverflow = overflow(horizontal);
+  const verticalOverflow = overflow(vertical);
+  return summary.steps.length > 1 &&
+    (verticalOverflow < horizontalOverflow || (verticalOverflow === horizontalOverflow && size.h > size.w))
+    ? "vertical"
+    : "horizontal";
 }

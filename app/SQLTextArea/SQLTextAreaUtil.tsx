@@ -41,20 +41,12 @@ import { getAutoExpandedSQLShapeSize } from "./sqlShapeSize";
 import { getKnobNames, getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
 import { ensureQueryKnobs } from "../Knob/createKnobs";
 import { isBizMode, useBizMode } from "../client/canvas/bizMode";
-import { getSQLBizSize } from "./sqlBizSummary";
 
 export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   private updateSourceName: ((payload: { prevName: string; nextName: string }) => void) | null = null;
   static override type = "sql-text-area" as const;
   static override props = SQLTextAreaProps;
   static override migrations = SQLTextAreaMigrations;
-
-  override isAspectRatioLocked(_shape: SQLTextAreaShape) {
-    return false;
-  }
-  override canResize() {
-    return true;
-  }
 
   getDefaultProps(): SQLTextAreaShape["props"] {
     return {
@@ -81,10 +73,9 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   }
 
   getGeometry(shape: SQLTextAreaShape) {
-    const size = isBizMode(this.editor, shape.id) ? getSQLBizSize(shape.props.text, shape.props) : shape.props;
     return new Rectangle2d({
-      width: size.w,
-      height: size.h,
+      width: shape.props.w,
+      height: shape.props.h,
       isFilled: true,
     });
   }
@@ -116,7 +107,6 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
   component(shape: SQLTextAreaShape) {
     const bizMode = useBizMode(this.editor, shape.id);
-    const size = bizMode ? getSQLBizSize(shape.props.text, shape.props) : shape.props;
     const { addToast } = useToasts();
     const { updateSourceName, runRemoteQuery, cancelRemoteQuery } = useData();
     this.updateSourceName = updateSourceName;
@@ -460,8 +450,8 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
           pointerEvents: "all",
           position: "relative",
           padding: 0,
-          width: size.w,
-          height: size.h,
+          width: shape.props.w,
+          height: shape.props.h,
           boxSizing: "border-box",
           overflow: "visible", // Allow tooltips to spill out
           fontFamily: "Inter, sans-serif",
@@ -531,22 +521,13 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   }
 
   indicator(shape: SQLTextAreaShape) {
-    const size = isBizMode(this.editor, shape.id) ? getSQLBizSize(shape.props.text, shape.props) : shape.props;
-    return <rect width={size.w} height={size.h} rx={12} ry={12} />;
+    return <rect width={shape.props.w} height={shape.props.h} rx={12} ry={12} />;
   }
 
   override onResize(shape: SQLTextAreaShape, info: TLResizeInfo<SQLTextAreaShape>) {
     const bizMode = isBizMode(this.editor, shape.id);
-    // Start from the visible bounds, which can be larger than the stored SQL size.
-    const initialShape = bizMode
-      ? { ...shape, props: { ...shape.props, w: info.initialBounds.width, h: info.initialBounds.height } }
-      : shape;
     const footerHeight = shape.props.error ? 110 : shape.props.lastRunStats || shape.props.isRunning ? 38 : 0;
-    const resized = resizeBox(
-      initialShape,
-      info,
-      bizMode ? { minWidth: 240, minHeight: 168 + footerHeight } : undefined
-    );
+    const resized = resizeBox(shape, info, bizMode ? { minWidth: 240, minHeight: 168 + footerHeight } : undefined);
     return {
       ...resized,
       props: {

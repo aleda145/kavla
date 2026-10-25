@@ -1,10 +1,10 @@
 import { atom, useValue, type Editor, type TLShapeId } from "tldraw";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
-import { getSQLBizSize } from "../../SQLTextArea/sqlBizSummary";
-import { getAutoExpandedSQLShapeSize } from "../../SQLTextArea/sqlShapeSize";
 
 // A view preference belongs to this editor, never to the saved document.
 const modes = new WeakMap<Editor, ReturnType<typeof createMode>>();
+type SQLSize = Pick<SQLTextAreaShape["props"], "w" | "h" | "isManuallyResized">;
+const sqlSizes = new WeakMap<Editor, Map<TLShapeId, SQLSize>>();
 
 function createMode() {
   return atom<{ enabled: boolean; queryModes: ReadonlyMap<TLShapeId, boolean> }>("Kavla biz mode", {
@@ -27,14 +27,32 @@ export function isBizMode(editor: Editor, shapeId?: TLShapeId) {
   return shapeId ? (mode.queryModes.get(shapeId) ?? mode.enabled) : mode.enabled;
 }
 
-function fitQueryToMode(shape: SQLTextAreaShape, enabled: boolean) {
-  const size = enabled
-    ? getSQLBizSize(shape.props.text, { ...shape.props, isManuallyResized: false })
-    : getAutoExpandedSQLShapeSize(shape.props.text);
+function fitQueryToMode(editor: Editor, shape: SQLTextAreaShape, enabled: boolean) {
+  let savedSizes = sqlSizes.get(editor);
+  if (!savedSizes) {
+    savedSizes = new Map();
+    sqlSizes.set(editor, savedSizes);
+  }
+  const original = savedSizes.get(shape.id) ?? shape.props;
+  if (enabled) {
+    savedSizes.set(shape.id, {
+      w: shape.props.w,
+      h: shape.props.h,
+      isManuallyResized: shape.props.isManuallyResized,
+    });
+  } else {
+    savedSizes.delete(shape.id);
+  }
+  // Keep the SQL dimensions unchanged; the pipeline fits or scrolls inside them.
+  // Restore that target on return, even if the Biz view was manually resized.
+  const size = enabled ? { w: shape.props.w, h: shape.props.h } : { w: original.w, h: original.h };
   return {
     id: shape.id,
     type: shape.type,
-    props: { ...size, isManuallyResized: false },
+    props: {
+      ...size,
+      isManuallyResized: (enabled ? shape.props.isManuallyResized : original.isManuallyResized) ?? false,
+    },
   };
 }
 
@@ -50,7 +68,7 @@ export function setBizMode(editor: Editor, enabled: boolean) {
   editor.run(() => {
     // A global toggle applies to every query, clearing individual view choices.
     modeFor(editor).set({ enabled, queryModes: new Map() });
-    editor.updateShapes(queries.map((shape) => fitQueryToMode(shape, enabled)));
+    editor.updateShapes(queries.map((shape) => fitQueryToMode(editor, shape, enabled)));
   });
 }
 
@@ -66,7 +84,7 @@ export function setQueryBizMode(editor: Editor, shapeId: TLShapeId, enabled: boo
   editor.run(() => {
     modeFor(editor).set({ ...mode, queryModes });
     if (shape?.type === "sql-text-area" && modeChanged) {
-      editor.updateShapes([fitQueryToMode(shape, enabled)]);
+      editor.updateShapes([fitQueryToMode(editor, shape, enabled)]);
     }
   });
 }

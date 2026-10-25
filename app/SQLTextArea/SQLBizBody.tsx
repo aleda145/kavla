@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "rea
 import { createPortal } from "react-dom";
 import {
   ArrowRight,
+  ArrowDown,
   ArrowDownWideNarrow,
   Blocks,
   Brush,
@@ -18,7 +19,7 @@ import {
   Sigma,
   type LucideIcon,
 } from "lucide-react";
-import { getSQLBizCardWidth, getSQLBizSummary, type BizOperation } from "./sqlBizSummary";
+import { getSQLBizCardWidth, getSQLBizDirection, getSQLBizSummary, type BizOperation } from "./sqlBizSummary";
 
 import { useSchemaRegistry } from "../hooks/useSchemaRegistry";
 import { buildSqlSchemaIndex } from "./schema-index";
@@ -79,6 +80,8 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
     />
   );
   const summary = getSQLBizSummary(text);
+  const vertical = getSQLBizDirection(summary, shape.props) === "vertical";
+  const Connector = vertical ? ArrowDown : ArrowRight;
   const tooltipId = useId();
   const container = useRef<HTMLDivElement>(null);
   const popover = useRef<HTMLDivElement>(null);
@@ -132,10 +135,11 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
           aria-label="Query operations in order"
           style={{
             display: "flex",
+            flexDirection: vertical ? "column" : "row",
             alignItems: "center",
             listStyle: "none",
             width: "max-content",
-            margin: "auto 0",
+            margin: vertical ? "auto" : "auto 0",
             padding: 0,
             flexShrink: 0,
           }}
@@ -148,12 +152,27 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
             const sameScope = previous?.scope === step.scope;
             const showDetail = (element: HTMLElement) => setDetail({ index, rect: element.getBoundingClientRect() });
             return (
-              <li key={index} style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+              <li
+                key={index}
+                style={{
+                  display: "flex",
+                  flexDirection: vertical ? "column" : "row",
+                  alignItems: "center",
+                  flexShrink: 0,
+                }}
+              >
                 {index > 0 &&
                   (sameScope ? (
-                    <ArrowRight size={14} aria-hidden style={{ margin: "0 4px", color: "#737373" }} />
+                    <Connector
+                      size={14}
+                      aria-hidden
+                      style={{ margin: vertical ? "4px 0" : "0 4px", color: "#737373", flexShrink: 0 }}
+                    />
                   ) : (
-                    <span aria-hidden style={{ width: 22, textAlign: "center", color: "#a3a3a3" }}>
+                    <span
+                      aria-hidden
+                      style={{ width: 22, height: vertical ? 22 : undefined, textAlign: "center", color: "#a3a3a3" }}
+                    >
                       ·
                     </span>
                   ))}
