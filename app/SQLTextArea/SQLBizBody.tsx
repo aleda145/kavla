@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { format } from "sql-formatter";
 import {
   ArrowDownWideNarrow,
   Blocks,
@@ -52,6 +53,33 @@ const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
   LIMIT: { Icon: ListFilter, color: "#bae6fd" },
   COMBINE: { Icon: Combine, color: "#cbd5e1" },
 };
+
+function OperationBadge({ operation }: { operation: BizOperation }) {
+  const { Icon, color } = operations[operation];
+  const label = operation === "CONDITIONAL" ? "CLASSIFY" : operation;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 10,
+        lineHeight: "14px",
+        fontWeight: 800,
+        marginBottom: 8,
+        alignSelf: "flex-start",
+        padding: "3px 6px",
+        borderRadius: 999,
+        border: "1px solid #000",
+        background: color,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <Icon size={13} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
+      {label}
+    </span>
+  );
+}
 
 export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaShape }) {
   const registry = useSchemaRegistry();
@@ -126,6 +154,29 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
   };
   useEffect(() => () => clearTimeout(hoverTimer.current), []);
   const activeStep = detail ? summary.steps[detail.index] : undefined;
+  const formattedDetail = useMemo(() => {
+    if (!activeStep) return { sql: "", error: null };
+    try {
+      return {
+        sql: format(activeStep.detail, {
+          language: "duckdb",
+          keywordCase: "upper",
+          tabWidth: 2,
+          expressionWidth: 40,
+          paramTypes: {
+            custom: [
+              { regex: "\\{[A-Za-z_][A-Za-z0-9_]*\\}" },
+              // Keep the summary's separators alongside SQL fragments.
+              { regex: "[·∩−]" },
+            ],
+          },
+        }),
+        error: null,
+      };
+    } catch (error) {
+      return { sql: activeStep.detail, error: error instanceof Error ? error.message : String(error) };
+    }
+  }, [activeStep]);
 
   useEffect(() => {
     clearTimeout(hoverTimer.current);
@@ -193,7 +244,6 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
           }}
         >
           {summary.steps.map((step, index) => {
-            const { Icon, color } = operations[step.label];
             const label = step.label === "CONDITIONAL" ? "CLASSIFY" : step.label;
             const card = step.card ?? { primary: step.detail };
             const showDetail = (anchor: HTMLElement) => {
@@ -282,26 +332,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
                       {step.scope}
                     </span>
                   )}
-                  <span
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      fontSize: 10,
-                      lineHeight: "14px",
-                      fontWeight: 800,
-                      marginBottom: 8,
-                      alignSelf: "flex-start",
-                      padding: "3px 6px",
-                      borderRadius: 999,
-                      border: "1px solid #000",
-                      background: color,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    <Icon size={13} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
-                    {label}
-                  </span>
+                  <OperationBadge operation={step.label} />
                   <span
                     style={{
                       whiteSpace: "pre",
@@ -416,7 +447,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
               zIndex: 999999,
             }}
           >
-            <strong>{activeStep.label === "CONDITIONAL" ? "CLASSIFY" : activeStep.label}</strong>
+            <OperationBadge operation={activeStep.label} />
             {activeStep.scope && <div style={{ marginTop: 4, color: "#666" }}>{activeStep.scope}</div>}
             <pre
               style={{
@@ -428,8 +459,13 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
                 userSelect: "text",
               }}
             >
-              {highlight(activeStep.detail, false)}
+              {highlight(formattedDetail.sql, false)}
             </pre>
+            {formattedDetail.error && (
+              <pre role="alert" style={{ color: "#b91c1c", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                {formattedDetail.error}
+              </pre>
+            )}
           </div>,
           document.body
         )}
