@@ -106,6 +106,10 @@ export function usePopupPlacement(
         const rect = card.getBoundingClientRect();
         if (overlap(rect, screen)) obstacles.push(rect);
       }
+      // Hover previews must leave a clicked popup and its actions reachable.
+      for (const pinned of document.querySelectorAll<HTMLElement>("[data-sql-popup-pinned]")) {
+        if (pinned !== element) obstacles.push(pinned.getBoundingClientRect());
+      }
       const rect = element.getBoundingClientRect();
       const next = findPopupPosition(
         anchor.getBoundingClientRect(),

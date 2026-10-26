@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { format } from "sql-formatter";
+import { useEditor, useToasts, useValue } from "tldraw";
 import {
   ArrowDownWideNarrow,
   Blocks,
@@ -16,6 +17,7 @@ import {
   Layers,
   ListFilter,
   Sigma,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -24,6 +26,7 @@ import {
   getSQLBizSummary,
   SQL_BIZ_CARD_GAP,
   type BizOperation,
+  type BizStep,
 } from "./sqlBizSummary";
 
 import { useSchemaRegistry } from "../hooks/useSchemaRegistry";
@@ -33,6 +36,7 @@ import { SQLIdentifierHover } from "./SQLIdentifierHover";
 import { usePopupPlacement } from "./usePopupPlacement";
 import { useExclusivePopup } from "./useExclusivePopup";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
+import { extractSQLBizOperation, getSQLBizExtractionPlan } from "./extractSQLBizOperation";
 
 const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
   READ: { Icon: Database, color: "#bfdbfe" },
@@ -115,7 +119,6 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
     />
   );
   const summary = getSQLBizSummary(text);
-  const tooltipId = useId();
   const container = useRef<HTMLDivElement>(null);
   const errorMessage = useRef<HTMLPreElement>(null);
   const [available, setAvailable] = useState({ w: 0, h: 0 });
@@ -139,76 +142,53 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
     if (errorMessage.current) observer.observe(errorMessage.current);
     return () => observer.disconnect();
   }, [summary.error]);
-  const popover = useRef<HTMLDivElement>(null);
-  const [detail, setDetail] = useState<{ index: number; anchor: HTMLElement; pinned: boolean } | null>(null);
-  const position = usePopupPlacement(detail?.anchor ?? null, popover, shape.id);
+  const [detail, setDetail] = useState<OperationDetail | null>(null);
+  const [pinned, setPinned] = useState<OperationDetail | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const cancelHoverTimer = () => clearTimeout(hoverTimer.current);
   const claimPopup = useExclusivePopup(Boolean(detail), () => {
     clearTimeout(hoverTimer.current);
     setDetail(null);
   });
+  const claimPinnedPopup = useExclusivePopup(Boolean(pinned), () => setPinned(null), "pinned");
+  const pinDetail = (next: OperationDetail) => {
+    cancelHoverTimer();
+    if (claimPinnedPopup(next.anchor)) {
+      setDetail(null);
+      setPinned(next);
+    }
+  };
   const closeHoverSoon = () => {
     cancelHoverTimer();
-    hoverTimer.current = setTimeout(() => setDetail((current) => (current?.pinned ? current : null)), 600);
+    hoverTimer.current = setTimeout(() => setDetail(null), 600);
   };
   useEffect(() => () => clearTimeout(hoverTimer.current), []);
-  const activeStep = detail ? summary.steps[detail.index] : undefined;
-  const formattedDetail = useMemo(() => {
-    if (!activeStep) return { sql: "", error: null };
-    try {
-      return {
-        sql: format(activeStep.detail, {
-          language: "duckdb",
-          keywordCase: "upper",
-          tabWidth: 2,
-          expressionWidth: 40,
-          paramTypes: {
-            custom: [
-              { regex: "\\{[A-Za-z_][A-Za-z0-9_]*\\}" },
-              // Keep the summary's separators alongside SQL fragments.
-              { regex: "[·∩−]" },
-            ],
-          },
-        }),
-        error: null,
-      };
-    } catch (error) {
-      return { sql: activeStep.detail, error: error instanceof Error ? error.message : String(error) };
-    }
-  }, [activeStep]);
-
   useEffect(() => {
     clearTimeout(hoverTimer.current);
     setDetail(null);
-  }, [text, available.w, available.h]);
+    setPinned(null);
+  }, [text]);
   useEffect(() => {
-    if (!detail) return;
+    if (!detail && !pinned) return;
     const dismiss = () => {
       clearTimeout(hoverTimer.current);
       setDetail(null);
+      setPinned(null);
     };
-    const outside = (event: Event) => {
-      if (event.target instanceof Element && event.target.closest("[data-sql-identifier-tooltip]")) return;
-      if (event.target instanceof Node && !popover.current?.contains(event.target)) dismiss();
-    };
-    const pointer = (event: PointerEvent) => {
-      if (event.target instanceof Node && !container.current?.contains(event.target)) outside(event);
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest("[data-sql-popup], [data-sql-biz-card]")) return;
+      dismiss();
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") dismiss();
     };
-    document.addEventListener("pointerdown", pointer);
+    document.addEventListener("pointerdown", outside, true);
     document.addEventListener("keydown", escape);
-    window.addEventListener("wheel", outside, true);
-    window.addEventListener("resize", dismiss);
     return () => {
-      document.removeEventListener("pointerdown", pointer);
+      document.removeEventListener("pointerdown", outside, true);
       document.removeEventListener("keydown", escape);
-      window.removeEventListener("wheel", outside, true);
-      window.removeEventListener("resize", dismiss);
     };
-  }, [detail]);
+  }, [detail, pinned]);
 
   return (
     <div
@@ -216,7 +196,10 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
       data-sql-biz-body
       aria-label="Query pipeline"
       onWheel={(event) => event.stopPropagation()}
-      onScroll={() => setDetail(null)}
+      onScroll={() => {
+        cancelHoverTimer();
+        setDetail(null);
+      }}
       style={{
         flex: 1,
         minHeight: 0,
@@ -247,8 +230,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
             const label = step.label === "CONDITIONAL" ? "CLASSIFY" : step.label;
             const card = step.card ?? { primary: step.detail };
             const showDetail = (anchor: HTMLElement) => {
-              cancelHoverTimer();
-              if (claimPopup(anchor)) setDetail({ index, anchor, pinned: true });
+              pinDetail({ index, anchor });
             };
             return (
               <li key={index} style={{ display: "flex", minWidth: 0 }}>
@@ -260,41 +242,34 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
                     if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
                     if (event.target instanceof Element && event.target.closest("[data-sql-identifier]")) return;
                     cancelHoverTimer();
-                    if (detail?.pinned) return;
+                    if (pinned?.index === index) return;
                     const anchor = event.currentTarget;
                     hoverTimer.current = setTimeout(() => {
-                      if (claimPopup(anchor)) setDetail({ index, anchor, pinned: false });
+                      if (claimPopup(anchor)) setDetail({ index, anchor });
                     }, 200);
                   }}
                   onPointerOver={(event) => {
                     if (event.target instanceof Element && event.target.closest("[data-sql-identifier]")) {
                       cancelHoverTimer();
-                      setDetail((current) => (current?.pinned ? current : null));
+                      setDetail(null);
                     }
                   }}
                   onPointerLeave={closeHoverSoon}
                   aria-label={`${step.scope ? `${step.scope}: ` : ""}${label}: ${step.detail}`}
-                  aria-describedby={detail?.index === index ? tooltipId : undefined}
+                  aria-expanded={pinned?.index === index || detail?.index === index}
+                  aria-haspopup="dialog"
                   onPointerDown={(event) => event.stopPropagation()}
                   onFocus={(event) => {
                     if (event.target === event.currentTarget) showDetail(event.currentTarget);
                   }}
                   onClick={(event) => showDetail(event.currentTarget)}
-                  onBlur={(event) => {
-                    if (
-                      event.relatedTarget instanceof Element &&
-                      event.relatedTarget.closest("[data-sql-identifier-tooltip]")
-                    )
-                      return;
-                    if (
-                      !event.currentTarget.contains(event.relatedTarget) &&
-                      !popover.current?.contains(event.relatedTarget)
-                    )
-                      setDetail(null);
-                  }}
+                  onBlur={closeHoverSoon}
                   onKeyDown={(event) => {
                     event.stopPropagation();
-                    if (event.key === "Escape") setDetail(null);
+                    if (event.key === "Escape") {
+                      setDetail(null);
+                      setPinned(null);
+                    }
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
                       showDetail(event.currentTarget);
@@ -394,81 +369,212 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
           {summary.error}
         </pre>
       )}
-      {detail &&
-        activeStep &&
-        createPortal(
-          <div
-            ref={popover}
-            data-sql-popup
-            onPointerEnter={cancelHoverTimer}
-            onPointerLeave={closeHoverSoon}
-            onFocus={() => {
-              cancelHoverTimer();
-              setDetail((current) => (current ? { ...current, pinned: true } : null));
-            }}
-            id={tooltipId}
-            role="tooltip"
-            tabIndex={0}
-            onPointerDown={(event) => event.stopPropagation()}
-            onWheel={(event) => event.stopPropagation()}
-            onBlur={(event) => {
-              if (
-                event.relatedTarget instanceof Element &&
-                event.relatedTarget.closest("[data-sql-identifier-tooltip]")
-              )
-                return;
-              if (
-                !event.currentTarget.contains(event.relatedTarget) &&
-                !container.current?.contains(event.relatedTarget)
-              )
-                setDetail(null);
-            }}
-            onKeyDown={(event) => {
+      {pinned && summary.steps[pinned.index] && (
+        <OperationPopup
+          detail={pinned}
+          step={summary.steps[pinned.index]}
+          pinned
+          shape={shape}
+          text={text}
+          highlight={highlight}
+          onClose={() => setPinned(null)}
+          onPointerEnter={cancelHoverTimer}
+          onPointerLeave={() => {}}
+        />
+      )}
+      {detail && detail.index !== pinned?.index && summary.steps[detail.index] && (
+        <OperationPopup
+          detail={detail}
+          step={summary.steps[detail.index]}
+          pinned={false}
+          shape={shape}
+          text={text}
+          highlight={highlight}
+          onClose={() => setDetail(null)}
+          onPointerEnter={cancelHoverTimer}
+          onPointerLeave={closeHoverSoon}
+        />
+      )}
+    </div>
+  );
+}
+
+type OperationDetail = { index: number; anchor: HTMLElement };
+
+function OperationPopup({
+  detail,
+  step,
+  pinned,
+  shape,
+  text,
+  highlight,
+  onClose,
+  onPointerEnter,
+  onPointerLeave,
+}: {
+  detail: OperationDetail;
+  step: BizStep;
+  pinned: boolean;
+  shape: SQLTextAreaShape;
+  text: string;
+  highlight: (sql: string, interactive?: boolean) => ReactNode;
+  onClose: () => void;
+  onPointerEnter: () => void;
+  onPointerLeave: () => void;
+}) {
+  const editor = useEditor();
+  const { addToast } = useToasts();
+  const tooltipId = useId();
+  const popover = useRef<HTMLDivElement>(null);
+  const position = usePopupPlacement(detail.anchor, popover, shape.id);
+  const extraction = useValue(
+    "Biz operation extraction",
+    () => getSQLBizExtractionPlan(editor, shape.id, detail.index),
+    [editor, shape.id, detail.index]
+  );
+  const formattedDetail = useMemo(() => {
+    if (!step) return { sql: "", error: null };
+    try {
+      return {
+        sql: format(step.detail, {
+          language: "duckdb",
+          keywordCase: "upper",
+          tabWidth: 2,
+          expressionWidth: 40,
+          paramTypes: {
+            custom: [
+              { regex: "\\{[A-Za-z_][A-Za-z0-9_]*\\}" },
+              // Keep the summary's separators alongside SQL fragments.
+              { regex: "[·∩−]" },
+            ],
+          },
+        }),
+        error: null,
+      };
+    } catch (error) {
+      return { sql: step.detail, error: error instanceof Error ? error.message : String(error) };
+    }
+  }, [step]);
+
+  return createPortal(
+    <div
+      ref={popover}
+      data-sql-popup
+      data-sql-popup-pinned={pinned || undefined}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+      onFocus={onPointerEnter}
+      id={tooltipId}
+      role="dialog"
+      aria-label={`${step.label} operation details`}
+      tabIndex={0}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+      onWheel={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === "Escape") onClose();
+      }}
+      style={{
+        position: "fixed",
+        ...position,
+        width: 320,
+        maxWidth: "calc(100vw - 16px)",
+        maxHeight: "min(240px, calc(100vh - 16px))",
+        overflow: "auto",
+        padding: "10px 12px",
+        boxSizing: "border-box",
+        border: "2px solid #000",
+        borderRadius: 8,
+        boxShadow: "4px 4px 0 #000",
+        background: "#fff",
+        color: "#171717",
+        fontFamily: "Inter, sans-serif",
+        fontSize: 12,
+        pointerEvents: "all",
+        zIndex: pinned ? 1000001 : 999999,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <OperationBadge operation={step.label} />
+        <span style={{ display: "flex", gap: 8 }} title={extraction.enabled ? undefined : extraction.reason}>
+          <button
+            type="button"
+            disabled={!extraction.enabled}
+            aria-describedby={`${tooltipId}-extraction`}
+            className="h-7 px-2 rounded border-2 border-black bg-white text-xs font-bold cursor-pointer hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={(event) => {
               event.stopPropagation();
-              if (event.key === "Escape") setDetail(null);
-            }}
-            style={{
-              position: "fixed",
-              ...position,
-              width: 320,
-              maxWidth: "calc(100vw - 16px)",
-              maxHeight: "min(240px, calc(100vh - 16px))",
-              overflow: "auto",
-              padding: "10px 12px",
-              boxSizing: "border-box",
-              border: "2px solid #000",
-              borderRadius: 8,
-              boxShadow: "4px 4px 0 #000",
-              background: "#fff",
-              color: "#171717",
-              fontFamily: "Inter, sans-serif",
-              fontSize: 12,
-              pointerEvents: "all",
-              zIndex: 999999,
+              if (!extraction?.enabled) return;
+              try {
+                const extracted = extractSQLBizOperation(editor, shape.id, detail.index, text);
+                addToast({
+                  title: `Extracted to ${extracted.name}`,
+                  severity: "success",
+                  actions: [
+                    {
+                      label: "Go to query",
+                      type: "primary",
+                      onClick: () => {
+                        const bounds = editor.getShapePageBounds(extracted.id);
+                        if (!bounds) return;
+                        editor.select(extracted.id);
+                        editor.zoomToBounds(bounds, {
+                          targetZoom: editor.getZoomLevel(),
+                          animation: { duration: 250 },
+                        });
+                      },
+                    },
+                  ],
+                });
+                onClose();
+              } catch (error) {
+                addToast({
+                  title: "Could not extract operation",
+                  description: error instanceof Error ? error.message : String(error),
+                  severity: "error",
+                });
+              }
             }}
           >
-            <OperationBadge operation={activeStep.label} />
-            {activeStep.scope && <div style={{ marginTop: 4, color: "#666" }}>{activeStep.scope}</div>}
-            <pre
-              style={{
-                margin: "6px 0 0",
-                fontFamily: "monospace",
-                lineHeight: "18px",
-                whiteSpace: "pre-wrap",
-                overflowWrap: "anywhere",
-                userSelect: "text",
-              }}
+            Extract
+          </button>
+          {pinned && (
+            <button
+              type="button"
+              aria-label="Close operation details"
+              onClick={onClose}
+              className="h-7 w-7 flex items-center justify-center rounded border-2 border-black bg-white cursor-pointer hover:bg-gray-100"
             >
-              {highlight(formattedDetail.sql, false)}
-            </pre>
-            {formattedDetail.error && (
-              <pre role="alert" style={{ color: "#b91c1c", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-                {formattedDetail.error}
-              </pre>
-            )}
-          </div>,
-          document.body
-        )}
-    </div>
+              <X size={14} aria-hidden />
+            </button>
+          )}
+        </span>
+      </div>
+      {extraction && (
+        <div id={`${tooltipId}-extraction`} style={{ fontSize: 11, color: "#666", margin: "0 0 8px" }}>
+          {extraction.enabled ? `Creates a stage ${extraction.direction}` : extraction.reason}
+        </div>
+      )}
+      {step.scope && <div style={{ marginTop: 4, color: "#666" }}>{step.scope}</div>}
+      <pre
+        style={{
+          margin: "6px 0 0",
+          fontFamily: "monospace",
+          lineHeight: "18px",
+          whiteSpace: "pre-wrap",
+          overflowWrap: "anywhere",
+          userSelect: "text",
+        }}
+      >
+        {highlight(formattedDetail.sql, false)}
+      </pre>
+      {formattedDetail.error && (
+        <pre role="alert" style={{ color: "#b91c1c", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+          {formattedDetail.error}
+        </pre>
+      )}
+    </div>,
+    document.body
   );
 }
