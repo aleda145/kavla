@@ -1,5 +1,6 @@
 import { ast, Dialect, generate, parse } from "@polyglot-sql/sdk";
 import { mapKnobParameters } from "../Knob/knobSQL";
+import { buildBizFilterPlan, type BizFilterPlan } from "./sqlBizFilterStats";
 
 export type BizOperation =
   | "CTE"
@@ -28,6 +29,7 @@ export type BizStep = {
   card?: BizCard;
   cteName?: string;
   children?: BizStep[];
+  filter?: BizFilterPlan;
 };
 export type BizSummary = { steps: BizStep[]; note: string | null; error?: string };
 
@@ -238,11 +240,16 @@ function summarize(sql: string): BizSummary {
   const list = (expressions: ast.Expression[]) => expressions.map(expressionSQL).join(", ");
   const scoped = (scope: string | undefined, child: string) => (scope ? `${scope} / ${child}` : child);
 
-  const appendQuery = (expression: ast.Expression, scope?: string, depth = 0): void => {
+  const appendQuery = (
+    expression: ast.Expression,
+    scope?: string,
+    depth = 0,
+    filterScopes: ast.ExpressionInner<"with">[] = []
+  ): void => {
     if (depth > 30) throw new Error("Query nesting exceeds the pipeline depth limit (30).");
     if ("subquery" in expression) {
       const subquery = expression.subquery;
-      appendQuery(subquery.this, scope, depth + 1);
+      appendQuery(subquery.this, scope, depth + 1, filterScopes);
       if (subquery.order_by) add("SORT", sortDetails(subquery.order_by), scope, sortCard(subquery.order_by));
       if (subquery.offset) add("SKIP", rowCount(expressionSQL(subquery.offset.this)), scope);
       if (subquery.limit) add("LIMIT", rowCount(expressionSQL(subquery.limit.this)), scope);
@@ -255,7 +262,7 @@ function summarize(sql: string): BizSummary {
       return;
     }
     const withClause = query?.with ?? combined?.query.with;
-    for (const cte of withClause?.ctes ?? []) {
+    for (const [cteIndex, cte] of (withClause?.ctes ?? []).entries()) {
       const name = expressionSQL({ identifier: cte.alias });
       const columns = cte.columns.length
         ? ` (${cte.columns.map((column) => expressionSQL({ identifier: column })).join(", ")})`
@@ -264,7 +271,8 @@ function summarize(sql: string): BizSummary {
       appendQuery(
         cte.this,
         scoped(scope, `${withClause?.recursive ? "Recursive CTE" : "CTE"} ${name}${columns}`),
-        depth + 1
+        depth + 1,
+        [...filterScopes, { ...withClause!, ctes: withClause!.ctes.slice(0, cteIndex) }]
       );
       const children = steps.splice(start);
       steps.push({
@@ -283,8 +291,9 @@ function summarize(sql: string): BizSummary {
       const fetch = "select" in operation.right ? operation.right.select.fetch : null;
       const right: ast.Expression =
         fetch && "select" in operation.right ? { select: { ...operation.right.select, fetch: null } } : operation.right;
-      appendQuery(operation.left, scoped(scope, `Left: ${sourceName(operation.left)}`), depth + 1);
-      appendQuery(right, scoped(scope, `Right: ${sourceName(operation.right)}`), depth + 1);
+      const branchScopes = withClause ? [...filterScopes, withClause] : filterScopes;
+      appendQuery(operation.left, scoped(scope, `Left: ${sourceName(operation.left)}`), depth + 1, branchScopes);
+      appendQuery(right, scoped(scope, `Right: ${sourceName(operation.right)}`), depth + 1, branchScopes);
       const modifiers = `${operation.all ? " ALL" : operation.distinct ? " DISTINCT" : ""}${operation.by_name ? " BY NAME" : ""}${operation.corresponding ? " CORRESPONDING" : ""}`;
       const connector = name === "EXCEPT" ? "−" : name === "INTERSECT" ? "∩" : "+";
       add(
@@ -314,7 +323,13 @@ function summarize(sql: string): BizSummary {
       return value;
     };
     for (const source of [...(query.from?.expressions ?? []), ...query.joins.map((join) => join.this)]) {
-      if ("subquery" in source) appendQuery(source, scoped(scope, `Subquery ${sourceName(source)}`), depth + 1);
+      if ("subquery" in source)
+        appendQuery(
+          source,
+          scoped(scope, `Subquery ${sourceName(source)}`),
+          depth + 1,
+          withClause ? [...filterScopes, withClause] : filterScopes
+        );
     }
     if (query.from) add("READ", query.from.expressions.map(sourceName).join(", "), scope);
     for (const join of query.joins) {
@@ -329,8 +344,10 @@ function summarize(sql: string): BizSummary {
         secondary: condition.trim() || undefined,
       });
     }
-    if (query.where_clause)
+    if (query.where_clause) {
       add("FILTER", expressionSQL(query.where_clause.this), scope, conditionCard(query.where_clause.this));
+      steps[steps.length - 1].filter = buildBizFilterPlan(query, filterScopes);
+    }
 
     const projections = query.expressions.map((expression) => ({ expression, ...expressionFacts(expression) }));
     const aggregates = new Set<string>();
@@ -566,6 +583,7 @@ export function getSQLBizCardHeight(step: BizStep, availableWidth = Infinity): n
     52 +
       card.primary.split("\n").length * 16 +
       (card.secondary ? 3 + card.secondary.split("\n").length * 14 : 0) +
+      (step.filter ? 32 : 0) +
       (step.scope ? 18 : 0)
   );
 }

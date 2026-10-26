@@ -40,6 +40,8 @@ import { useExclusivePopup } from "./useExclusivePopup";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { extractSQLBizOperation, getSQLBizExtractionPlan, isSQLBizExtracting } from "./extractSQLBizOperation";
 import { useData } from "../client/useLocalServer";
+import { useSQLBizFilterStats } from "./useSQLBizFilterStats";
+import { formatBizFilterCount, type BizFilterPlan } from "./sqlBizFilterStats";
 
 const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
   CTE: { Icon: Layers, color: "#bfdbfe" },
@@ -353,6 +355,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
                   {highlight(card.secondary)}
                 </span>
               )}
+              {step.filter && <FilterCounts shape={shape} plan={step.filter} />}
             </>
           )}
         </div>
@@ -489,6 +492,78 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
 
 type OperationDetail = { path: number[]; anchor: HTMLElement };
 
+function FilterCounts({
+  shape,
+  plan,
+  perCondition = false,
+  popup = false,
+  highlight,
+}: {
+  shape: SQLTextAreaShape;
+  plan: BizFilterPlan;
+  perCondition?: boolean;
+  popup?: boolean;
+  highlight?: (sql: string, interactive?: boolean) => ReactNode;
+}) {
+  const { state, retry } = useSQLBizFilterStats(shape, plan, perCondition);
+  const percentage = (removed: number, input: number) => (
+    <span
+      title={`${removed.toLocaleString()} of ${input.toLocaleString()} input rows removed`}
+      aria-label={`${removed.toLocaleString()} of ${input.toLocaleString()} input rows removed`}
+      tabIndex={0}
+      style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", cursor: "help", color: "#666" }}
+    >
+      {(input ? (100 * removed) / input : 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}%
+    </span>
+  );
+  return (
+    <div
+      aria-live="polite"
+      style={{ marginTop: 6, fontSize: popup ? 12 : 10, lineHeight: "14px", overflowWrap: "anywhere" }}
+    >
+      {popup && !("error" in plan) && (
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 12, lineHeight: "18px" }}>
+          {plan.conditions.map((condition, index) => (
+            <div key={index} style={{ display: "contents" }}>
+              <span style={{ fontFamily: "monospace", whiteSpace: "pre-wrap", userSelect: "text" }}>
+                {highlight ? highlight(`${index ? "AND " : ""}${condition}`, false) : condition}
+              </span>
+              {perCondition && state.status === "ready" ? (
+                percentage(state.counts.conditions[index], state.counts.input)
+              ) : (
+                <span style={{ color: "#666" }} title="Counting rows removed">
+                  …
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {!popup && state.status === "loading" && <span style={{ color: "#666" }}>Counting rows…</span>}
+      {!popup && state.status === "waiting" && <span style={{ color: "#666" }}>Waiting for query…</span>}
+      {state.status === "error" && (
+        <div style={{ color: "#b91c1c" }}>
+          {state.error}
+          {popup && !("error" in plan) && (
+            <button type="button" onClick={retry} className="ml-2 underline cursor-pointer">
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+      {state.status === "ready" &&
+        (popup ? (
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 6, color: "#666" }}>
+            <span>Total removed</span>
+            {percentage(state.counts.removed, state.counts.input)}
+          </div>
+        ) : (
+          <div>{formatBizFilterCount(state.counts.removed, state.counts.input)}</div>
+        ))}
+    </div>
+  );
+}
+
 function OperationPopup({
   detail,
   step,
@@ -517,6 +592,16 @@ function OperationPopup({
   const tooltipId = useId();
   const popover = useRef<HTMLDivElement>(null);
   const position = usePopupPlacement(detail.anchor, popover, shape.id);
+  const filterPlan = step.filter && !("error" in step.filter) ? step.filter : null;
+  const popupWidth = filterPlan
+    ? Math.min(
+        640,
+        Math.max(
+          320,
+          ...filterPlan.conditions.map((condition, index) => (condition.length + (index ? 4 : 0)) * 7.3 + 90)
+        )
+      )
+    : 320;
   const extraction = useValue(
     "Biz operation extraction",
     () => getSQLBizExtractionPlan(editor, shape.id, detail.path),
@@ -568,9 +653,9 @@ function OperationPopup({
       style={{
         position: "fixed",
         ...position,
-        width: 320,
+        width: popupWidth,
         maxWidth: "calc(100vw - 16px)",
-        maxHeight: "min(240px, calc(100vh - 16px))",
+        maxHeight: filterPlan ? "calc(100vh - 16px)" : "min(240px, calc(100vh - 16px))",
         overflow: "auto",
         padding: "10px 12px",
         boxSizing: "border-box",
@@ -659,23 +744,26 @@ function OperationPopup({
         </span>
       )}
       {step.scope && <div style={{ marginTop: 4, color: "#666" }}>{step.scope}</div>}
-      <pre
-        style={{
-          margin: "6px 0 0",
-          fontFamily: "monospace",
-          lineHeight: "18px",
-          whiteSpace: "pre-wrap",
-          overflowWrap: "anywhere",
-          userSelect: "text",
-        }}
-      >
-        {highlight(formattedDetail.sql, false)}
-      </pre>
-      {formattedDetail.error && (
+      {!filterPlan && (
+        <pre
+          style={{
+            margin: "6px 0 0",
+            fontFamily: "monospace",
+            lineHeight: "18px",
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+            userSelect: "text",
+          }}
+        >
+          {highlight(formattedDetail.sql, false)}
+        </pre>
+      )}
+      {!filterPlan && formattedDetail.error && (
         <pre role="alert" style={{ color: "#b91c1c", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
           {formattedDetail.error}
         </pre>
       )}
+      {step.filter && <FilterCounts shape={shape} plan={step.filter} perCondition popup highlight={highlight} />}
     </div>,
     document.body
   );
