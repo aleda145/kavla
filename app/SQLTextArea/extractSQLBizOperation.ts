@@ -57,6 +57,9 @@ export function getSQLBizExtractionPlan(
   const summary = getSQLBizSummary(shape.props.text);
   const step = getSQLBizStep(summary, stepPath);
   if (summary.error || !step) return disabled(summary.error ?? "This operation is no longer available.");
+  if (summary.steps.length === 1 && stepPath.length === 1) {
+    return disabled("This is the only operation in the query; there is nothing to separate.");
+  }
   const dependencies = walkSQLDag(editor, shape.props.text);
   if (!dependencies.ok) return disabled(dependencies.error.message);
   if (dependencies.plan.orderedDependencies.some((input) => input.id === shape.id)) {
