@@ -24,6 +24,8 @@ import {
   getSQLBizCardWidth,
   getSQLBizColumns,
   getSQLBizSummary,
+  getSQLBizStep,
+  getSQLBizGroupLayout,
   SQL_BIZ_CARD_GAP,
   type BizOperation,
   type BizStep,
@@ -40,6 +42,7 @@ import { extractSQLBizOperation, getSQLBizExtractionPlan, isSQLBizExtracting } f
 import { useData } from "../client/useLocalServer";
 
 const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
+  CTE: { Icon: Layers, color: "#bfdbfe" },
   READ: { Icon: Database, color: "#bfdbfe" },
   JOIN: { Icon: GitMerge, color: "#fed7aa" },
   FILTER: { Icon: Filter, color: "#99f6e4" },
@@ -191,11 +194,166 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
     };
   }, [detail, pinned]);
 
+  const pinnedStep = pinned ? getSQLBizStep(summary, pinned.path) : undefined;
+  const activeStep = detail ? getSQLBizStep(summary, detail.path) : undefined;
+  const renderStep = (step: BizStep, path: number[], availableWidth: number): ReactNode => {
+    const group = step.children ? getSQLBizGroupLayout(step, availableWidth) : null;
+    const label = step.label === "CONDITIONAL" ? "CLASSIFY" : step.label;
+    const card = step.card ?? { primary: step.detail };
+    const showDetail = (anchor: HTMLElement) => {
+      pinDetail({ path, anchor });
+    };
+    const showHover = (anchor: HTMLElement) => {
+      cancelHoverTimer();
+      if (pinned?.path.join(".") === path.join(".")) return;
+      hoverTimer.current = setTimeout(() => {
+        if (claimPopup(anchor)) setDetail({ path, anchor });
+      }, 200);
+    };
+    return (
+      <li key={path.join(".")} style={{ display: "flex", minWidth: 0 }}>
+        <div
+          role="button"
+          tabIndex={0}
+          data-sql-biz-card
+          onPointerEnter={(event) => {
+            if (
+              !(event.target instanceof Element) ||
+              event.target.closest("[data-sql-biz-card]") !== event.currentTarget
+            )
+              return;
+            if (event.target instanceof Element && event.target.closest("[data-sql-identifier]")) return;
+            showHover(event.currentTarget);
+          }}
+          onPointerOver={(event) => {
+            if (
+              !(event.target instanceof Element) ||
+              event.target.closest("[data-sql-biz-card]") !== event.currentTarget
+            )
+              return;
+            if (event.target instanceof Element && event.target.closest("[data-sql-identifier]")) {
+              cancelHoverTimer();
+              setDetail(null);
+            } else if (group) showHover(event.currentTarget);
+          }}
+          onPointerLeave={closeHoverSoon}
+          aria-label={`${step.scope ? `${step.scope}: ` : ""}${label}: ${step.detail}`}
+          aria-expanded={pinned?.path.join(".") === path.join(".") || detail?.path.join(".") === path.join(".")}
+          aria-haspopup="dialog"
+          onPointerDown={(event) => event.stopPropagation()}
+          onFocus={(event) => {
+            if (event.target === event.currentTarget) showDetail(event.currentTarget);
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            showDetail(event.currentTarget);
+          }}
+          onBlur={closeHoverSoon}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Escape") {
+              setDetail(null);
+              setPinned(null);
+            }
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              showDetail(event.currentTarget);
+            }
+          }}
+          className="hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "stretch",
+            width: getSQLBizCardWidth(step, availableWidth),
+            minHeight: 82,
+            padding: group ? "10px" : "9px 8px",
+            boxSizing: "border-box",
+            border: group ? "2px dashed #000" : "2px solid #000",
+            borderRadius: 12,
+            background: "#fff",
+            color: "#000",
+            textAlign: "left",
+            fontFamily: "Inter, sans-serif",
+            cursor: "pointer",
+          }}
+        >
+          {step.scope && path.length === 1 && (
+            <span
+              style={{
+                fontSize: 9,
+                color: "#525252",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                marginBottom: 4,
+              }}
+            >
+              {step.scope}
+            </span>
+          )}
+          {group ? (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <OperationBadge operation="CTE" />
+                <span style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700 }}>{card.primary}</span>
+              </div>
+              <ol
+                aria-label={`${step.cteName} CTE operations`}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: group.columns.map((width) => `${width}px`).join(" "),
+                  gap: SQL_BIZ_CARD_GAP,
+                  listStyle: "none",
+                  margin: 0,
+                  padding: 0,
+                  alignItems: "start",
+                }}
+              >
+                {step.children?.map((child, index) =>
+                  renderStep(child, [...path, index], group.columns[index % group.columns.length])
+                )}
+              </ol>
+            </>
+          ) : (
+            <>
+              <OperationBadge operation={step.label} />
+              <span
+                style={{
+                  whiteSpace: "pre",
+                  fontSize: 12,
+                  lineHeight: "16px",
+                  fontWeight: 700,
+                }}
+              >
+                {highlight(card.primary)}
+              </span>
+              {card.secondary && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    lineHeight: "14px",
+                    color: "#444",
+                    marginTop: 3,
+                    whiteSpace: "pre",
+                  }}
+                >
+                  {highlight(card.secondary)}
+                </span>
+              )}
+            </>
+          )}
+        </div>
+      </li>
+    );
+  };
+
   return (
     <div
       ref={container}
       data-sql-biz-body
       aria-label="Query pipeline"
+      onPointerDown={(event) => event.stopPropagation()}
       onWheel={(event) => event.stopPropagation()}
       onScroll={() => {
         cancelHoverTimer();
@@ -227,115 +385,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
             flexShrink: 0,
           }}
         >
-          {summary.steps.map((step, index) => {
-            const label = step.label === "CONDITIONAL" ? "CLASSIFY" : step.label;
-            const card = step.card ?? { primary: step.detail };
-            const showDetail = (anchor: HTMLElement) => {
-              pinDetail({ index, anchor });
-            };
-            return (
-              <li key={index} style={{ display: "flex", minWidth: 0 }}>
-                <div
-                  role="button"
-                  tabIndex={0}
-                  data-sql-biz-card
-                  onPointerEnter={(event) => {
-                    if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
-                    if (event.target instanceof Element && event.target.closest("[data-sql-identifier]")) return;
-                    cancelHoverTimer();
-                    if (pinned?.index === index) return;
-                    const anchor = event.currentTarget;
-                    hoverTimer.current = setTimeout(() => {
-                      if (claimPopup(anchor)) setDetail({ index, anchor });
-                    }, 200);
-                  }}
-                  onPointerOver={(event) => {
-                    if (event.target instanceof Element && event.target.closest("[data-sql-identifier]")) {
-                      cancelHoverTimer();
-                      setDetail(null);
-                    }
-                  }}
-                  onPointerLeave={closeHoverSoon}
-                  aria-label={`${step.scope ? `${step.scope}: ` : ""}${label}: ${step.detail}`}
-                  aria-expanded={pinned?.index === index || detail?.index === index}
-                  aria-haspopup="dialog"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onFocus={(event) => {
-                    if (event.target === event.currentTarget) showDetail(event.currentTarget);
-                  }}
-                  onClick={(event) => showDetail(event.currentTarget)}
-                  onBlur={closeHoverSoon}
-                  onKeyDown={(event) => {
-                    event.stopPropagation();
-                    if (event.key === "Escape") {
-                      setDetail(null);
-                      setPinned(null);
-                    }
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      showDetail(event.currentTarget);
-                    }
-                  }}
-                  className="hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "stretch",
-                    width: getSQLBizCardWidth(step),
-                    minHeight: 82,
-                    padding: "9px 8px",
-                    boxSizing: "border-box",
-                    border: "2px solid #000",
-                    borderRadius: 12,
-                    background: "#fff",
-                    color: "#000",
-                    textAlign: "left",
-                    fontFamily: "Inter, sans-serif",
-                    cursor: "pointer",
-                  }}
-                >
-                  {step.scope && (
-                    <span
-                      style={{
-                        fontSize: 9,
-                        color: "#525252",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        marginBottom: 4,
-                      }}
-                    >
-                      {step.scope}
-                    </span>
-                  )}
-                  <OperationBadge operation={step.label} />
-                  <span
-                    style={{
-                      whiteSpace: "pre",
-                      fontSize: 12,
-                      lineHeight: "16px",
-                      fontWeight: 700,
-                    }}
-                  >
-                    {highlight(card.primary)}
-                  </span>
-                  {card.secondary && (
-                    <span
-                      style={{
-                        fontSize: 10,
-                        lineHeight: "14px",
-                        color: "#444",
-                        marginTop: 3,
-                        whiteSpace: "pre",
-                      }}
-                    >
-                      {highlight(card.secondary)}
-                    </span>
-                  )}
-                </div>
-              </li>
-            );
-          })}
+          {summary.steps.map((step, index) => renderStep(step, [index], available.w))}
         </ol>
       ) : !summary.error ? (
         <div
@@ -370,10 +420,10 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
           {summary.error}
         </pre>
       )}
-      {pinned && summary.steps[pinned.index] && (
+      {pinned && pinnedStep && (
         <OperationPopup
           detail={pinned}
-          step={summary.steps[pinned.index]}
+          step={pinnedStep}
           pinned
           shape={shape}
           text={text}
@@ -383,10 +433,10 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
           onPointerLeave={() => {}}
         />
       )}
-      {detail && detail.index !== pinned?.index && summary.steps[detail.index] && (
+      {detail && detail.path.join(".") !== pinned?.path.join(".") && activeStep && (
         <OperationPopup
           detail={detail}
-          step={summary.steps[detail.index]}
+          step={activeStep}
           pinned={false}
           shape={shape}
           text={text}
@@ -400,7 +450,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
   );
 }
 
-type OperationDetail = { index: number; anchor: HTMLElement };
+type OperationDetail = { path: number[]; anchor: HTMLElement };
 
 function OperationPopup({
   detail,
@@ -432,8 +482,8 @@ function OperationPopup({
   const position = usePopupPlacement(detail.anchor, popover, shape.id);
   const extraction = useValue(
     "Biz operation extraction",
-    () => getSQLBizExtractionPlan(editor, shape.id, detail.index),
-    [editor, shape.id, detail.index]
+    () => getSQLBizExtractionPlan(editor, shape.id, detail.path),
+    [editor, shape.id, detail.path]
   );
   const formattedDetail = useMemo(() => {
     if (!step) return { sql: "", error: null };
@@ -521,7 +571,7 @@ function OperationPopup({
                 event.stopPropagation();
                 if (!extraction?.enabled || extracting) return;
                 try {
-                  const extracted = await extractSQLBizOperation(editor, shape.id, detail.index, text, data);
+                  const extracted = await extractSQLBizOperation(editor, shape.id, detail.path, text, data);
                   addToast({
                     title: `Extracted to ${extracted.name}`,
                     severity: "success",
