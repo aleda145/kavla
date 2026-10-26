@@ -7,14 +7,16 @@ import { readBizFilterCounts, type BizFilterCounts, type BizFilterPlan } from ".
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import type { RunRemoteQueryPayload } from "../client/localServer/types";
 
-type CountsState =
-  { status: "loading" | "waiting" } | { status: "error"; error: string } | { status: "ready"; counts: BizFilterCounts };
+type StatsState =
+  | { status: "loading" | "waiting" }
+  | { status: "error"; error: string }
+  | { status: "ready"; rows: Record<string, unknown>[] };
 type Request =
   | { status: "waiting" }
   | { status: "error"; error: string }
-  | { status: "ready"; payload: Omit<RunRemoteQueryPayload, "shapeId">; revision: string; conditionCount: number };
+  | { status: "ready"; payload: Omit<RunRemoteQueryPayload, "shapeId">; revision: string };
 
-const caches = new WeakMap<Editor, Map<string, Promise<CountsState>>>();
+const caches = new WeakMap<Editor, Map<string, Promise<StatsState>>>();
 // A successful run replaces this object, even if its row count and duration match.
 const runRevisions = new WeakMap<object, number>();
 let nextRunRevision = 0;
@@ -29,21 +31,42 @@ function runRevision(stats: SQLTextAreaShape["props"]["lastRunStats"]) {
 }
 
 export function useSQLBizFilterStats(shape: SQLTextAreaShape, plan: BizFilterPlan, perCondition: boolean) {
+  const query = "error" in plan ? plan.error : perCondition ? plan.conditionsSQL : plan.totalSQL;
+  const result = useSQLBizStats(shape, "error" in plan ? null : query, "error" in plan ? query : undefined);
+  const state = useMemo((): Exclude<StatsState, { status: "ready" }> | { status: "ready"; counts: BizFilterCounts } => {
+    if (result.state.status !== "ready") return result.state;
+    try {
+      if (result.state.rows.length !== 1) throw new Error("Expected one row of filter counts.");
+      return {
+        status: "ready",
+        counts: readBizFilterCounts(
+          result.state.rows[0],
+          perCondition && !("error" in plan) ? plan.conditions.length : 0
+        ),
+      };
+    } catch (error) {
+      return { status: "error", error: error instanceof Error ? error.message : String(error) };
+    }
+  }, [result.state, plan, perCondition]);
+  return { state, retry: result.retry };
+}
+
+export function useSQLBizStats(shape: SQLTextAreaShape, sql: string | null, error?: string) {
   const editor = useEditor();
   const { runRemoteQuery } = useData();
   const requestKey = useValue(
-    "Biz filter counts input",
+    "Biz operation stats input",
     () => {
       const build = (): Request => {
-        if ("error" in plan) return { status: "error", error: plan.error };
+        if (error) return { status: "error", error };
+        if (!sql) return { status: "waiting" };
         try {
           const current = editor.getShape<SQLTextAreaShape>(shape.id);
           if (!current || current.props.text !== shape.props.text) return { status: "waiting" };
-          const sql = perCondition ? plan.conditionsSQL : plan.totalSQL;
           const dag = walkSQLDag(editor, sql);
           if (!dag.ok) throw new Error(dag.error.message);
           if (dag.plan.orderedDependencies.some((input) => input.id === shape.id)) {
-            throw new Error("Cannot count this filter because its source resolves back to the current query.");
+            throw new Error("Cannot measure this operation because its source resolves back to the current query.");
           }
           const queries = [
             current,
@@ -63,7 +86,6 @@ export function useSQLBizFilterStats(shape: SQLTextAreaShape, plan: BizFilterPla
               transient: true,
             },
             revision: `${editor.getCurrentPageId()}:${backendRevision.get()}:${queries.map((query) => `${query.id}:${runRevision(query.props.lastRunStats)}`).join(",")}`,
-            conditionCount: perCondition ? plan.conditions.length : 0,
           };
         } catch (error) {
           return { status: "error", error: error instanceof Error ? error.message : String(error) };
@@ -71,10 +93,10 @@ export function useSQLBizFilterStats(shape: SQLTextAreaShape, plan: BizFilterPla
       };
       return JSON.stringify(build());
     },
-    [editor, shape.id, shape.props.text, plan, perCondition]
+    [editor, shape.id, shape.props.text, sql, error]
   );
   const request = useMemo(() => JSON.parse(requestKey) as Request, [requestKey]);
-  const [result, setResult] = useState<{ key: string; state: CountsState } | null>(null);
+  const [result, setResult] = useState<{ key: string; state: StatsState } | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -90,11 +112,10 @@ export function useSQLBizFilterStats(shape: SQLTextAreaShape, plan: BizFilterPla
       let pending = cache.get(requestKey);
       if (!pending) {
         pending = runRemoteQuery({ ...request.payload, shapeId: createShapeId() })
-          .then((result): CountsState => {
-            if (result.sampleRows.length !== 1) throw new Error("Expected one row of filter counts.");
-            return { status: "ready", counts: readBizFilterCounts(result.sampleRows[0], request.conditionCount) };
+          .then((result): StatsState => {
+            return { status: "ready", rows: result.sampleRows };
           })
-          .catch((error): CountsState => ({
+          .catch((error): StatsState => ({
             status: "error",
             error: error instanceof Error ? error.message : String(error),
           }));
@@ -111,7 +132,7 @@ export function useSQLBizFilterStats(shape: SQLTextAreaShape, plan: BizFilterPla
     };
   }, [editor, request, requestKey, runRemoteQuery, attempt]);
 
-  const state: CountsState =
+  const state: StatsState =
     request.status !== "ready" ? request : result?.key === requestKey ? result.state : { status: "loading" };
   const retry = () => {
     caches.get(editor)?.delete(requestKey);

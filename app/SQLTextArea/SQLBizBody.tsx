@@ -40,8 +40,9 @@ import { useExclusivePopup } from "./useExclusivePopup";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { extractSQLBizOperation, getSQLBizExtractionPlan, isSQLBizExtracting } from "./extractSQLBizOperation";
 import { useData } from "../client/useLocalServer";
-import { useSQLBizFilterStats } from "./useSQLBizFilterStats";
+import { useSQLBizFilterStats } from "./useSQLBizStats";
 import { formatBizFilterCount, type BizFilterPlan } from "./sqlBizFilterStats";
+import { SQLBizOperationStats } from "./SQLBizOperationStats";
 
 const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
   CTE: { Icon: Layers, color: "#bfdbfe" },
@@ -342,20 +343,22 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
               >
                 {highlight(card.primary)}
               </span>
-              {card.secondary && (
-                <span
-                  style={{
-                    fontSize: 10,
-                    lineHeight: "14px",
-                    color: "#444",
-                    marginTop: 3,
-                    whiteSpace: "pre",
-                  }}
-                >
-                  {highlight(card.secondary)}
-                </span>
-              )}
+              {card.secondary &&
+                !(step.stats && step.label === "CONDITIONAL" && /^\d+ groups$/.test(card.secondary)) && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      lineHeight: "14px",
+                      color: "#444",
+                      marginTop: 3,
+                      whiteSpace: "pre",
+                    }}
+                  >
+                    {highlight(card.secondary)}
+                  </span>
+                )}
               {step.filter && <FilterCounts shape={shape} plan={step.filter} />}
+              {step.stats && <SQLBizOperationStats shape={shape} plan={step.stats} />}
             </>
           )}
         </div>
@@ -655,7 +658,7 @@ function OperationPopup({
         ...position,
         width: popupWidth,
         maxWidth: "calc(100vw - 16px)",
-        maxHeight: filterPlan ? "calc(100vh - 16px)" : "min(240px, calc(100vh - 16px))",
+        maxHeight: filterPlan || step.stats ? "calc(100vh - 16px)" : "min(240px, calc(100vh - 16px))",
         overflow: "auto",
         padding: "10px 12px",
         boxSizing: "border-box",
@@ -764,6 +767,7 @@ function OperationPopup({
         </pre>
       )}
       {step.filter && <FilterCounts shape={shape} plan={step.filter} perCondition popup highlight={highlight} />}
+      {step.stats && <SQLBizOperationStats shape={shape} plan={step.stats} popup />}
     </div>,
     document.body
   );
