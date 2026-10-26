@@ -5,7 +5,7 @@ import { setShapeUpstreamConnections } from "../util/shapeConnections";
 import { getSQLKnobs } from "../Knob/knobSQL";
 import { clearQuerySQLSize, isBizMode, setQueryBizMode } from "../client/canvas/bizMode";
 import { getOrderedDependenciesForSQL, type SQLDependencyShape } from "./sqlDependencies";
-import { getSQLBizSummary } from "./sqlBizSummary";
+import { getSQLBizStep, getSQLBizSummary } from "./sqlBizSummary";
 import { getAutoExpandedSQLShapeSize } from "./sqlShapeSize";
 import { planSQLBizExtraction, type BizExtractionPlan } from "./sqlBizExtraction";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
@@ -45,7 +45,7 @@ export function isSQLBizExtracting(editor: Editor, shapeId: TLShapeId) {
 export function getSQLBizExtractionPlan(
   editor: Editor,
   shapeId: TLShapeId,
-  stepIndex: number,
+  stepPath: readonly number[],
   schemas?: ExtractionSchemas
 ): CanvasExtractionPlan {
   const disabled = (reason: string): CanvasExtractionPlan => ({ enabled: false, reason });
@@ -55,7 +55,7 @@ export function getSQLBizExtractionPlan(
     return disabled("Unlock this query to extract an operation.");
   if (shape.props.isRunning) return disabled("Wait for this query to finish running.");
   const summary = getSQLBizSummary(shape.props.text);
-  const step = summary.steps[stepIndex];
+  const step = getSQLBizStep(summary, stepPath);
   if (summary.error || !step) return disabled(summary.error ?? "This operation is no longer available.");
   const dependencies = walkSQLDag(editor, shape.props.text);
   if (!dependencies.ok) return disabled(dependencies.error.message);
@@ -66,7 +66,16 @@ export function getSQLBizExtractionPlan(
   if (executionState.sourceNativePreview && executionState.sourceType?.toLowerCase() !== "duckdb") {
     return disabled("Extraction currently supports queries executed by DuckDB.");
   }
-  const names = extractTableNames(shape.props.text);
+  if (step.scope)
+    return disabled(
+      step.scope.includes("CTE ")
+        ? "Extract the enclosing CTE first to separate its operations."
+        : "Extracting an operation inside a subquery or set operation is not supported yet."
+    );
+  if (step.label !== "CTE" && summary.steps.some((item) => item.label === "CTE")) {
+    return disabled("Extract the CTE first to separate the outer operations.");
+  }
+  const names = extractTableNames(step.label === "CTE" ? step.detail : shape.props.text);
   if (names.length !== 1) return disabled("Extraction requires one unambiguous source table.");
   const sources = editor.getCurrentPageShapes().filter((candidate): candidate is SQLDependencyShape => {
     if (candidate.type !== "sql-text-area" && candidate.type !== "data-source") return false;
@@ -90,7 +99,10 @@ export function getSQLBizExtractionPlan(
     : upstreamIsCurrent && isCurrent(shape)
       ? shape.props.outputSchema
       : null;
-  const namePrefix = `${shape.props.name}_before_${step.label.toLowerCase().replaceAll(" ", "_")}`;
+  const namePrefix =
+    step.label === "CTE"
+      ? `${shape.props.name}_${step.cteName}`
+      : `${shape.props.name}_before_${step.label.toLowerCase().replaceAll(" ", "_")}`;
   // A new canvas name must not capture an existing reference to a backend-only table.
   const referencedNames = new Set(
     editor
@@ -175,7 +187,7 @@ function extractionPosition(
 export async function extractSQLBizOperation(
   editor: Editor,
   shapeId: TLShapeId,
-  stepIndex: number,
+  stepPath: readonly number[],
   expectedSQL: string,
   data: Pick<LocalServerContextType, "runRemoteQuery">
 ) {
@@ -183,7 +195,7 @@ export async function extractSQLBizOperation(
   const state = extractionState(editor);
   state.set(new Set([...state.get(), shapeId]));
   try {
-    const initial = getSQLBizExtractionPlan(editor, shapeId, stepIndex);
+    const initial = getSQLBizExtractionPlan(editor, shapeId, stepPath);
     if (!initial.enabled) throw new Error(initial.reason);
     if (initial.original.props.text !== expectedSQL)
       throw new Error("The query changed. Reopen the operation before extracting it.");
@@ -198,7 +210,7 @@ export async function extractSQLBizOperation(
     const sourceRun = compile(sourceSQL);
     const outputRun = compile(expectedSQL);
     const assertUnchanged = () => {
-      const latest = getSQLBizExtractionPlan(editor, shapeId, stepIndex);
+      const latest = getSQLBizExtractionPlan(editor, shapeId, stepPath);
       if (!latest.enabled) throw new Error(latest.reason);
       if (
         editor.getCurrentPageId() !== pageId ||
@@ -225,7 +237,7 @@ export async function extractSQLBizOperation(
     const sourceResult = await run(sourceRun.sql, sourceRun.executionState);
     assertUnchanged();
     const schemas = { sourceColumns: sourceResult.schema, outputColumns: null };
-    const checked = getSQLBizExtractionPlan(editor, shapeId, stepIndex, schemas);
+    const checked = getSQLBizExtractionPlan(editor, shapeId, stepPath, schemas);
     if (!checked.enabled) throw new Error(checked.reason);
     if (checked.needsSchema) throw new Error("The upstream query did not return a schema.");
     const upstream: SQLTextAreaShape = {
@@ -237,7 +249,7 @@ export async function extractSQLBizOperation(
     const rewrittenSQL = buildRemoteSQLFromDag(checked.outputSQL, [...outputRun.orderedDependencies, upstream], editor);
     const outputResult = await run(rewrittenSQL, outputRun.executionState);
     assertUnchanged();
-    const plan = getSQLBizExtractionPlan(editor, shapeId, stepIndex, {
+    const plan = getSQLBizExtractionPlan(editor, shapeId, stepPath, {
       sourceColumns: sourceResult.schema,
       outputColumns: outputResult.schema,
     });

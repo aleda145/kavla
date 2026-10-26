@@ -2,6 +2,7 @@ import { ast, Dialect, generate, parse } from "@polyglot-sql/sdk";
 import { mapKnobParameters } from "../Knob/knobSQL";
 
 export type BizOperation =
+  | "CTE"
   | "READ"
   | "JOIN"
   | "FILTER"
@@ -20,10 +21,19 @@ export type BizOperation =
   | "LIMIT"
   | "COMBINE";
 type BizCard = { primary: string; secondary?: string };
-export type BizStep = { label: BizOperation; detail: string; scope?: string; card?: BizCard };
+export type BizStep = {
+  label: BizOperation;
+  detail: string;
+  scope?: string;
+  card?: BizCard;
+  cteName?: string;
+  children?: BizStep[];
+};
 export type BizSummary = { steps: BizStep[]; note: string | null; error?: string };
 
 const cache = new Map<string, BizSummary>();
+type BizGroupLayout = { w: number; h: number; columns: number[] };
+const groupLayouts = new WeakMap<BizStep, Map<number, BizGroupLayout>>();
 const bucketFunctions = new Set([
   "floor",
   "ceil",
@@ -250,11 +260,21 @@ function summarize(sql: string): BizSummary {
       const columns = cte.columns.length
         ? ` (${cte.columns.map((column) => expressionSQL({ identifier: column })).join(", ")})`
         : "";
+      const start = steps.length;
       appendQuery(
         cte.this,
         scoped(scope, `${withClause?.recursive ? "Recursive CTE" : "CTE"} ${name}${columns}`),
         depth + 1
       );
+      const children = steps.splice(start);
+      steps.push({
+        label: "CTE",
+        detail: expressionSQL(cte.this),
+        scope,
+        cteName: cte.alias.name,
+        card: { primary: `${name}${columns}` },
+        children,
+      });
     }
     if (combined) {
       const { query: operation, name } = combined;
@@ -504,16 +524,30 @@ export function getSQLBizSummary(sql: string): BizSummary {
   const existing = cache.get(sql);
   if (existing) return existing;
   const summary = summarize(sql);
-  const steps = summary.steps.filter((step) => step.label !== "READ");
-  summary.steps = steps.some((step) => step.label !== "SELECT")
-    ? steps.filter((step) => step.label !== "SELECT")
-    : steps;
+  const visibleSteps = (items: BizStep[]): BizStep[] => {
+    const steps = items.filter((step) => step.label !== "READ");
+    for (const step of steps) if (step.children) step.children = visibleSteps(step.children);
+    return steps.some((step) => step.label !== "SELECT") ? steps.filter((step) => step.label !== "SELECT") : steps;
+  };
+  summary.steps = visibleSteps(summary.steps);
   if (cache.size >= 100) cache.delete(cache.keys().next().value!);
   cache.set(sql, summary);
   return summary;
 }
 
-export function getSQLBizCardWidth(step: BizStep) {
+export function getSQLBizStep(summary: BizSummary, path: readonly number[]): BizStep | undefined {
+  let steps = summary.steps;
+  let step: BizStep | undefined;
+  for (const index of path) {
+    step = steps[index];
+    if (!step) return undefined;
+    steps = step.children ?? [];
+  }
+  return step;
+}
+
+export function getSQLBizCardWidth(step: BizStep, availableWidth = Infinity): number {
+  if (step.children) return getSQLBizGroupLayout(step, availableWidth).w;
   const card = step.card ?? { primary: step.detail };
   // Match the monospace card text, leaving room for padding and borders.
   const primaryWidth = Math.max(...card.primary.split("\n").map((line) => Array.from(line).length)) * 7.3;
@@ -524,7 +558,8 @@ export function getSQLBizCardWidth(step: BizStep) {
 
 export const SQL_BIZ_CARD_GAP = 12;
 
-export function getSQLBizCardHeight(step: BizStep) {
+export function getSQLBizCardHeight(step: BizStep, availableWidth = Infinity): number {
+  if (step.children) return getSQLBizGroupLayout(step, availableWidth).h;
   const card = step.card ?? { primary: step.detail };
   return Math.max(
     82,
@@ -536,9 +571,9 @@ export function getSQLBizCardHeight(step: BizStep) {
 }
 
 export function getSQLBizColumns(summary: BizSummary, available: { w: number; h: number }): number[] {
-  const widths = summary.steps.map(getSQLBizCardWidth);
+  const widths = summary.steps.map((step) => getSQLBizCardWidth(step, available.w));
   if (!widths.length) return [];
-  const heights = summary.steps.map(getSQLBizCardHeight);
+  const heights = summary.steps.map((step) => getSQLBizCardHeight(step, available.w));
   const gaps = (widths.length - 1) * SQL_BIZ_CARD_GAP;
   const widest = Math.max(...widths);
   const horizontalFits =
@@ -559,4 +594,32 @@ export function getSQLBizColumns(summary: BizSummary, available: { w: number; h:
     }
   }
   return [widest];
+}
+
+export function getSQLBizGroupLayout(step: BizStep, availableWidth: number): BizGroupLayout {
+  const cached = groupLayouts.get(step);
+  const existing = cached?.get(availableWidth);
+  if (existing) return existing;
+  const children = step.children ?? [];
+  const innerWidth = Math.max(0, availableWidth - 24);
+  const columns = getSQLBizColumns({ steps: children, note: null }, { w: innerWidth, h: 0 });
+  const rows: number[] = [];
+  children.forEach((child, index) => {
+    const row = Math.floor(index / columns.length);
+    rows[row] = Math.max(rows[row] ?? 0, getSQLBizCardHeight(child, innerWidth));
+  });
+  const layout = {
+    w: Math.max(
+      160,
+      (step.card?.primary.length ?? 0) * 7.3 + 76,
+      columns.reduce((sum, width) => sum + width, 0) + Math.max(0, columns.length - 1) * SQL_BIZ_CARD_GAP + 24
+    ),
+    h: 54 + rows.reduce((sum, height) => sum + height, 0) + Math.max(0, rows.length - 1) * SQL_BIZ_CARD_GAP,
+    columns,
+  };
+  const sizes = cached ?? new Map<number, BizGroupLayout>();
+  if (sizes.size >= 8) sizes.delete(sizes.keys().next().value!);
+  sizes.set(availableWidth, layout);
+  groupLayouts.set(step, sizes);
+  return layout;
 }

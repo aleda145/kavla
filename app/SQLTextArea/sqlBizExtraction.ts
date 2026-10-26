@@ -143,6 +143,91 @@ function hasValue(value: unknown) {
   return Array.isArray(value) ? value.length > 0 : Boolean(value);
 }
 
+function planCTEExtraction(sql: string, step: BizStep, upstreamName: string): BizExtractionPlan {
+  requireSafe(!step.scope, "Extract the enclosing CTE first; nested CTEs cannot be moved independently yet.");
+  const query = parseSelect(sql);
+  requireSafe(query.with && !query.with.recursive, "Recursive CTEs cannot be extracted safely yet.");
+  requireSafe(
+    query.with.ctes.length === 1,
+    "Extraction currently supports a single standalone CTE. Dependent CTE chains must stay together."
+  );
+  const cte = query.with.ctes[0];
+  requireSafe(cte.alias.name === step.cteName, "This CTE is no longer available.");
+  requireSafe(
+    cte.materialized == null && !cte.columns.length && !cte.key_expressions?.length,
+    "CTE materialization hints and column alias lists cannot be moved safely yet."
+  );
+  requireSafe("select" in cte.this, "Only SELECT CTEs can be extracted yet.");
+  const body = cte.this.select;
+  requireSafe(!body.with, "Extracting a CTE containing another WITH clause is not supported yet.");
+  requireSafe(
+    query.from?.expressions.length === 1 && !query.joins.length,
+    "The CTE must be the query's single input to extract it safely."
+  );
+  const reference = query.from.expressions[0];
+  requireSafe(
+    "table" in reference &&
+      !reference.table.schema &&
+      !reference.table.catalog &&
+      reference.table.name.name.toLowerCase() === cte.alias.name.toLowerCase(),
+    "The CTE must be referenced directly by the outer query."
+  );
+  for (const select of [query, body]) {
+    requireSafe(
+      !select.joins.length &&
+        !select.lateral_views.length &&
+        !select.sample &&
+        !select.into &&
+        !select.locks.length &&
+        !select.kind &&
+        !hasValue(select.operation_modifiers),
+      "This CTE contains query modifiers that cannot be moved safely yet."
+    );
+  }
+  let selects = 0;
+  ast.walk(
+    { select: query },
+    {
+      enter(node) {
+        const type = ast.getExprType(node);
+        if (type === "select") selects++;
+        requireSafe(selects <= 2, "CTEs with nested queries cannot be extracted safely yet.");
+        requireSafe(
+          "function" in node ? safeFunctions.has(node.function.name.toLowerCase()) : safeNodes.has(type),
+          `The expression “${"function" in node ? node.function.name : type}” is not known to be safe to extract.`
+        );
+        if ("table" in node)
+          requireSafe(
+            !node.table.table_sample && !node.table.identifier_func,
+            "Sampled or dynamic table references cannot be extracted safely."
+          );
+      },
+    }
+  );
+  ast.walk(cte.this, {
+    enter(node) {
+      if ("table" in node)
+        requireSafe(
+          node.table.name.name.toLowerCase() !== cte.alias.name.toLowerCase(),
+          "A CTE referring to its own name cannot be extracted safely."
+        );
+    },
+  });
+  // Preserve the old relation alias so qualified references such as bucketed.x keep working.
+  reference.table.alias ??= structuredClone(cte.alias);
+  reference.table.alias_explicit_as = true;
+  reference.table.name = { name: upstreamName, quoted: true, trailing_comments: [] };
+  query.with = null;
+  return {
+    enabled: true,
+    needsSchema: false,
+    direction: "upstream",
+    upstreamSQL: format(sqlFor(cte.this), { language: "duckdb", keywordCase: "upper", tabWidth: 2 }),
+    outputSQL: format(sqlFor({ select: query }), { language: "duckdb", keywordCase: "upper", tabWidth: 2 }),
+    upstreamSchema: null,
+  };
+}
+
 export function planSQLBizExtraction(
   sql: string,
   step: BizStep,
@@ -151,19 +236,25 @@ export function planSQLBizExtraction(
   outputSchema: Column[] | null = null
 ): BizExtractionPlan {
   try {
-    requireSafe(!step.scope, "Extracting an operation inside a CTE, subquery, or set operation is not supported yet.");
-    requireSafe(
-      !["READ", "SELECT", "JOIN", "COMBINE", "WINDOW", "FILTER WINDOW", "FILTER GROUPS"].includes(step.label),
-      step.label === "SELECT"
-        ? "There is no separate operation to extract."
-        : `${step.label} has dependencies that cannot yet be separated safely.`
-    );
     let hasKnobs = false;
     mapKnobParameters(sql, () => {
       hasKnobs = true;
       return "0";
     });
     requireSafe(!hasKnobs, "Queries with knob parameters cannot be extracted yet.");
+    if (step.label === "CTE") return planCTEExtraction(sql, step, upstreamName);
+    requireSafe(
+      !step.scope,
+      step.scope?.includes("CTE ")
+        ? "Extract the enclosing CTE first to separate its operations."
+        : "Extracting an operation inside a subquery or set operation is not supported yet."
+    );
+    requireSafe(
+      !["READ", "SELECT", "JOIN", "COMBINE", "WINDOW", "FILTER WINDOW", "FILTER GROUPS"].includes(step.label),
+      step.label === "SELECT"
+        ? "There is no separate operation to extract."
+        : `${step.label} has dependencies that cannot yet be separated safely.`
+    );
     const query = parseSelect(sql);
     const unsupported: (keyof Select)[] = [
       "with",
