@@ -1,6 +1,7 @@
 import { ast, Dialect, generate, parse } from "@polyglot-sql/sdk";
 import { mapKnobParameters } from "../Knob/knobSQL";
 import { buildBizFilterPlan, type BizFilterPlan } from "./sqlBizFilterStats";
+import { buildBizOperationStats, type BizOperationStatsPlan } from "./sqlBizOperationStats";
 
 export type BizOperation =
   | "CTE"
@@ -30,6 +31,7 @@ export type BizStep = {
   cteName?: string;
   children?: BizStep[];
   filter?: BizFilterPlan;
+  stats?: BizOperationStatsPlan;
 };
 export type BizSummary = { steps: BizStep[]; note: string | null; error?: string };
 
@@ -332,7 +334,7 @@ function summarize(sql: string): BizSummary {
         );
     }
     if (query.from) add("READ", query.from.expressions.map(sourceName).join(", "), scope);
-    for (const join of query.joins) {
+    for (const [index, join] of query.joins.entries()) {
       const kind = join.kind.replace(/([a-z])([A-Z])/g, "$1 $2").toUpperCase();
       const condition = join.on
         ? ` ON ${expressionSQL(join.on)}`
@@ -343,6 +345,7 @@ function summarize(sql: string): BizSummary {
         primary: `${kind} ${sourceName(join.this)}`,
         secondary: condition.trim() || undefined,
       });
+      steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "join", index });
     }
     if (query.where_clause) {
       add("FILTER", expressionSQL(query.where_clause.this), scope, conditionCard(query.where_clause.this));
@@ -409,13 +412,20 @@ function summarize(sql: string): BizSummary {
           ("alias" in expression && groupNames.has(expression.alias.alias.name.toLowerCase())))
       );
     });
-    const appendTransforms = (items: typeof transforms) => {
+    const appendTransforms = (items: typeof transforms, beforeAggregation: boolean) => {
       for (const item of items) {
         const label = transformation(item.functions);
         add(label, assignment(item.expression), scope, transformCard(item.expression, label));
+        if (label === "BUCKET" || label === "CONDITIONAL") {
+          steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, {
+            kind: "buckets",
+            expression: item.expression,
+            beforeAggregation,
+          });
+        }
       }
     };
-    appendTransforms(early);
+    appendTransforms(early, true);
     if (query.group_by || aggregates.size) {
       const group = query.group_by && { ...query.group_by, expressions: groupingExpressions };
       const grouping = group ? expressionSQL({ group_by: group }) : "";
@@ -430,6 +440,7 @@ function summarize(sql: string): BizSummary {
         primary: grouping ? grouping.replace(/^GROUP BY /, "BY ") : (caption ?? "All rows"),
         secondary: grouping ? caption : undefined,
       });
+      steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "aggregate" });
     }
     if (query.having)
       add("FILTER GROUPS", `HAVING ${expressionSQL(query.having.this)}`, scope, conditionCard(query.having.this));
@@ -475,7 +486,10 @@ function summarize(sql: string): BizSummary {
         );
       }
     }
-    appendTransforms(transforms.filter((projection) => !early.includes(projection)));
+    appendTransforms(
+      transforms.filter((projection) => !early.includes(projection)),
+      false
+    );
     if (query.qualify)
       add("FILTER WINDOW", expressionSQL(query.qualify.this), scope, conditionCard(query.qualify.this));
     add("SELECT", query.expressions.map(outputProjection).join(", "), scope);
@@ -487,6 +501,7 @@ function summarize(sql: string): BizSummary {
           : `DISTINCT ${query.expressions.map(outputProjection).join(", ")}`,
         scope
       );
+      steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "deduplicate" });
     }
     if (query.order_by)
       add("SORT", sortDetails(query.order_by, resolvePosition), scope, sortCard(query.order_by, resolvePosition));
@@ -582,8 +597,10 @@ export function getSQLBizCardHeight(step: BizStep, availableWidth = Infinity): n
     82,
     52 +
       card.primary.split("\n").length * 16 +
-      (card.secondary ? 3 + card.secondary.split("\n").length * 14 : 0) +
-      (step.filter ? 32 : 0) +
+      (card.secondary && !(step.stats && step.label === "CONDITIONAL" && /^\d+ groups$/.test(card.secondary))
+        ? 3 + card.secondary.split("\n").length * 14
+        : 0) +
+      (step.filter || step.stats ? 32 : 0) +
       (step.scope ? 18 : 0)
   );
 }
