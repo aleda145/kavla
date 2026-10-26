@@ -36,7 +36,8 @@ import { SQLIdentifierHover } from "./SQLIdentifierHover";
 import { usePopupPlacement } from "./usePopupPlacement";
 import { useExclusivePopup } from "./useExclusivePopup";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
-import { extractSQLBizOperation, getSQLBizExtractionPlan } from "./extractSQLBizOperation";
+import { extractSQLBizOperation, getSQLBizExtractionPlan, isSQLBizExtracting } from "./extractSQLBizOperation";
+import { useData } from "../client/useLocalServer";
 
 const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
   READ: { Icon: Database, color: "#bfdbfe" },
@@ -423,7 +424,9 @@ function OperationPopup({
   onPointerLeave: () => void;
 }) {
   const editor = useEditor();
+  const data = useData();
   const { addToast } = useToasts();
+  const extracting = useValue("SQL extraction running", () => isSQLBizExtracting(editor, shape.id), [editor, shape.id]);
   const tooltipId = useId();
   const popover = useRef<HTMLDivElement>(null);
   const position = usePopupPlacement(detail.anchor, popover, shape.id);
@@ -500,14 +503,15 @@ function OperationPopup({
         <span style={{ display: "flex", gap: 8 }} title={extraction.enabled ? undefined : extraction.reason}>
           <button
             type="button"
-            disabled={!extraction.enabled}
+            disabled={!extraction.enabled || extracting}
+            aria-busy={extracting}
             aria-describedby={`${tooltipId}-extraction`}
             className="h-7 px-2 rounded border-2 border-black bg-white text-xs font-bold cursor-pointer hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-            onClick={(event) => {
+            onClick={async (event) => {
               event.stopPropagation();
-              if (!extraction?.enabled) return;
+              if (!extraction?.enabled || extracting) return;
               try {
-                const extracted = extractSQLBizOperation(editor, shape.id, detail.index, text);
+                const extracted = await extractSQLBizOperation(editor, shape.id, detail.index, text, data);
                 addToast({
                   title: `Extracted to ${extracted.name}`,
                   severity: "success",
@@ -537,7 +541,7 @@ function OperationPopup({
               }
             }}
           >
-            Extract
+            {extracting ? "Running SQL…" : "Extract"}
           </button>
           {pinned && (
             <button
@@ -553,7 +557,13 @@ function OperationPopup({
       </div>
       {extraction && (
         <div id={`${tooltipId}-extraction`} style={{ fontSize: 11, color: "#666", margin: "0 0 8px" }}>
-          {extraction.enabled ? `Creates a stage ${extraction.direction}` : extraction.reason}
+          {extracting
+            ? "Running SQL before extraction…"
+            : extraction.enabled
+              ? extraction.needsSchema
+                ? `Runs SQL to check columns, then creates a stage ${extraction.direction}`
+                : `Creates a stage ${extraction.direction}`
+              : extraction.reason}
         </div>
       )}
       {step.scope && <div style={{ marginTop: 4, color: "#666" }}>{step.scope}</div>}
