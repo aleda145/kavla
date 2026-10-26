@@ -218,6 +218,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
   const runRemoteQuery = useCallback(
     async (payload: RunRemoteQueryPayload) =>
       withBackendActivity(async () => {
+        const { includeSampleRows = true, ...queryPayload } = payload;
         const executionEngine = payload.sourceNative ? payload.sourceType?.trim() || undefined : undefined;
         if (executionEngine && !payload.sourceName) throw new Error("sourceName is required for source-native preview");
         const sql = executionEngine
@@ -234,13 +235,15 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
             schema: { name: string; type: string }[];
           }>(
             "/api/session/queries",
-            { ...payload, sql, ...(executionEngine ? { executionEngine } : {}) },
+            { ...queryPayload, sql, ...(executionEngine ? { executionEngine } : {}) },
             controller.signal
           );
-          const sampleRows = payload.transient
-            ? await loadQueryResultRows(getQueryResultPage, payload.shapeId, null, controller.signal)
-            : (await getQueryResultPage({ shapeId: payload.shapeId, offset: 0, limit: 5, signal: controller.signal }))
-                .rows;
+          const sampleRows = !includeSampleRows
+            ? []
+            : payload.transient
+              ? await loadQueryResultRows(getQueryResultPage, payload.shapeId, null, controller.signal)
+              : (await getQueryResultPage({ shapeId: payload.shapeId, offset: 0, limit: 5, signal: controller.signal }))
+                  .rows;
           return {
             rowCount: Number(result.rowCount ?? 0),
             schema: result.schema,

@@ -17,6 +17,7 @@ export interface RunRemoteQueryPayload {
   queryName?: string;
   sourceNative?: boolean;
   transient?: boolean;
+  includeSampleRows?: boolean;
   restore?: boolean;
 }
 

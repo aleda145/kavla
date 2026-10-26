@@ -8,8 +8,10 @@ type Column = { name: string; type: string };
 type Select = ast.ExpressionInner<"select">;
 export type BizExtractionPlan =
   | { enabled: false; reason: string }
+  | { enabled: true; needsSchema: true; direction: "upstream" | "downstream" }
   | {
       enabled: true;
+      needsSchema: false;
       direction: "upstream" | "downstream";
       upstreamSQL: string;
       outputSQL: string;
@@ -144,7 +146,7 @@ function hasValue(value: unknown) {
 export function planSQLBizExtraction(
   sql: string,
   step: BizStep,
-  source: { name: string; columns: Column[] },
+  source: { name: string; columns: Column[] | null },
   upstreamName: string,
   outputSchema: Column[] | null = null
 ): BizExtractionPlan {
@@ -215,9 +217,6 @@ export function planSQLBizExtraction(
       "This source uses table modifiers that cannot be moved safely."
     );
     requireSafe(table.name.name.toLowerCase() === source.name.toLowerCase(), "The source table could not be resolved.");
-    requireSafe(source.columns.length, "Run the source query first so its columns are known.");
-    const inputNames = new Set(source.columns.map((item) => item.name.toLowerCase()));
-    requireSafe(inputNames.size === source.columns.length, "Duplicate source column names make extraction ambiguous.");
     const qualifier = (table.alias ?? table.name).name.toLowerCase();
     let selectCount = 0;
     ast.walk(
@@ -251,6 +250,57 @@ export function planSQLBizExtraction(
       }
     );
 
+    if (step.label === "SORT") {
+      requireSafe(query.order_by, "This query no longer contains that sort.");
+      requireSafe(
+        !query.limit && !query.offset && !query.fetch,
+        "SORT must stay before LIMIT and OFFSET; extract those first."
+      );
+    } else if (step.label === "LIMIT") {
+      requireSafe(query.limit || query.fetch, "This query no longer contains that limit.");
+      requireSafe(
+        !query.fetch?.percent && !query.fetch?.with_ties,
+        "Percentage limits and WITH TIES cannot be extracted yet."
+      );
+    } else if (step.label === "SKIP") {
+      requireSafe(query.offset, "This query no longer contains that offset.");
+      requireSafe(!query.limit && !query.fetch, "OFFSET must stay before LIMIT; extract LIMIT first.");
+    } else if (step.label === "DEDUPLICATE") {
+      requireSafe(
+        query.distinct && !query.order_by && !query.limit && !query.offset && !query.fetch,
+        "DISTINCT must stay before sorting and row limits; extract those first."
+      );
+    } else if (step.label === "AGGREGATE") {
+      requireSafe(
+        !query.having && !query.order_by && !query.limit && !query.offset && !query.fetch && !query.distinct,
+        "Extract the operations after AGGREGATE first; HAVING must stay with its aggregate."
+      );
+      requireSafe(
+        query.expressions.every((item) => "column" in unalias(item) || ast.getAggregateFunctions(item).length > 0),
+        "Extract calculated grouping columns before separating the aggregate."
+      );
+      requireSafe(!query.group_by?.all, "GROUP BY ALL cannot be separated safely yet.");
+    } else if (transformOperations.has(step.label)) {
+      requireSafe(
+        !query.where_clause && !query.having,
+        "Extract the filter first so expression evaluation stays after filtering."
+      );
+      requireSafe(
+        !query.expressions.some((item) => "star" in item),
+        "A wildcard projection would gain the extracted column."
+      );
+    }
+    if (source.columns === null) {
+      return {
+        enabled: true,
+        needsSchema: true,
+        direction: step.label === "FILTER" || transformOperations.has(step.label) ? "upstream" : "downstream",
+      };
+    }
+    const sourceColumns = source.columns;
+    requireSafe(sourceColumns.length, "The upstream query returned no columns.");
+    const inputNames = new Set(sourceColumns.map((item) => item.name.toLowerCase()));
+    requireSafe(inputNames.size === sourceColumns.length, "Duplicate source column names make extraction ambiguous.");
     const aliases = new Set(
       query.expressions.flatMap((item) => ("alias" in item ? [item.alias.alias.name.toLowerCase()] : []))
     );
@@ -278,7 +328,7 @@ export function planSQLBizExtraction(
     let upstream = sourceSelect;
     let final = output;
     let direction: "upstream" | "downstream" = "upstream";
-    let upstreamSchema: Column[] | null = source.columns;
+    let upstreamSchema: Column[] | null = sourceColumns;
 
     if (step.label === "FILTER") {
       requireSafe(query.where_clause, "This query no longer contains that filter.");
@@ -286,14 +336,6 @@ export function planSQLBizExtraction(
       upstream.where_clause = structuredClone(query.where_clause);
       final.where_clause = null;
     } else if (transformOperations.has(step.label)) {
-      requireSafe(
-        !query.where_clause && !query.having,
-        "Extract the filter first so expression evaluation stays after filtering."
-      );
-      requireSafe(
-        !query.expressions.some((item) => "star" in item),
-        "A wildcard projection would gain the extracted column."
-      );
       const index = query.expressions.findIndex(
         (item) =>
           "alias" in item && `${sqlFor({ identifier: item.alias.alias })} = ${sqlFor(item.alias.this)}` === step.detail
@@ -339,13 +381,13 @@ export function planSQLBizExtraction(
       upstream.expressions.push(structuredClone(expression));
       final.expressions[index] = column(name);
       const type = outputSchema?.find((item) => item.name.toLowerCase() === name.toLowerCase())?.type;
-      upstreamSchema = type ? [...source.columns, { name, type }] : null;
+      upstreamSchema = type ? [...sourceColumns, { name, type }] : null;
     } else {
       direction = "downstream";
       // Preserve output column names across the new relation boundary.
       const outputs = query.expressions.flatMap((expression) => {
         if ("star" in expression)
-          return source.columns.map((item) => ({ name: item.name, expression: column(item.name) }));
+          return sourceColumns.map((item) => ({ name: item.name, expression: column(item.name) }));
         if ("alias" in expression) return [{ name: expression.alias.alias.name, expression: expression.alias.this }];
         requireSafe(
           "column" in expression,
@@ -389,19 +431,9 @@ export function planSQLBizExtraction(
       final = parseSelect(`SELECT * FROM ${quoteIdentifier(upstreamName)}`);
       upstreamSchema = outputSchema;
       if (step.label === "SORT") {
-        requireSafe(query.order_by, "This query no longer contains that sort.");
-        requireSafe(
-          !query.limit && !query.offset && !query.fetch,
-          "SORT must stay before LIMIT and OFFSET; extract those first."
-        );
         upstream.order_by = null;
         final.order_by = mappedOrder;
       } else if (step.label === "LIMIT") {
-        requireSafe(query.limit || query.fetch, "This query no longer contains that limit.");
-        requireSafe(
-          !query.fetch?.percent && !query.fetch?.with_ties,
-          "Percentage limits and WITH TIES cannot be extracted yet."
-        );
         upstream.limit = null;
         upstream.fetch = null;
         final.limit = query.limit;
@@ -409,34 +441,19 @@ export function planSQLBizExtraction(
         // Reassert ordering at the output boundary; subquery order is not a contract.
         final.order_by = mappedOrder;
       } else if (step.label === "SKIP") {
-        requireSafe(query.offset, "This query no longer contains that offset.");
-        requireSafe(!query.limit && !query.fetch, "OFFSET must stay before LIMIT; extract LIMIT first.");
         upstream.offset = null;
         final.offset = query.offset;
         final.order_by = mappedOrder;
       } else if (step.label === "DEDUPLICATE") {
-        requireSafe(
-          query.distinct && !query.order_by && !query.limit && !query.offset && !query.fetch,
-          "DISTINCT must stay before sorting and row limits; extract those first."
-        );
         upstream.distinct = false;
         final.distinct = true;
       } else if (step.label === "AGGREGATE") {
-        requireSafe(
-          !query.having && !query.order_by && !query.limit && !query.offset && !query.fetch && !query.distinct,
-          "Extract the operations after AGGREGATE first; HAVING must stay with its aggregate."
-        );
-        requireSafe(
-          query.expressions.every((item) => "column" in unalias(item) || ast.getAggregateFunctions(item).length > 0),
-          "Extract calculated grouping columns before separating the aggregate."
-        );
-        requireSafe(!query.group_by?.all, "GROUP BY ALL cannot be separated safely yet.");
         if (query.where_clause) readsOnlyInput(query.where_clause.this);
         upstream = sourceSelect;
         upstream.where_clause = query.where_clause;
         final = output;
         final.where_clause = null;
-        upstreamSchema = source.columns;
+        upstreamSchema = sourceColumns;
       } else {
         throw new Error("This operation cannot be extracted safely yet.");
       }
@@ -446,7 +463,7 @@ export function planSQLBizExtraction(
     const outputSQL = format(sqlFor({ select: final }), { language: "duckdb", keywordCase: "upper", tabWidth: 2 });
     parseSelect(upstreamSQL);
     parseSelect(outputSQL);
-    return { enabled: true, direction, upstreamSQL, outputSQL, upstreamSchema };
+    return { enabled: true, needsSchema: false, direction, upstreamSQL, outputSQL, upstreamSchema };
   } catch (error) {
     return { enabled: false, reason: error instanceof Error ? error.message : String(error) };
   }
