@@ -500,49 +500,60 @@ function OperationPopup({
     >
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
         <OperationBadge operation={step.label} />
-        <span style={{ display: "flex", gap: 8 }} title={extraction.enabled ? undefined : extraction.reason}>
-          <button
-            type="button"
-            disabled={!extraction.enabled || extracting}
-            aria-busy={extracting}
-            aria-describedby={`${tooltipId}-extraction`}
-            className="h-7 px-2 rounded border-2 border-black bg-white text-xs font-bold cursor-pointer hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-            onClick={async (event) => {
-              event.stopPropagation();
-              if (!extraction?.enabled || extracting) return;
-              try {
-                const extracted = await extractSQLBizOperation(editor, shape.id, detail.index, text, data);
-                addToast({
-                  title: `Extracted to ${extracted.name}`,
-                  severity: "success",
-                  actions: [
-                    {
-                      label: "Go to query",
-                      type: "primary",
-                      onClick: () => {
-                        const bounds = editor.getShapePageBounds(extracted.id);
-                        if (!bounds) return;
-                        editor.select(extracted.id);
-                        editor.zoomToBounds(bounds, {
-                          targetZoom: editor.getZoomLevel(),
-                          animation: { duration: 250 },
-                        });
-                      },
-                    },
-                  ],
-                });
-                onClose();
-              } catch (error) {
-                addToast({
-                  title: "Could not extract operation",
-                  description: error instanceof Error ? error.message : String(error),
-                  severity: "error",
-                });
-              }
-            }}
+        <span style={{ display: "flex", gap: 8 }}>
+          <span
+            title={
+              extraction.enabled
+                ? extraction.direction === "upstream"
+                  ? "Extracts Upstream"
+                  : "Extract Downstream"
+                : extraction.reason
+            }
           >
-            {extracting ? "Running SQL…" : "Extract"}
-          </button>
+            <button
+              type="button"
+              disabled={!extraction.enabled || extracting}
+              aria-busy={extracting}
+              aria-label={extraction.enabled ? `Extract ${extraction.direction}` : "Extract"}
+              aria-describedby={extraction.enabled ? undefined : `${tooltipId}-extraction`}
+              className="h-7 px-2 rounded border-2 border-black bg-white text-xs font-bold cursor-pointer hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={async (event) => {
+                event.stopPropagation();
+                if (!extraction?.enabled || extracting) return;
+                try {
+                  const extracted = await extractSQLBizOperation(editor, shape.id, detail.index, text, data);
+                  addToast({
+                    title: `Extracted to ${extracted.name}`,
+                    severity: "success",
+                    actions: [
+                      {
+                        label: "Go to query",
+                        type: "primary",
+                        onClick: () => {
+                          const bounds = editor.getShapePageBounds(extracted.id);
+                          if (!bounds) return;
+                          editor.select(extracted.id);
+                          editor.zoomToBounds(bounds, {
+                            targetZoom: editor.getZoomLevel(),
+                            animation: { duration: 250 },
+                          });
+                        },
+                      },
+                    ],
+                  });
+                  onClose();
+                } catch (error) {
+                  addToast({
+                    title: "Could not extract operation",
+                    description: error instanceof Error ? error.message : String(error),
+                    severity: "error",
+                  });
+                }
+              }}
+            >
+              {extracting ? "Running SQL…" : "Extract"}
+            </button>
+          </span>
           {pinned && (
             <button
               type="button"
@@ -555,16 +566,10 @@ function OperationPopup({
           )}
         </span>
       </div>
-      {extraction && (
-        <div id={`${tooltipId}-extraction`} style={{ fontSize: 11, color: "#666", margin: "0 0 8px" }}>
-          {extracting
-            ? "Running SQL before extraction…"
-            : extraction.enabled
-              ? extraction.needsSchema
-                ? `Runs SQL to check columns, then creates a stage ${extraction.direction}`
-                : `Creates a stage ${extraction.direction}`
-              : extraction.reason}
-        </div>
+      {!extraction.enabled && (
+        <span id={`${tooltipId}-extraction`} className="sr-only">
+          {extraction.reason}
+        </span>
       )}
       {step.scope && <div style={{ marginTop: 4, color: "#666" }}>{step.scope}</div>}
       <pre
