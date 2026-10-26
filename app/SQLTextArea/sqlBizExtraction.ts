@@ -363,9 +363,20 @@ export function planSQLBizExtraction(
       );
     } else if (step.label === "AGGREGATE") {
       requireSafe(
-        !query.having && !query.order_by && !query.limit && !query.offset && !query.fetch && !query.distinct,
-        "Extract the operations after AGGREGATE first; HAVING must stay with its aggregate."
+        !query.having,
+        "AGGREGATE cannot be extracted yet when the query has FILTER GROUPS (HAVING), which filters the aggregated results."
       );
+      const nextOperation =
+        query.limit || query.fetch
+          ? "LIMIT"
+          : query.offset
+            ? "SKIP"
+            : query.order_by
+              ? "SORT"
+              : query.distinct
+                ? "DEDUPLICATE"
+                : null;
+      requireSafe(nextOperation === null, `Extract ${nextOperation} first; it runs after AGGREGATE.`);
       requireSafe(
         query.expressions.every((item) => "column" in unalias(item) || ast.getAggregateFunctions(item).length > 0),
         "Extract calculated grouping columns before separating the aggregate."
