@@ -100,17 +100,7 @@ export function usePopupPlacement(
       const screen = { left: 0, top: 0, right: viewport.w, bottom: viewport.h };
       const obstacles: Rect[] = [];
       const owner = document.getElementById(ownerShapeId);
-      const body = owner?.querySelector<HTMLElement>("[data-sql-biz-body]")?.getBoundingClientRect();
       const ownerBounds = owner?.getBoundingClientRect();
-      if (body && ownerBounds) {
-        // Leave the query's header, footer, and action bar unobstructed.
-        obstacles.push(
-          { left: ownerBounds.left, right: ownerBounds.right, top: ownerBounds.top, bottom: body.top },
-          { left: ownerBounds.left, right: ownerBounds.right, top: body.bottom, bottom: ownerBounds.bottom },
-          { left: ownerBounds.left, right: body.left, top: body.top, bottom: body.bottom },
-          { left: body.right, right: ownerBounds.right, top: body.top, bottom: body.bottom }
-        );
-      }
       // Only the current query's cards constrain placement; other shapes may be covered.
       for (const card of owner?.querySelectorAll<HTMLElement>("[data-sql-biz-card]") ?? []) {
         const rect = card.getBoundingClientRect();
@@ -123,7 +113,7 @@ export function usePopupPlacement(
         rect.height,
         obstacles,
         viewport,
-        body
+        ownerBounds
       );
       setPosition((previous) => (previous.left === next.left && previous.top === next.top ? previous : next));
     };
