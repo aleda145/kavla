@@ -124,6 +124,18 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
   );
   const summary = getSQLBizSummary(text);
   const container = useRef<HTMLDivElement>(null);
+  const draggingScrollbar = useRef(false);
+  useEffect(() => {
+    const release = () => {
+      draggingScrollbar.current = false;
+    };
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    return () => {
+      window.removeEventListener("pointerup", release);
+      window.removeEventListener("pointercancel", release);
+    };
+  }, []);
   const errorMessage = useRef<HTMLPreElement>(null);
   const [available, setAvailable] = useState({ w: 0, h: 0 });
   const columns = getSQLBizColumns(summary, available);
@@ -353,7 +365,32 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
       ref={container}
       data-sql-biz-body
       aria-label="Query pipeline"
-      onPointerDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => {
+        const element = event.currentTarget;
+        if (event.target !== element) return;
+        const rect = element.getBoundingClientRect();
+        const x = ((event.clientX - rect.left) * element.offsetWidth) / rect.width;
+        const y = ((event.clientY - rect.top) * element.offsetHeight) / rect.height;
+        // Include overlay scrollbars, whose width may not appear in clientWidth/clientHeight.
+        const vertical =
+          element.scrollHeight > element.clientHeight &&
+          x >= element.offsetWidth - Math.max(16, element.offsetWidth - element.clientWidth);
+        const horizontal =
+          element.scrollWidth > element.clientWidth &&
+          y >= element.offsetHeight - Math.max(16, element.offsetHeight - element.clientHeight);
+        draggingScrollbar.current = vertical || horizontal;
+        if (draggingScrollbar.current) event.stopPropagation();
+      }}
+      onPointerMove={(event) => {
+        if (draggingScrollbar.current) event.stopPropagation();
+      }}
+      onPointerUp={(event) => {
+        if (draggingScrollbar.current) event.stopPropagation();
+        draggingScrollbar.current = false;
+      }}
+      onPointerCancel={() => {
+        draggingScrollbar.current = false;
+      }}
       onWheel={(event) => event.stopPropagation()}
       onScroll={() => {
         cancelHoverTimer();
