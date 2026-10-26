@@ -99,10 +99,8 @@ export function getSQLBizExtractionPlan(
     : upstreamIsCurrent && isCurrent(shape)
       ? shape.props.outputSchema
       : null;
-  const namePrefix =
-    step.label === "CTE"
-      ? `${shape.props.name}_${step.cteName}`
-      : `${shape.props.name}_before_${step.label.toLowerCase().replaceAll(" ", "_")}`;
+  const operation = step.label === "CONDITIONAL" ? "CLASSIFY" : step.label;
+  const namePrefix = `${shape.props.name}_${operation.toLowerCase().replaceAll(" ", "_")}`;
   // A new canvas name must not capture an existing reference to a backend-only table.
   const referencedNames = new Set(
     editor
