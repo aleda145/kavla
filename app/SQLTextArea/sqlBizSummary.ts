@@ -524,19 +524,21 @@ export function getSQLBizCardWidth(step: BizStep) {
 
 export const SQL_BIZ_CARD_GAP = 12;
 
+export function getSQLBizCardHeight(step: BizStep) {
+  const card = step.card ?? { primary: step.detail };
+  return Math.max(
+    82,
+    52 +
+      card.primary.split("\n").length * 16 +
+      (card.secondary ? 3 + card.secondary.split("\n").length * 14 : 0) +
+      (step.scope ? 18 : 0)
+  );
+}
+
 export function getSQLBizColumns(summary: BizSummary, available: { w: number; h: number }): number[] {
   const widths = summary.steps.map(getSQLBizCardWidth);
   if (!widths.length) return [];
-  const heights = summary.steps.map((step) => {
-    const card = step.card ?? { primary: step.detail };
-    return Math.max(
-      82,
-      52 +
-        card.primary.split("\n").length * 16 +
-        (card.secondary ? 3 + card.secondary.split("\n").length * 14 : 0) +
-        (step.scope ? 18 : 0)
-    );
-  });
+  const heights = summary.steps.map(getSQLBizCardHeight);
   const gaps = (widths.length - 1) * SQL_BIZ_CARD_GAP;
   const widest = Math.max(...widths);
   const horizontalFits =

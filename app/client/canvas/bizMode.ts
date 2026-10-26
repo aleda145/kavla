@@ -1,9 +1,10 @@
 import { atom, useValue, type Editor, type TLShapeId } from "tldraw";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
+import { getAutoExpandedSQLShapeSize } from "../../SQLTextArea/sqlShapeSize";
 
 // A view preference belongs to this editor, never to the saved document.
 const modes = new WeakMap<Editor, ReturnType<typeof createMode>>();
-type SQLSize = Pick<SQLTextAreaShape["props"], "w" | "h" | "isManuallyResized">;
+type SQLSize = Pick<SQLTextAreaShape["props"], "w" | "h" | "isManuallyResized" | "text">;
 const sqlSizes = new WeakMap<Editor, Map<TLShapeId, SQLSize>>();
 
 function createMode() {
@@ -33,12 +34,20 @@ function fitQueryToMode(editor: Editor, shape: SQLTextAreaShape, enabled: boolea
     savedSizes = new Map();
     sqlSizes.set(editor, savedSizes);
   }
-  const original = savedSizes.get(shape.id) ?? shape.props;
+  const saved = savedSizes.get(shape.id);
+  const original =
+    saved?.text === shape.props.text
+      ? saved
+      : {
+          ...getAutoExpandedSQLShapeSize(shape.props.text),
+          isManuallyResized: false,
+        };
   if (enabled) {
     savedSizes.set(shape.id, {
       w: shape.props.w,
       h: shape.props.h,
       isManuallyResized: shape.props.isManuallyResized,
+      text: shape.props.text,
     });
   } else {
     savedSizes.delete(shape.id);
@@ -87,6 +96,10 @@ export function setQueryBizMode(editor: Editor, shapeId: TLShapeId, enabled: boo
       editor.updateShapes([fitQueryToMode(editor, shape, enabled)]);
     }
   });
+}
+
+export function clearQuerySQLSize(editor: Editor, shapeId: TLShapeId) {
+  sqlSizes.get(editor)?.delete(shapeId);
 }
 
 export function useBizMode(editor: Editor, shapeId?: TLShapeId) {
