@@ -3,8 +3,8 @@ import { defaultHighlightStyle } from "@codemirror/language";
 import React, { memo, useMemo } from "react";
 import { getColumnTypeMutedColor } from "../util/column-colors";
 import { DuckDBDialect } from "./duckdb-dialect";
-import { useEditor } from "tldraw";
-import { getKnobReferences, navigateToKnob } from "../Knob/knobReferences";
+import { useEditor, useValue } from "tldraw";
+import { describeKnob, findKnob, getKnobReferences, navigateToKnob } from "../Knob/knobReferences";
 import {
   createSqlNameLookup,
   findMentionedTables,
@@ -16,7 +16,10 @@ import {
 
 const parser = DuckDBDialect.language.parser;
 
-export type SQLHighlightTarget = { kind: "column"; column: SqlColumnDefinition } | { kind: "table"; tableName: string };
+export type SQLHighlightTarget =
+  | { kind: "column"; column: SqlColumnDefinition }
+  | { kind: "table"; tableName: string }
+  | { kind: "knob"; name: string };
 
 interface StaticSQLHighlighterProps {
   sql: string;
@@ -42,7 +45,6 @@ export const StaticSQLHighlighter = memo(
     columnMapping,
     upstreamTableNames,
   }: StaticSQLHighlighterProps) => {
-    const editor = useEditor();
     const spansByLine = useMemo(() => {
       const tableNames = createSqlNameLookup(validTableNames ?? []);
       const mentionedTables = findMentionedTables(contextSql ?? sql, tableNames);
@@ -109,26 +111,10 @@ export const StaticSQLHighlighter = memo(
             const isSafe = /String|Comment|Number/.test(tree.resolveInner(intersectionStart, 1).name);
 
             if (token.knobName !== undefined) {
-              const name = token.knobName;
               lineNodes.push(
-                <span
-                  key={intersectionStart}
-                  title={name ? "Ctrl/Cmd+click to go to knob" : "Type a name inside {} to create a knob"}
-                  style={{
-                    fontFamily: "monospace",
-                    backgroundColor: "var(--color-teal-100, #ccfbf1)",
-                    color: "#115e59",
-                    borderBottom: "2px solid #0d9488",
-                  }}
-                  onMouseDown={(event) => {
-                    if (!name || (!event.ctrlKey && !event.metaKey)) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    navigateToKnob(editor, name);
-                  }}
-                >
+                <StaticKnobReference key={intersectionStart} name={token.knobName} renderIdentifier={renderIdentifier}>
                   {textPart}
-                </span>
+                </StaticKnobReference>
               );
             } else if (token.classes && isSafe) {
               lineNodes.push(
@@ -178,17 +164,7 @@ export const StaticSQLHighlighter = memo(
 
         return lineNodes;
       });
-    }, [
-      sql,
-      contextSql,
-      renderIdentifier,
-      validTableNames,
-      sources,
-      queries,
-      columnMapping,
-      upstreamTableNames,
-      editor,
-    ]);
+    }, [sql, contextSql, renderIdentifier, validTableNames, sources, queries, columnMapping, upstreamTableNames]);
 
     if (inline) {
       return (
@@ -282,6 +258,50 @@ export const StaticSQLHighlighter = memo(
     );
   }
 );
+
+function StaticKnobReference({
+  name,
+  children,
+  renderIdentifier,
+}: {
+  name: string;
+  children: React.ReactNode;
+  renderIdentifier?: StaticSQLHighlighterProps["renderIdentifier"];
+}) {
+  const editor = useEditor();
+  const description = useValue(
+    "Static SQL knob value",
+    () => {
+      const knob = findKnob(editor, name);
+      return knob
+        ? `{${knob.props.name}}=${describeKnob(knob)}`
+        : name
+          ? `{${name}} — pending creation`
+          : "Type a name inside {} to create a knob";
+    },
+    [editor, name]
+  );
+  const content = (
+    <span
+      title={renderIdentifier ? "" : description}
+      style={{
+        fontFamily: "monospace",
+        backgroundColor: "var(--color-teal-100, #ccfbf1)",
+        color: "#115e59",
+        borderBottom: "2px solid #0d9488",
+      }}
+      onMouseDown={(event) => {
+        if (!name || (!event.ctrlKey && !event.metaKey)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        navigateToKnob(editor, name);
+      }}
+    >
+      {children}
+    </span>
+  );
+  return renderIdentifier ? renderIdentifier(content, { kind: "knob", name }) : content;
+}
 
 const renderWithHighlights = (
   text: string,

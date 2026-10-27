@@ -1,6 +1,7 @@
 import type { Editor } from "tldraw";
 import type { KnobShape } from "./knob-types";
 import { mapKnobParameters } from "./knobSQL";
+import { formatKnobTime } from "./knobTime";
 
 export function getKnobReferences(sql: string): { name: string; from: number; to: number }[] {
   const references: { name: string; from: number; to: number }[] = [];
@@ -46,7 +47,11 @@ export function navigateToKnob(editor: Editor, name: string): void {
 export function describeKnob(knob: KnobShape): string {
   if (knob.props.kind === "category" && knob.props.categoryType !== "boolean" && knob.props.categoryAll) return "All";
   if (knob.props.kind === "text") return knob.props.categoryValue || "(empty)";
-  return knob.props.kind === "category"
+  if (knob.props.kind === "timestamp") {
+    const type = knob.props.temporalType ?? "timestamp";
+    return formatKnobTime(knob.props.value, type) + (type === "timestamptz" ? " UTC" : "");
+  }
+  return knob.props.kind === "category" || knob.props.kind === "boolean"
     ? knob.props.categoryValue === ""
       ? "(empty)"
       : (knob.props.categoryValue ?? "Choose a value")
