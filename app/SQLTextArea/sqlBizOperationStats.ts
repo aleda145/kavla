@@ -130,15 +130,11 @@ function joinSQL(query: Select, index: number): string {
         ).expressions,
       },
     });
-  const output = render({
-    select: { ...input(query, "COUNT(*) AS output_rows", false), joins: query.joins.slice(0, index + 1) },
-  });
   // EXISTS counts each input row once, even if duplicate keys multiply output rows.
   return `SELECT l.input_rows AS left_rows, l.matched_rows AS left_matched,
-    r.input_rows AS right_rows, r.matched_rows AS right_matched, o.output_rows
+    r.input_rows AS right_rows, r.matched_rows AS right_matched
     FROM (${countMatches(left, rightExists)}) l
-    CROSS JOIN (${countMatches(right, leftExists)}) r
-    CROSS JOIN (${output}) o`;
+    CROSS JOIN (${countMatches(right, leftExists)}) r`;
 }
 
 export function buildBizOperationStats(query: Select, scopes: Scope[], target: StatsTarget): BizOperationStatsPlan {
@@ -216,7 +212,7 @@ export function buildBizOperationStats(query: Select, scopes: Scope[], target: S
 }
 
 export type BizOperationStats =
-  | { kind: "join"; left: number; leftMatched: number; right: number; rightMatched: number; output: number }
+  | { kind: "join"; left: number; leftMatched: number; right: number; rightMatched: number }
   | { kind: "aggregate" | "deduplicate"; input: number; output: number }
   | {
       kind: "buckets";
@@ -249,16 +245,16 @@ export function readBizOperationStats(kind: Operation, rows: Record<string, unkn
   }
   if (rows.length !== 1) throw new Error("Expected one row of operation statistics.");
   const row = rows[0];
-  const output = count(row, "output_rows");
   if (kind === "join") {
     const left = count(row, "left_rows"),
       right = count(row, "right_rows");
     const leftMatched = count(row, "left_matched"),
       rightMatched = count(row, "right_matched");
     if (leftMatched > left || rightMatched > right) throw new Error("Matched rows exceed the input rows.");
-    return { kind, left, right, leftMatched, rightMatched, output };
+    return { kind, left, right, leftMatched, rightMatched };
   }
   const inputRows = count(row, "input_rows");
+  const output = count(row, "output_rows");
   if (kind === "deduplicate" && output > inputRows) throw new Error("Distinct rows exceed the input rows.");
   return { kind, input: inputRows, output };
 }
