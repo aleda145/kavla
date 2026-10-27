@@ -81,23 +81,8 @@ export function SQLBizOperationStats({
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto", columnGap: 12 }}>
             <span>Left matched</span>
             {percentage(stats.leftMatched, stats.left, "matched at least once")}
-            <span>Left unmatched</span>
-            {percentage(stats.left - stats.leftMatched, stats.left, "unmatched")}
             <span>Right matched</span>
             {percentage(stats.rightMatched, stats.right, "matched at least once")}
-            <span>Right unmatched</span>
-            {percentage(stats.right - stats.rightMatched, stats.right, "unmatched")}
-            <span>Output rows</span>
-            <span
-              title={
-                stats.left
-                  ? `${(stats.output / stats.left).toLocaleString(undefined, { maximumFractionDigits: 2 })}× the left input (${stats.left.toLocaleString()} rows)`
-                  : "The left input has no rows"
-              }
-              style={{ textAlign: "right", cursor: "help" }}
-            >
-              {stats.output.toLocaleString()}
-            </span>
           </div>
         ) : (
           <div>{percentage(stats.leftMatched, stats.left, "matched at least once")} left matched</div>
