@@ -297,7 +297,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
             <span
               style={{
                 fontSize: 9,
-                color: "#525252",
+                color: "#000",
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -349,7 +349,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
                     style={{
                       fontSize: 10,
                       lineHeight: "14px",
-                      color: "#444",
+                      color: "#000",
                       marginTop: 3,
                       whiteSpace: "pre",
                     }}
@@ -437,7 +437,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
             alignItems: "center",
             justifyContent: "center",
             gap: 8,
-            color: "#737373",
+            color: "#000",
             padding: "12px 0",
           }}
         >
@@ -514,7 +514,8 @@ function FilterCounts({
       title={`${removed.toLocaleString()} of ${input.toLocaleString()} input rows removed`}
       aria-label={`${removed.toLocaleString()} of ${input.toLocaleString()} input rows removed`}
       tabIndex={0}
-      style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", cursor: "help", color: "#666" }}
+      className="font-mono text-[10px] font-bold text-black tabular-nums text-right"
+      style={{ whiteSpace: "nowrap", cursor: "help" }}
     >
       {(input ? (100 * removed) / input : 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}%
     </span>
@@ -525,7 +526,7 @@ function FilterCounts({
       style={{ marginTop: 6, fontSize: popup ? 12 : 10, lineHeight: "14px", overflowWrap: "anywhere" }}
     >
       {popup && !("error" in plan) && (
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 12, lineHeight: "18px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 8, lineHeight: "20px" }}>
           {plan.conditions.map((condition, index) => (
             <div key={index} style={{ display: "contents" }}>
               <span style={{ fontFamily: "monospace", whiteSpace: "pre-wrap", userSelect: "text" }}>
@@ -534,7 +535,7 @@ function FilterCounts({
               {perCondition && state.status === "ready" ? (
                 percentage(state.counts.conditions[index], state.counts.input)
               ) : (
-                <span style={{ color: "#666" }} title="Counting rows removed">
+                <span className="font-mono text-[10px] text-black text-right" title="Counting rows removed">
                   …
                 </span>
               )}
@@ -542,13 +543,19 @@ function FilterCounts({
           ))}
         </div>
       )}
-      {!popup && state.status === "loading" && <span style={{ color: "#666" }}>Counting rows…</span>}
-      {!popup && state.status === "waiting" && <span style={{ color: "#666" }}>Waiting for query…</span>}
+      {!popup && state.status === "loading" && <span className="font-mono text-[10px] text-black">Counting rows…</span>}
+      {!popup && state.status === "waiting" && (
+        <span className="font-mono text-[10px] text-black">Waiting for query…</span>
+      )}
       {state.status === "error" && (
-        <div style={{ color: "#b91c1c" }}>
+        <div className="text-xs font-bold text-red-500">
           {state.error}
           {popup && !("error" in plan) && (
-            <button type="button" onClick={retry} className="ml-2 underline cursor-pointer">
+            <button
+              type="button"
+              onClick={retry}
+              className="ml-2 h-7 px-2 rounded border-2 border-black bg-white text-xs font-bold text-black cursor-pointer hover:bg-gray-100"
+            >
               Retry
             </button>
           )}
@@ -556,8 +563,8 @@ function FilterCounts({
       )}
       {state.status === "ready" &&
         (popup ? (
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 6, color: "#666" }}>
-            <span>Total removed</span>
+          <div className="flex justify-between items-center gap-2 mt-1 pt-1 border-t border-gray-200">
+            <span className="font-mono text-[10px] text-black">Total removed</span>
             {percentage(state.counts.removed, state.counts.input)}
           </div>
         ) : (
@@ -666,7 +673,7 @@ function OperationPopup({
         borderRadius: 8,
         boxShadow: "4px 4px 0 #000",
         background: "#fff",
-        color: "#171717",
+        color: "#000",
         fontFamily: "Inter, sans-serif",
         fontSize: 12,
         pointerEvents: "all",
@@ -746,7 +753,7 @@ function OperationPopup({
           {extraction.reason}
         </span>
       )}
-      {step.scope && <div style={{ marginTop: 4, color: "#666" }}>{step.scope}</div>}
+      {step.scope && <div style={{ marginTop: 4, color: "#000" }}>{step.scope}</div>}
       {!filterPlan && (
         <pre
           style={{
