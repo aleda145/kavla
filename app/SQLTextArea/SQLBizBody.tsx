@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { format } from "sql-formatter";
 import { useEditor, useToasts, useValue } from "tldraw";
@@ -44,6 +44,8 @@ import { useSQLBizFilterStats } from "./useSQLBizStats";
 import { formatBizFilterCount, type BizFilterPlan } from "./sqlBizFilterStats";
 import { SQLBizOperationStats } from "./SQLBizOperationStats";
 import { SQLBizAnalysisControls } from "./SQLBizAnalysisControls";
+import { useTldrawScrollArea } from "../DataSource/useTldrawScrollArea";
+import { TldrawScrollAreaIndicator } from "../DataSource/TldrawScrollAreaIndicator";
 
 const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
   CTE: { Icon: Layers, color: "#bfdbfe" },
@@ -127,7 +129,15 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
     />
   );
   const summary = getSQLBizSummary(text);
-  const container = useRef<HTMLDivElement>(null);
+  const container = useRef<HTMLDivElement | null>(null);
+  const scrollArea = useTldrawScrollArea();
+  const setScrollRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      container.current = node;
+      scrollArea.ref(node);
+    },
+    [scrollArea.ref]
+  );
   const draggingScrollbar = useRef(false);
   useEffect(() => {
     const release = () => {
@@ -369,7 +379,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
 
   return (
     <div
-      ref={container}
+      ref={setScrollRef}
       data-sql-biz-body
       aria-label="Query pipeline"
       onPointerDown={(event) => {
@@ -398,7 +408,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
       onPointerCancel={() => {
         draggingScrollbar.current = false;
       }}
-      onWheel={(event) => event.stopPropagation()}
+      onWheel={scrollArea.onWheel}
       onScroll={() => {
         cancelHoverTimer();
         setDetail(null);
@@ -413,6 +423,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
         background: "#fff",
       }}
     >
+      <TldrawScrollAreaIndicator indicator={scrollArea.indicator} />
       {summary.steps.length ? (
         <ol
           aria-label="Query operations in order"
