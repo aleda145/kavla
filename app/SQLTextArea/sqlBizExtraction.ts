@@ -57,6 +57,7 @@ const safeNodes = new Set([
   "if_func",
   "cast",
   "try_cast",
+  "typeof",
   "data_type",
   "coalesce",
   "nullif",
@@ -110,6 +111,7 @@ const safeFunctions = new Set([
   "iff",
   "date_trunc",
   "time_bucket",
+  "typeof",
 ]);
 const transformOperations = new Set(["CALCULATE", "BUCKET", "CLEAN", "CONDITIONAL"]);
 
