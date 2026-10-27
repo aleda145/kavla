@@ -43,6 +43,7 @@ import { useData } from "../client/useLocalServer";
 import { useSQLBizFilterStats } from "./useSQLBizStats";
 import { formatBizFilterCount, type BizFilterPlan } from "./sqlBizFilterStats";
 import { SQLBizOperationStats } from "./SQLBizOperationStats";
+import { SQLBizAnalysisControls } from "./SQLBizAnalysisControls";
 
 const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
   CTE: { Icon: Layers, color: "#bfdbfe" },
@@ -508,7 +509,8 @@ function FilterCounts({
   popup?: boolean;
   highlight?: (sql: string, interactive?: boolean) => ReactNode;
 }) {
-  const { state, retry } = useSQLBizFilterStats(shape, plan, perCondition);
+  const analysis = useSQLBizFilterStats(shape, plan, perCondition);
+  const { state } = analysis;
   const percentage = (removed: number, input: number) => (
     <span
       title={`${removed.toLocaleString()} of ${input.toLocaleString()} input rows removed`}
@@ -535,8 +537,11 @@ function FilterCounts({
               {perCondition && state.status === "ready" ? (
                 percentage(state.counts.conditions[index], state.counts.input)
               ) : (
-                <span className="font-mono text-[10px] text-black text-right" title="Counting rows removed">
-                  …
+                <span
+                  className="font-mono text-[10px] text-black text-right"
+                  title={state.status === "loading" ? "Counting rows removed" : undefined}
+                >
+                  {state.status === "loading" ? "…" : ""}
                 </span>
               )}
             </div>
@@ -547,20 +552,7 @@ function FilterCounts({
       {!popup && state.status === "waiting" && (
         <span className="font-mono text-[10px] text-black">Waiting for query…</span>
       )}
-      {state.status === "error" && (
-        <div className="text-xs font-bold text-red-500">
-          {state.error}
-          {popup && !("error" in plan) && (
-            <button
-              type="button"
-              onClick={retry}
-              className="ml-2 h-7 px-2 rounded border-2 border-black bg-white text-xs font-bold text-black cursor-pointer hover:bg-gray-100"
-            >
-              Retry
-            </button>
-          )}
-        </div>
-      )}
+      {state.status === "error" && <div className="text-xs font-bold text-red-500">{state.error}</div>}
       {state.status === "ready" &&
         (popup ? (
           <div className="flex justify-between items-center gap-2 mt-1 pt-1 border-t border-gray-200">
@@ -570,6 +562,7 @@ function FilterCounts({
         ) : (
           <div>{formatBizFilterCount(state.counts.removed, state.counts.input)}</div>
         ))}
+      {popup && !("error" in plan) && <SQLBizAnalysisControls {...analysis} loading={state.status === "loading"} />}
     </div>
   );
 }

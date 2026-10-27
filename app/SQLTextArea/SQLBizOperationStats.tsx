@@ -3,6 +3,7 @@ import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { useSQLBizStats } from "./useSQLBizStats";
 import { readBizOperationStats, type BizOperationStatsPlan } from "./sqlBizOperationStats";
 import { formatBizFilterCount } from "./sqlBizFilterStats";
+import { SQLBizAnalysisControls } from "./SQLBizAnalysisControls";
 
 function percentage(rows: number, input: number, meaning: string, unit = "rows") {
   const title = `${rows.toLocaleString()} of ${input.toLocaleString()} ${unit} ${meaning}`;
@@ -28,11 +29,8 @@ export function SQLBizOperationStats({
   plan: BizOperationStatsPlan;
   popup?: boolean;
 }) {
-  const { state, retry } = useSQLBizStats(
-    shape,
-    "error" in plan ? null : plan.sql,
-    "error" in plan ? plan.error : undefined
-  );
+  const analysis = useSQLBizStats(shape, "error" in plan ? null : plan.sql, "error" in plan ? plan.error : undefined);
+  const { state } = analysis;
   const result = useMemo(() => {
     if (state.status !== "ready" || "error" in plan) return null;
     try {
@@ -60,25 +58,12 @@ export function SQLBizOperationStats({
         overflowWrap: "anywhere",
       }}
     >
-      {!stats && !error && (
+      {!stats && !error && state.status !== "idle" && (
         <span className="font-mono text-[10px] text-black">
           {state.status === "waiting" ? "Waiting for query…" : "Counting…"}
         </span>
       )}
-      {error && (
-        <div className="text-xs font-bold text-red-500">
-          {error}
-          {popup && !("error" in plan) && (
-            <button
-              type="button"
-              onClick={retry}
-              className="ml-2 h-7 px-2 rounded border-2 border-black bg-white text-xs font-bold text-black cursor-pointer hover:bg-gray-100"
-            >
-              Retry
-            </button>
-          )}
-        </div>
-      )}
+      {error && <div className="text-xs font-bold text-red-500">{error}</div>}
       {stats?.kind === "aggregate" && (
         <div
           className={popup ? "font-mono text-[10px] font-bold text-black" : undefined}
@@ -193,6 +178,7 @@ export function SQLBizOperationStats({
           )}
         </>
       )}
+      {popup && !("error" in plan) && <SQLBizAnalysisControls {...analysis} loading={state.status === "loading"} />}
     </div>
   );
 }

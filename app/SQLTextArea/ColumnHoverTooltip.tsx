@@ -4,7 +4,12 @@ import { Play, Square } from "lucide-react";
 import { getColumnAnalysisSteps, getColumnAnalysisType } from "../src/duckdb/column-stats-sql";
 import type { ColumnStats } from "../src/duckdb/column-stats-types";
 import { getColumnTypeColor } from "../util/column-colors";
-import { getRemoteHoverPolicy, RemoteHoverPolicy, setRemoteHoverPolicy } from "./remote-hover-policy";
+import {
+  getRemoteHoverPolicy,
+  RemoteHoverPolicy,
+  setRemoteHoverPolicy,
+  subscribeRemoteHoverPolicy,
+} from "./remote-hover-policy";
 import {
   getCachedRemoteColumnStats,
   getExistingRemoteColumnStats,
@@ -64,6 +69,14 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
 
     return true;
   });
+
+  useEffect(
+    () =>
+      subscribeRemoteHoverPolicy(() => {
+        setRemoteHoverPolicyState(getRemoteHoverPolicy(remoteSourceName, remoteSourceType));
+      }),
+    [remoteSourceName, remoteSourceType]
+  );
 
   useEffect(() => {
     const nextPolicy = getRemoteHoverPolicy(remoteSourceName, remoteSourceType);
