@@ -575,7 +575,13 @@ export function getSQLBizSummary(sql: string): BizSummary {
   const summary = summarize(sql);
   const visibleSteps = (items: BizStep[]): BizStep[] => {
     const steps = items.filter((step) => step.label !== "READ");
-    for (const step of steps) if (step.children) step.children = visibleSteps(step.children);
+    for (const step of steps) {
+      // An unavailable analysis adds no stats UI. Query execution errors still
+      // come through the analysis hooks when a supported plan is run.
+      if (step.filter && "error" in step.filter) delete step.filter;
+      if (step.stats && "error" in step.stats) delete step.stats;
+      if (step.children) step.children = visibleSteps(step.children);
+    }
     return steps.some((step) => step.label !== "SELECT") ? steps.filter((step) => step.label !== "SELECT") : steps;
   };
   summary.steps = visibleSteps(summary.steps);
