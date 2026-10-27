@@ -1,7 +1,12 @@
 import { ast, Dialect, generate, parse } from "@polyglot-sql/sdk";
 import { mapKnobParameters } from "../Knob/knobSQL";
 import { buildBizFilterPlan, type BizFilterPlan } from "./sqlBizFilterStats";
-import { buildBizOperationStats, type BizOperationStatsPlan } from "./sqlBizOperationStats";
+import {
+  buildBizOperationStats,
+  buildBizRowLimitStats,
+  bizCleaningFunctions as cleaningFunctions,
+  type BizOperationStatsPlan,
+} from "./sqlBizOperationStats";
 
 export type BizOperation =
   | "CTE"
@@ -50,25 +55,6 @@ const bucketFunctions = new Set([
   "time_bucket",
   "date_bin",
   "width_bucket",
-]);
-const cleaningFunctions = new Set([
-  "lower",
-  "upper",
-  "trim",
-  "ltrim",
-  "rtrim",
-  "replace",
-  "regexp_replace",
-  "regex_replace",
-  "coalesce",
-  "nullif",
-  "null_if",
-  "ifnull",
-  "if_null",
-  "nvl",
-  "normalize",
-  "strip_accents",
-  "try_cast",
 ]);
 
 function expressionSQL(expression: ast.Expression): string {
@@ -253,8 +239,14 @@ function summarize(sql: string): BizSummary {
       const subquery = expression.subquery;
       appendQuery(subquery.this, scope, depth + 1, filterScopes);
       if (subquery.order_by) add("SORT", sortDetails(subquery.order_by), scope, sortCard(subquery.order_by));
-      if (subquery.offset) add("SKIP", rowCount(expressionSQL(subquery.offset.this)), scope);
-      if (subquery.limit) add("LIMIT", rowCount(expressionSQL(subquery.limit.this)), scope);
+      if (subquery.offset) {
+        add("SKIP", rowCount(expressionSQL(subquery.offset.this)), scope);
+        steps[steps.length - 1].stats = buildBizRowLimitStats(expression, filterScopes, "skip");
+      }
+      if (subquery.limit) {
+        add("LIMIT", rowCount(expressionSQL(subquery.limit.this)), scope);
+        steps[steps.length - 1].stats = buildBizRowLimitStats(expression, filterScopes, "limit");
+      }
       return;
     }
     const combined = setOperation(expression);
@@ -308,9 +300,18 @@ function summarize(sql: string): BizSummary {
         }
       );
       if (operation.order_by) add("SORT", sortDetails(operation.order_by), scope, sortCard(operation.order_by));
-      if (operation.offset) add("SKIP", rowCount(expressionSQL(operation.offset)), scope);
-      if (operation.limit) add("LIMIT", rowCount(expressionSQL(operation.limit)), scope);
-      if (fetch) add("LIMIT", fetchDetails(fetch), scope);
+      if (operation.offset) {
+        add("SKIP", rowCount(expressionSQL(operation.offset)), scope);
+        steps[steps.length - 1].stats = buildBizRowLimitStats(expression, filterScopes, "skip");
+      }
+      if (operation.limit) {
+        add("LIMIT", rowCount(expressionSQL(operation.limit)), scope);
+        steps[steps.length - 1].stats = buildBizRowLimitStats(expression, filterScopes, "limit");
+      }
+      if (fetch) {
+        add("LIMIT", fetchDetails(fetch), scope);
+        steps[steps.length - 1].stats = buildBizRowLimitStats(expression, filterScopes, "limit");
+      }
       return;
     }
     if (!query) return;
@@ -416,9 +417,9 @@ function summarize(sql: string): BizSummary {
       for (const item of items) {
         const label = transformation(item.functions);
         add(label, assignment(item.expression), scope, transformCard(item.expression, label));
-        if (label === "BUCKET" || label === "CONDITIONAL") {
+        if (label === "BUCKET" || label === "CONDITIONAL" || label === "CLEAN") {
           steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, {
-            kind: "buckets",
+            kind: label === "CLEAN" ? "clean" : "buckets",
             expression: item.expression,
             beforeAggregation,
           });
@@ -442,8 +443,10 @@ function summarize(sql: string): BizSummary {
       });
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "aggregate" });
     }
-    if (query.having)
+    if (query.having) {
       add("FILTER GROUPS", `HAVING ${expressionSQL(query.having.this)}`, scope, conditionCard(query.having.this));
+      steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "having" });
+    }
     for (const projection of projections) {
       if (projection.windows.length) {
         const window = projection.windows[0];
@@ -490,8 +493,10 @@ function summarize(sql: string): BizSummary {
       transforms.filter((projection) => !early.includes(projection)),
       false
     );
-    if (query.qualify)
+    if (query.qualify) {
       add("FILTER WINDOW", expressionSQL(query.qualify.this), scope, conditionCard(query.qualify.this));
+      steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "qualify" });
+    }
     add("SELECT", query.expressions.map(outputProjection).join(", "), scope);
     if (query.distinct || query.distinct_on) {
       add(
@@ -505,9 +510,18 @@ function summarize(sql: string): BizSummary {
     }
     if (query.order_by)
       add("SORT", sortDetails(query.order_by, resolvePosition), scope, sortCard(query.order_by, resolvePosition));
-    if (query.offset) add("SKIP", rowCount(expressionSQL(query.offset.this)), scope);
-    if (query.limit) add("LIMIT", rowCount(expressionSQL(query.limit.this)), scope);
-    if (query.fetch) add("LIMIT", fetchDetails(query.fetch), scope);
+    if (query.offset) {
+      add("SKIP", rowCount(expressionSQL(query.offset.this)), scope);
+      steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "skip" });
+    }
+    if (query.limit) {
+      add("LIMIT", rowCount(expressionSQL(query.limit.this)), scope);
+      steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "limit" });
+    }
+    if (query.fetch) {
+      add("LIMIT", fetchDetails(query.fetch), scope);
+      steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "limit" });
+    }
     if (query.top) {
       const count = expressionSQL(query.top.this);
       add(
@@ -515,6 +529,7 @@ function summarize(sql: string): BizSummary {
         `${query.top.percent ? `${count}%` : rowCount(count)}${query.top.with_ties ? " WITH TIES" : ""}`,
         scope
       );
+      steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "limit" });
     }
   };
   try {
