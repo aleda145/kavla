@@ -1,6 +1,16 @@
 export type RemoteHoverPolicy = "ask" | "auto";
 
 const STORAGE_KEY = "kavla.remoteHoverColumnAnalysis.v1";
+const POLICY_EVENT = "kavla-remote-hover-policy";
+
+export function subscribeRemoteHoverPolicy(onChange: () => void) {
+  window.addEventListener(POLICY_EVENT, onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(POLICY_EVENT, onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
 
 type StoredRemoteHoverPolicies = Record<string, RemoteHoverPolicy>;
 
@@ -75,6 +85,7 @@ export function setRemoteHoverPolicy(
     const policies = readStoredRemoteHoverPolicies();
     policies[key] = policy;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(policies));
+    window.dispatchEvent(new Event(POLICY_EVENT));
   } catch (error) {
     console.error("Failed to persist remote hover policy", error);
   }
