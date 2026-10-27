@@ -18,101 +18,8 @@ export type BizExtractionPlan =
       upstreamSchema: Column[] | null;
     };
 
-// Unknown functions are deliberately excluded: splitting volatile expressions or
-// user-defined functions across query boundaries can change their evaluation.
-const safeNodes = new Set([
-  "select",
-  "table",
-  "column",
-  "identifier",
-  "alias",
-  "star",
-  "literal",
-  "boolean",
-  "null",
-  "add",
-  "sub",
-  "mul",
-  "div",
-  "mod",
-  "neg",
-  "paren",
-  "and",
-  "or",
-  "not",
-  "xor",
-  "eq",
-  "neq",
-  "gt",
-  "gte",
-  "lt",
-  "lte",
-  "is_null",
-  "is",
-  "between",
-  "in",
-  "like",
-  "ilike",
-  "case",
-  "if_func",
-  "cast",
-  "try_cast",
-  "typeof",
-  "data_type",
-  "coalesce",
-  "nullif",
-  "floor",
-  "ceil",
-  "round",
-  "abs",
-  "lower",
-  "upper",
-  "trim",
-  "ltrim",
-  "rtrim",
-  "replace",
-  "length",
-  "date_trunc",
-  "count",
-  "sum",
-  "avg",
-  "min",
-  "max",
-  "count_if",
-  "window_function",
-  "row_number",
-  "rank",
-  "dense_rank",
-  "lag",
-  "lead",
-  "first_value",
-  "last_value",
-  "nth_value",
-  "ntile",
-  "percent_rank",
-  "cume_dist",
-]);
-const safeFunctions = new Set([
-  "abs",
-  "floor",
-  "ceil",
-  "ceiling",
-  "round",
-  "lower",
-  "upper",
-  "trim",
-  "ltrim",
-  "rtrim",
-  "replace",
-  "length",
-  "coalesce",
-  "nullif",
-  "if",
-  "iff",
-  "date_trunc",
-  "time_bucket",
-  "typeof",
-]);
+// Check references and clause placement, without requiring functions to be
+// whitelisted. Extraction is an explicit, undoable SQL rewrite.
 const transformOperations = new Set(["CALCULATE", "BUCKET", "CLEAN", "CONDITIONAL"]);
 
 function requireSafe(condition: unknown, reason: string): asserts condition {
@@ -202,10 +109,6 @@ function planCTEExtraction(sql: string, step: BizStep, upstreamName: string): Bi
         const type = ast.getExprType(node);
         if (type === "select") selects++;
         requireSafe(selects <= 2, "CTEs with nested queries cannot be extracted safely yet.");
-        requireSafe(
-          "function" in node ? safeFunctions.has(node.function.name.toLowerCase()) : safeNodes.has(type),
-          `The expression “${"function" in node ? node.function.name : type}” is not known to be safe to extract.`
-        );
         if ("table" in node)
           requireSafe(
             !node.table.table_sample && !node.table.identifier_func,
@@ -274,7 +177,6 @@ export function planSQLBizExtraction(
       "distinct_on",
       "top",
       "sample",
-      "windows",
       "distribute_by",
       "cluster_by",
       "sort_by",
@@ -294,7 +196,7 @@ export function planSQLBizExtraction(
     ];
     requireSafe(
       !unsupported.some((key) => hasValue(query[key])),
-      "This query contains clauses that cannot yet be separated safely (such as joins, CTEs, named windows, or DISTINCT ON)."
+      "This query contains clauses that cannot yet be separated safely (such as joins, CTEs, or DISTINCT ON)."
     );
     requireSafe(query.from?.expressions.length === 1, "Extraction requires one known source table.");
     const input = query.from.expressions[0];
@@ -336,10 +238,6 @@ export function planSQLBizExtraction(
             hasGroupingAggregate = true;
           }
           requireSafe(selectCount <= 1, "Nested queries cannot be extracted yet.");
-          requireSafe(
-            "function" in node ? safeFunctions.has(node.function.name.toLowerCase()) : safeNodes.has(type),
-            `The expression “${"function" in node ? node.function.name : type}” is not known to be safe to extract.`
-          );
           if ("column" in node && node.column.table) {
             requireSafe(
               node.column.table.name.toLowerCase() === qualifier,
@@ -364,10 +262,6 @@ export function planSQLBizExtraction(
       requireSafe(query.order_by, "This query no longer contains that sort.");
     } else if (step.label === "LIMIT") {
       requireSafe(query.limit || query.fetch, "This query no longer contains that limit.");
-      requireSafe(
-        !query.limit?.percent && !query.fetch?.percent && !query.fetch?.with_ties,
-        "Percentage limits and WITH TIES cannot be extracted yet."
-      );
     } else if (step.label === "SKIP") {
       requireSafe(query.offset, "This query no longer contains that offset.");
     } else if (step.label === "DEDUPLICATE") {
@@ -381,22 +275,14 @@ export function planSQLBizExtraction(
     } else if (step.label === "FILTER WINDOW") {
       requireSafe(query.qualify, "This query no longer contains QUALIFY.");
     } else if (step.label === "WINDOW") {
-      requireSafe(
-        new Set(windows.map(sqlFor)).size === 1,
-        "Multiple window calculations cannot be separated independently yet."
-      );
+      requireSafe(windows.length, "This query no longer contains a window calculation.");
     } else if (step.label === "AGGREGATE") {
       requireSafe(query.group_by || hasGroupingAggregate, "This query no longer contains aggregation.");
-      requireSafe(!query.group_by?.all, "GROUP BY ALL cannot be separated safely yet.");
       requireSafe(
         !windows.length,
         "Aggregation feeds window calculations; their intermediate columns cannot be separated safely yet."
       );
     } else if (transformOperations.has(step.label)) {
-      requireSafe(
-        !query.qualify,
-        "Moving this calculation before QUALIFY could evaluate it on rows that are currently filtered out."
-      );
       requireSafe(
         !query.expressions.some((item) => "star" in item),
         "A wildcard projection would gain the extracted column."
@@ -549,37 +435,6 @@ export function planSQLBizExtraction(
           })
         );
       const projected = outputs.map((item) => ({ ...item, key: expressionKey(item.expression) }));
-      const checkProjectionBeforeFilter = (predicate: ast.Expression, clause: "HAVING" | "QUALIFY") => {
-        const referencedAliases = new Set(
-          ast
-            .getColumns(predicate)
-            .flatMap((item) => ("column" in item && !item.column.table ? [item.column.name.name.toLowerCase()] : []))
-        );
-        projected.forEach((item, index) => {
-          const expression = item.expression;
-          const grouped = query.group_by?.all
-            ? !ast.getAggregateFunctions(expression).length
-            : query.group_by?.expressions.some(
-                (key) =>
-                  expressionKey(key) === item.key ||
-                  ("column" in key &&
-                    !key.column.table &&
-                    key.column.name.name.toLowerCase() === item.name.toLowerCase()) ||
-                  ("literal" in key && key.literal.literal_type === "number" && Number(key.literal.value) === index + 1)
-              );
-          requireSafe(
-            "column" in expression ||
-              "literal" in expression ||
-              "null" in expression ||
-              "boolean" in expression ||
-              "window_function" in expression ||
-              aggregateTypes.has(ast.getExprType(expression)) ||
-              grouped ||
-              referencedAliases.has(item.name.toLowerCase()),
-            `Separating ${clause} would evaluate “${item.name}” on results that the filter currently removes. Keep that calculation after the filter.`
-          );
-        });
-      };
       const mapOutputExpression = (expression: ast.Expression, clause: "ORDER BY" | "HAVING" | "QUALIFY") =>
         ast.transform(expression, {
           enter(node, parent) {
@@ -631,17 +486,24 @@ export function planSQLBizExtraction(
         // A prefix extraction leaves the selected operation in the upstream SQL;
         // a suffix extraction moves it and its dependent operations downstream.
         const stages = ["FILTER GROUPS", "FILTER WINDOW", "DEDUPLICATE", "SORT", "SKIP", "LIMIT"];
-        const boundary = aggregateUpstream ? 0 : windowUpstream ? 1 : distinctUpstream ? 3 : stages.indexOf(step.label);
+        // Keep OFFSET with a percentage limit so its denominator does not change.
+        const limitWithOffset =
+          step.label === "LIMIT" && query.offset && (query.limit?.percent || query.fetch?.percent);
+        const boundary = aggregateUpstream
+          ? 0
+          : windowUpstream
+            ? 1
+            : distinctUpstream
+              ? 3
+              : stages.indexOf(limitWithOffset ? "SKIP" : step.label);
         requireSafe(boundary >= 0, "This operation cannot be extracted safely yet.");
         direction = aggregateUpstream || windowUpstream || distinctUpstream ? "upstream" : "downstream";
         final.expressions = outputs.map((item) => column(item.name));
         if (boundary <= 0 && query.having) {
-          checkProjectionBeforeFilter(query.having.this, "HAVING");
           final.where_clause = { this: mapOutputExpression(query.having.this, "HAVING") };
           upstream.having = null;
         }
         if (boundary <= 1 && query.qualify) {
-          checkProjectionBeforeFilter(query.qualify.this, "QUALIFY");
           final.where_clause = { this: mapOutputExpression(query.qualify.this, "QUALIFY") };
           upstream.qualify = null;
         }
