@@ -4,8 +4,8 @@ import { useSQLBizStats } from "./useSQLBizStats";
 import { readBizOperationStats, type BizOperationStatsPlan } from "./sqlBizOperationStats";
 import { formatBizFilterCount } from "./sqlBizFilterStats";
 
-function percentage(rows: number, input: number, meaning: string) {
-  const title = `${rows.toLocaleString()} of ${input.toLocaleString()} rows ${meaning}`;
+function percentage(rows: number, input: number, meaning: string, unit = "rows") {
+  const title = `${rows.toLocaleString()} of ${input.toLocaleString()} ${unit} ${meaning}`;
   return (
     <span
       title={title}
@@ -47,6 +47,8 @@ export function SQLBizOperationStats({
     stats && (stats.kind === "aggregate" || stats.kind === "deduplicate")
       ? `${stats.input.toLocaleString()} → ${stats.output.toLocaleString()} rows`
       : "";
+  const reduction = stats && "output" in stats && stats.kind !== "aggregate" ? stats : null;
+  const rowLimit = reduction?.kind === "limit" || reduction?.kind === "skip";
   return (
     <div
       aria-live="polite"
@@ -85,16 +87,57 @@ export function SQLBizOperationStats({
           {beforeAfter}
         </div>
       )}
-      {stats?.kind === "deduplicate" &&
+      {reduction &&
+        !rowLimit &&
         (popup ? (
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
             <span className="font-mono text-xs text-black" title={beforeAfter}>
-              Removed
+              {reduction.kind === "having" ? "Groups removed" : "Removed"}
             </span>
-            {percentage(stats.input - stats.output, stats.input, "removed by DISTINCT")}
+            {percentage(
+              reduction.input - reduction.output,
+              reduction.input,
+              "removed",
+              reduction.kind === "having" ? "groups" : "rows"
+            )}
           </div>
         ) : (
-          <div>{formatBizFilterCount(stats.input - stats.output, stats.input)}</div>
+          <div>
+            {reduction.kind === "having" ? (
+              <>
+                {(reduction.input - reduction.output).toLocaleString()} groups removed ·{" "}
+                {percentage(reduction.input - reduction.output, reduction.input, "removed", "groups")}
+              </>
+            ) : (
+              formatBizFilterCount(reduction.input - reduction.output, reduction.input)
+            )}
+          </div>
+        ))}
+      {reduction &&
+        rowLimit &&
+        (popup ? (
+          <div className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-1">
+            <span className="font-mono text-xs text-black">Retained</span>
+            {percentage(reduction.output, reduction.input, "retained")}
+            <span className="font-mono text-xs text-black">Discarded</span>
+            {percentage(reduction.input - reduction.output, reduction.input, "discarded")}
+          </div>
+        ) : (
+          <div>
+            {reduction.output.toLocaleString()} / {reduction.input.toLocaleString()} rows retained
+          </div>
+        ))}
+      {stats?.kind === "clean" &&
+        (popup ? (
+          <div className="flex justify-between items-center gap-2">
+            <span className="font-mono text-xs text-black">Values changed</span>
+            {percentage(stats.changed, stats.input, "changed by cleaning", "values")}
+          </div>
+        ) : (
+          <div>
+            {stats.changed.toLocaleString()} changed ·{" "}
+            {percentage(stats.changed, stats.input, "changed by cleaning", "values")}
+          </div>
         ))}
       {stats?.kind === "join" &&
         (popup ? (

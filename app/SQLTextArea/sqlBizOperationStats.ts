@@ -3,13 +3,38 @@ import { quoteIdentifier } from "../src/duckdb/sql";
 
 type Select = ast.ExpressionInner<"select">;
 type Scope = ast.ExpressionInner<"with">;
-type Operation = "join" | "aggregate" | "deduplicate" | "buckets";
+type Operation = "join" | "aggregate" | "deduplicate" | "buckets" | "clean" | "having" | "qualify" | "limit" | "skip";
 export type BizOperationStatsPlan = { error: string } | { kind: Operation; sql: string };
 type StatsTarget =
   | { kind: "join"; index: number }
   | { kind: "aggregate" }
   | { kind: "deduplicate" }
+  | { kind: "having" }
+  | { kind: "qualify" }
+  | { kind: "limit" }
+  | { kind: "skip" }
+  | { kind: "clean"; expression: ast.Expression; beforeAggregation: boolean }
   | { kind: "buckets"; expression: ast.Expression; beforeAggregation: boolean };
+
+export const bizCleaningFunctions = new Set([
+  "lower",
+  "upper",
+  "trim",
+  "ltrim",
+  "rtrim",
+  "replace",
+  "regexp_replace",
+  "regex_replace",
+  "coalesce",
+  "nullif",
+  "null_if",
+  "ifnull",
+  "if_null",
+  "nvl",
+  "normalize",
+  "strip_accents",
+  "try_cast",
+]);
 
 function render(expression: ast.Expression): string {
   const result = generate([expression], Dialect.DuckDB);
@@ -52,7 +77,7 @@ function withoutLimits(query: Select): Select {
   };
 }
 
-function inScope(sql: string, query: Select, scopes: Scope[]): string {
+function inScope(sql: string, query: Pick<Select, "with">, scopes: Scope[]): string {
   for (const scope of [...scopes, ...(query.with ? [query.with] : [])].reverse()) {
     if (!scope.ctes.length) continue;
     const wrapper = select(`SELECT * FROM (${sql}) AS kavla_operation_scope`);
@@ -72,6 +97,70 @@ function assertInputFilter(query: Select) {
       .some((item) => "column" in item && !item.column.table && aliases.has(item.column.name.name.toLowerCase()))
   )
     throw new Error("These statistics do not yet support WHERE conditions referring to SELECT aliases.");
+}
+
+function cleaningInput(expression: ast.Expression): ast.Expression {
+  const firstInput = (node: ast.Expression): ast.Expression | undefined => {
+    if ("paren" in node) return firstInput(node.paren.this);
+    if ("lower" in node) return node.lower.this;
+    if ("upper" in node) return node.upper.this;
+    if ("trim" in node) return node.trim.this;
+    if ("try_cast" in node) return node.try_cast.this;
+    if ("coalesce" in node) return node.coalesce.expressions[0];
+    if ("function" in node && bizCleaningFunctions.has(node.function.name.toLowerCase())) return node.function.args[0];
+    return undefined;
+  };
+  let original = firstInput(expression);
+  if (!original) throw new Error("Cannot determine the value before cleaning for this combined expression.");
+  for (let next = firstInput(original); next; next = firstInput(original)) original = next;
+  return original;
+}
+
+function cleanSQL(query: Select, expression: ast.Expression, beforeAggregation: boolean): string {
+  const cleaned = "alias" in expression ? expression.alias.this : expression;
+  const original = cleaningInput(cleaned);
+  let values: Select;
+  let beforeName = "kavla_before_clean",
+    afterName = "kavla_after_clean";
+  if (beforeAggregation) {
+    assertInputFilter(query);
+    values = input(query, `${render(original)} AS ${beforeName}, ${render(cleaned)} AS ${afterName}`);
+  } else {
+    if (query.expressions.some((item) => "star" in item)) {
+      throw new Error("Cleaning statistics after aggregation or windows require explicit output columns.");
+    }
+    const names = new Set(
+      query.expressions.flatMap((item) =>
+        "alias" in item
+          ? [item.alias.alias.name.toLowerCase()]
+          : "column" in item
+            ? [item.column.name.name.toLowerCase()]
+            : []
+      )
+    );
+    while (names.has(beforeName)) beforeName += "_";
+    while (names.has(afterName)) afterName += "_";
+    values = {
+      ...withoutLimits(query),
+      distinct: false,
+      distinct_on: null,
+      qualify: null,
+      expressions: [
+        ...query.expressions,
+        ...select(`SELECT ${render(original)} AS ${beforeName}, ${render(cleaned)} AS ${afterName}`).expressions,
+      ],
+    };
+  }
+  // Compare representations so TRY_CAST can be measured without casting invalid
+  // source strings back to the output type. NULL changes count; NULL → NULL does not.
+  return `SELECT COUNT(*) AS input_rows,
+    COUNT(CASE WHEN CAST(${beforeName} AS VARCHAR) IS DISTINCT FROM CAST(${afterName} AS VARCHAR) THEN 1 END) AS changed_rows
+    FROM (${render({ select: values })}) cleaned_values`;
+}
+
+function countsSQL(before: Select, after: Select): string {
+  return `SELECT (SELECT COUNT(*) FROM (${render({ select: before })}) before_operation) AS input_rows,
+    (SELECT COUNT(*) FROM (${render({ select: after })}) after_operation) AS output_rows`;
 }
 
 function joinSQL(query: Select, index: number): string {
@@ -152,6 +241,37 @@ export function buildBizOperationStats(query: Select, scopes: Scope[], target: S
     let sql: string;
     if (target.kind === "join") {
       sql = joinSQL(query, target.index);
+    } else if (target.kind === "clean") {
+      sql = cleanSQL(query, target.expression, target.beforeAggregation);
+    } else if (target.kind === "having" || target.kind === "qualify") {
+      const clause = target.kind === "having" ? query.having : query.qualify;
+      if (!clause) throw new Error("This query no longer contains that filter.");
+      if (
+        query.expressions.some(
+          (expression) =>
+            ast.findAll(
+              expression,
+              (node) => "unnest" in node || ("function" in node && node.function.name.toLowerCase() === "unnest")
+            ).length
+        )
+      )
+        throw new Error("Filter counts with row-expanding SELECT expressions are not supported yet.");
+      const after = { ...withoutLimits(query), order_by: query.order_by, distinct: false, distinct_on: null };
+      if (target.kind === "having") after.qualify = null;
+      // Keep the predicate bound so aggregates/windows appearing only in the
+      // clause still define the input stage, while allowing every row through.
+      const alwaysTrue = select(`SELECT 1 WHERE (${render(clause.this)}) OR TRUE`).where_clause!.this;
+      const before =
+        target.kind === "having"
+          ? { ...after, having: { ...query.having!, this: alwaysTrue } }
+          : { ...after, qualify: { ...query.qualify!, this: alwaysTrue } };
+      sql = countsSQL(before, after);
+    } else if (target.kind === "limit" || target.kind === "skip") {
+      if (query.limit_by?.length) throw new Error("Per-group LIMIT BY statistics are not supported yet.");
+      const unlimited = { ...withoutLimits(query), order_by: query.order_by, sort_by: query.sort_by };
+      const before = target.kind === "skip" ? unlimited : { ...unlimited, offset: query.offset };
+      const after = target.kind === "skip" ? { ...unlimited, offset: query.offset } : { ...query, with: null };
+      sql = countsSQL(before, after);
     } else if (target.kind === "aggregate" || target.kind === "deduplicate") {
       let before: Select;
       let after: Select;
@@ -176,8 +296,7 @@ export function buildBizOperationStats(query: Select, scopes: Scope[], target: S
         after = withoutLimits(query);
         before = { ...after, distinct: false, distinct_on: null };
       }
-      sql = `SELECT (SELECT COUNT(*) FROM (${render({ select: before })}) before_operation) AS input_rows,
-        (SELECT COUNT(*) FROM (${render({ select: after })}) after_operation) AS output_rows`;
+      sql = countsSQL(before, after);
     } else {
       const expression = "alias" in target.expression ? target.expression.alias.this : target.expression;
       let rows: string;
@@ -211,9 +330,60 @@ export function buildBizOperationStats(query: Select, scopes: Scope[], target: S
   }
 }
 
+export function buildBizRowLimitStats(
+  expression: ast.Expression,
+  scopes: Scope[],
+  kind: "limit" | "skip"
+): BizOperationStatsPlan {
+  if ("select" in expression) return buildBizOperationStats(expression.select, scopes, { kind });
+  try {
+    if ("subquery" in expression) {
+      const nested = expression.subquery;
+      const wrapper = select(`SELECT * FROM (${render(nested.this)}) AS kavla_limit_input`);
+      return buildBizOperationStats(
+        {
+          ...wrapper,
+          order_by: nested.order_by,
+          offset: nested.offset,
+          limit: nested.limit,
+        },
+        scopes,
+        { kind }
+      );
+    }
+    if (scopes.some((scope) => scope.recursive))
+      throw new Error("Statistics inside a recursive CTE are not supported yet.");
+    const before = structuredClone(expression);
+    const after = structuredClone(expression);
+    const clause = (node: ast.Expression) => {
+      if ("union" in node) return node.union;
+      if ("intersect" in node) return node.intersect;
+      if ("except" in node) return node.except;
+      throw new Error("Cannot identify the input to this row limit.");
+    };
+    const beforeClause = clause(before),
+      afterClause = clause(after);
+    beforeClause.limit = null;
+    if (kind === "skip") {
+      beforeClause.offset = null;
+      afterClause.limit = null;
+    }
+    // Polyglot stores a combined query's trailing FETCH on its right SELECT.
+    if ("right" in beforeClause && "select" in beforeClause.right) beforeClause.right.select.fetch = null;
+    if (kind === "skip" && "right" in afterClause && "select" in afterClause.right)
+      afterClause.right.select.fetch = null;
+    const sql = `SELECT (SELECT COUNT(*) FROM (${render(before)}) before_operation) AS input_rows,
+      (SELECT COUNT(*) FROM (${render(after)}) after_operation) AS output_rows`;
+    return { kind, sql: inScope(sql, { with: null }, scopes) };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export type BizOperationStats =
   | { kind: "join"; left: number; leftMatched: number; right: number; rightMatched: number }
-  | { kind: "aggregate" | "deduplicate"; input: number; output: number }
+  | { kind: "aggregate" | "deduplicate" | "having" | "qualify" | "limit" | "skip"; input: number; output: number }
+  | { kind: "clean"; input: number; changed: number }
   | {
       kind: "buckets";
       input: number;
@@ -254,7 +424,12 @@ export function readBizOperationStats(kind: Operation, rows: Record<string, unkn
     return { kind, left, right, leftMatched, rightMatched };
   }
   const inputRows = count(row, "input_rows");
+  if (kind === "clean") {
+    const changed = count(row, "changed_rows");
+    if (changed > inputRows) throw new Error("Changed values exceed the input rows.");
+    return { kind, input: inputRows, changed };
+  }
   const output = count(row, "output_rows");
-  if (kind === "deduplicate" && output > inputRows) throw new Error("Distinct rows exceed the input rows.");
+  if (kind !== "aggregate" && output > inputRows) throw new Error("Retained rows exceed the input rows.");
   return { kind, input: inputRows, output };
 }
