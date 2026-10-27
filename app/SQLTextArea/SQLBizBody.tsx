@@ -103,6 +103,13 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
     return entry ? [entry.tableName] : [];
   });
   const renderIdentifier = (content: ReactNode, target: SQLHighlightTarget) => {
+    if (target.kind === "knob") {
+      return (
+        <SQLIdentifierHover target={target} ownerShapeId={shape.id}>
+          {content}
+        </SQLIdentifierHover>
+      );
+    }
     const tableName = target.kind === "column" ? target.column.tableName : target.tableName;
     return (
       <SQLIdentifierHover

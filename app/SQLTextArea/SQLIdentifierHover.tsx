@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useEditor, type TLShapeId } from "tldraw";
+import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useData } from "../client/useLocalServer";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
@@ -12,6 +12,7 @@ import type { SQLHighlightTarget } from "./StaticSQLHighlighter";
 import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
 import { usePopupPlacement } from "./usePopupPlacement";
 import { useExclusivePopup } from "./useExclusivePopup";
+import { describeKnob, findKnob } from "../Knob/knobReferences";
 
 export function SQLIdentifierHover({
   target,
@@ -72,7 +73,13 @@ export function SQLIdentifierHover({
       tabIndex={0}
       title=""
       role="button"
-      aria-label={target.kind === "column" ? `${target.column.name}: ${target.column.type}` : target.tableName}
+      aria-label={
+        target.kind === "column"
+          ? `${target.column.name}: ${target.column.type}`
+          : target.kind === "knob"
+            ? `{${target.name}} current value`
+            : target.tableName
+      }
       aria-haspopup="dialog"
       aria-expanded={Boolean(anchor)}
       style={{ cursor: "help" }}
@@ -109,7 +116,11 @@ export function SQLIdentifierHover({
             data-sql-popup
             role="dialog"
             aria-label={
-              target.kind === "column" ? `${target.column.name} column details` : `${target.tableName} schema`
+              target.kind === "column"
+                ? `${target.column.name} column details`
+                : target.kind === "knob"
+                  ? `{${target.name}} current value`
+                  : `${target.tableName} schema`
             }
             tabIndex={0}
             onPointerEnter={cancelClose}
@@ -134,7 +145,9 @@ export function SQLIdentifierHover({
               zIndex: 1000000,
             }}
           >
-            {target.kind === "column" ? (
+            {target.kind === "knob" ? (
+              <KnobDetails name={target.name} />
+            ) : target.kind === "column" ? (
               <ColumnDetails column={target.column} tableId={tableId} />
             ) : (
               <div className="border-2 border-black rounded bg-white text-xs shadow-[4px_4px_0px_0px_#000] p-2">
@@ -163,6 +176,30 @@ export function SQLIdentifierHover({
           document.body
         )}
     </span>
+  );
+}
+
+function KnobDetails({ name }: { name: string }) {
+  const editor = useEditor();
+  const description = useValue(
+    "Biz knob current value",
+    () => {
+      const knob = findKnob(editor, name);
+      return knob
+        ? `{${knob.props.name}}=${describeKnob(knob)}`
+        : name
+          ? `{${name}} — pending creation`
+          : "Type a name inside {} to create a knob.";
+    },
+    [editor, name]
+  );
+  return (
+    <div
+      className="border-2 border-black bg-white text-black p-2 font-mono text-xs font-bold leading-[18px] shadow-[4px_4px_0px_0px_#000]"
+      style={{ maxWidth: 320, overflowWrap: "anywhere" }}
+    >
+      {description}
+    </div>
   );
 }
 
