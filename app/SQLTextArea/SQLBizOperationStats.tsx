@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { useSQLBizStats } from "./useSQLBizStats";
 import { readBizOperationStats, type BizOperationStatsPlan } from "./sqlBizOperationStats";
-import { formatBizFilterCount } from "./sqlBizFilterStats";
+import { formatBizFilterCount, formatBizPercentage } from "./sqlBizFilterStats";
 import { SQLBizAnalysisControls } from "./SQLBizAnalysisControls";
 
 function percentage(rows: number, input: number, meaning: string, unit = "rows") {
@@ -15,7 +15,7 @@ function percentage(rows: number, input: number, meaning: string, unit = "rows")
       className="font-mono text-[10px] font-bold text-black tabular-nums"
       style={{ cursor: "help", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}
     >
-      {(input ? (rows / input) * 100 : 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}%
+      {formatBizPercentage(rows, input)}
     </span>
   );
 }
