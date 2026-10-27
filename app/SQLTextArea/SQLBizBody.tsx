@@ -41,7 +41,7 @@ import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { extractSQLBizOperation, getSQLBizExtractionPlan, isSQLBizExtracting } from "./extractSQLBizOperation";
 import { useData } from "../client/useLocalServer";
 import { useSQLBizFilterStats } from "./useSQLBizStats";
-import { formatBizFilterCount, type BizFilterPlan } from "./sqlBizFilterStats";
+import { formatBizFilterCount, formatBizPercentage, type BizFilterPlan } from "./sqlBizFilterStats";
 import { SQLBizOperationStats } from "./SQLBizOperationStats";
 import { SQLBizAnalysisControls } from "./SQLBizAnalysisControls";
 import { useTldrawScrollArea } from "../DataSource/useTldrawScrollArea";
@@ -530,7 +530,7 @@ function FilterCounts({
       className="font-mono text-[10px] font-bold text-black tabular-nums text-right"
       style={{ whiteSpace: "nowrap", cursor: "help" }}
     >
-      {(input ? (100 * removed) / input : 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}%
+      {formatBizPercentage(removed, input)}
     </span>
   );
   return (

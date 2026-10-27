@@ -119,7 +119,12 @@ export function readBizFilterCounts(row: Record<string, unknown>, conditionCount
   };
 }
 
+export function formatBizPercentage(rows: number, input: number): string {
+  const percent = input ? (100 * rows) / input : 0;
+  const displayed = rows < input ? Math.min(percent, 99.9) : percent;
+  return `${displayed.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+}
+
 export function formatBizFilterCount(removed: number, input: number): string {
-  const percent = input ? (100 * removed) / input : 0;
-  return `${removed.toLocaleString()} ${removed === 1 ? "row" : "rows"} removed · ${percent.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+  return `${removed.toLocaleString()} ${removed === 1 ? "row" : "rows"} removed · ${formatBizPercentage(removed, input)}`;
 }
