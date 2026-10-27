@@ -34,7 +34,19 @@ export function SQLBizOperationStats({
   const result = useMemo(() => {
     if (state.status !== "ready" || "error" in plan) return null;
     try {
-      return { stats: readBizOperationStats(plan.kind, state.rows) };
+      const stats = readBizOperationStats(plan.kind, state.rows);
+      if (stats.kind === "combine" && plan.kind === "combine") {
+        const maximum =
+          plan.operation === "UNION"
+            ? stats.left + stats.right
+            : plan.operation === "INTERSECT"
+              ? Math.min(stats.left, stats.right)
+              : stats.left;
+        if (stats.output > maximum || (plan.operation === "UNION" && plan.all && stats.output !== maximum)) {
+          throw new Error("Combined row counts are inconsistent. Run the analysis again.");
+        }
+      }
+      return { stats };
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) };
     }
@@ -45,8 +57,12 @@ export function SQLBizOperationStats({
     stats && (stats.kind === "aggregate" || stats.kind === "deduplicate")
       ? `${stats.input.toLocaleString()} → ${stats.output.toLocaleString()} rows`
       : "";
-  const reduction = stats && "output" in stats && stats.kind !== "aggregate" ? stats : null;
+  const reduction = stats && "output" in stats && stats.kind !== "aggregate" && stats.kind !== "combine" ? stats : null;
   const rowLimit = reduction?.kind === "limit" || reduction?.kind === "skip";
+  const combine =
+    stats?.kind === "combine" && !("error" in plan) && plan.kind === "combine"
+      ? { ...stats, operation: plan.operation, all: plan.all }
+      : null;
   return (
     <div
       aria-live="polite"
@@ -134,6 +150,48 @@ export function SQLBizOperationStats({
           </div>
         ) : (
           <div>{percentage(stats.leftMatched, stats.left, "matched at least once")} left matched</div>
+        ))}
+      {combine &&
+        (popup ? (
+          <div className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-1 text-black">
+            <span className="font-mono text-xs">Left input</span>
+            <span className="font-mono text-[10px] font-bold text-right tabular-nums" title="Rows from the left input">
+              {combine.left.toLocaleString()}
+            </span>
+            <span className="font-mono text-xs">Right input</span>
+            <span className="font-mono text-[10px] font-bold text-right tabular-nums" title="Rows from the right input">
+              {combine.right.toLocaleString()}
+            </span>
+            <span className="font-mono text-xs">Output</span>
+            <span
+              className="font-mono text-[10px] font-bold text-right tabular-nums"
+              title="Output rows before following SKIP or LIMIT"
+            >
+              {combine.output.toLocaleString()}
+            </span>
+            {!(combine.operation === "UNION" && combine.all) && (
+              <>
+                <span className="font-mono text-xs">
+                  {combine.operation === "UNION" ? "Duplicates removed" : "Left removed"}
+                </span>
+                <span className="text-right">
+                  {percentage(
+                    (combine.operation === "UNION" ? combine.left + combine.right : combine.left) - combine.output,
+                    combine.operation === "UNION" ? combine.left + combine.right : combine.left,
+                    combine.operation === "UNION"
+                      ? "removed as duplicates"
+                      : `removed from the left input by ${combine.operation}${combine.all ? " ALL" : " (including duplicates)"}`
+                  )}
+                </span>
+              </>
+            )}
+          </div>
+        ) : (
+          <div
+            title={`${combine.left.toLocaleString()} left input rows · ${combine.right.toLocaleString()} right input rows`}
+          >
+            {combine.output.toLocaleString()} output rows
+          </div>
         ))}
       {stats?.kind === "buckets" && (
         <>

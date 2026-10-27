@@ -3,8 +3,12 @@ import { quoteIdentifier } from "../src/duckdb/sql";
 
 type Select = ast.ExpressionInner<"select">;
 type Scope = ast.ExpressionInner<"with">;
-type Operation = "join" | "aggregate" | "deduplicate" | "buckets" | "clean" | "having" | "qualify" | "limit" | "skip";
-export type BizOperationStatsPlan = { error: string } | { kind: Operation; sql: string };
+type Operation =
+  "join" | "aggregate" | "deduplicate" | "buckets" | "clean" | "having" | "qualify" | "limit" | "skip" | "combine";
+export type BizOperationStatsPlan =
+  | { error: string }
+  | { kind: Exclude<Operation, "combine">; sql: string }
+  | { kind: "combine"; sql: string; operation: "UNION" | "INTERSECT" | "EXCEPT"; all: boolean };
 type StatsTarget =
   | { kind: "join"; index: number }
   | { kind: "aggregate" }
@@ -330,6 +334,65 @@ export function buildBizOperationStats(query: Select, scopes: Scope[], target: S
   }
 }
 
+export function buildBizCombineStats(
+  expression: ast.Expression,
+  scopes: Scope[],
+  context: ast.Expression = expression
+): BizOperationStatsPlan {
+  try {
+    // Polyglot currently parses unparenthesized mixed set operations left to
+    // right, while SQL gives INTERSECT higher precedence. Do not count stages
+    // inferred from that ambiguous tree (including its apparent child stages).
+    if (
+      ast.findAll(
+        context,
+        (node) => "intersect" in node && ("union" in node.intersect.left || "except" in node.intersect.left)
+      ).length
+    ) {
+      throw new Error(
+        "Add parentheses around mixed INTERSECT and UNION/EXCEPT operations so each input can be measured accurately."
+      );
+    }
+    const combined = structuredClone(expression);
+    const operation = "union" in combined ? "UNION" : "intersect" in combined ? "INTERSECT" : "EXCEPT";
+    const query =
+      "union" in combined
+        ? combined.union
+        : "intersect" in combined
+          ? combined.intersect
+          : "except" in combined
+            ? combined.except
+            : null;
+    if (!query) throw new Error("Cannot identify the inputs to this combine operation.");
+    if (scopes.some((scope) => scope.recursive))
+      throw new Error("Statistics inside a recursive CTE are not supported yet.");
+    if (
+      ast.findAll(
+        expression,
+        (node) =>
+          ("select" in node && Boolean(node.select.sample)) || ("table" in node && Boolean(node.table.table_sample))
+      ).length
+    ) {
+      throw new Error("Statistics for sampled inputs are not supported yet because samples can change between counts.");
+    }
+    const withClause = query.with;
+    query.with = null;
+    query.order_by = null;
+    query.limit = null;
+    query.offset = null;
+    // A trailing FETCH belongs to the combined output. Parenthesized branches
+    // retain their own ORDER BY, LIMIT, OFFSET and FETCH when counted as inputs.
+    if ("select" in query.right) query.right.select.fetch = null;
+    const sql = `SELECT
+      (SELECT COUNT(*) FROM (${render(query.left)}) combine_left) AS left_rows,
+      (SELECT COUNT(*) FROM (${render(query.right)}) combine_right) AS right_rows,
+      (SELECT COUNT(*) FROM (${render(combined)}) combine_output) AS output_rows`;
+    return { kind: "combine", operation, all: query.all, sql: inScope(sql, { with: withClause }, scopes) };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function buildBizRowLimitStats(
   expression: ast.Expression,
   scopes: Scope[],
@@ -382,6 +445,7 @@ export function buildBizRowLimitStats(
 
 export type BizOperationStats =
   | { kind: "join"; left: number; leftMatched: number; right: number; rightMatched: number }
+  | { kind: "combine"; left: number; right: number; output: number }
   | { kind: "aggregate" | "deduplicate" | "having" | "qualify" | "limit" | "skip"; input: number; output: number }
   | { kind: "clean"; input: number; changed: number }
   | {
@@ -422,6 +486,15 @@ export function readBizOperationStats(kind: Operation, rows: Record<string, unkn
       rightMatched = count(row, "right_matched");
     if (leftMatched > left || rightMatched > right) throw new Error("Matched rows exceed the input rows.");
     return { kind, left, right, leftMatched, rightMatched };
+  }
+  if (kind === "combine") {
+    const left = count(row, "left_rows"),
+      right = count(row, "right_rows"),
+      output = count(row, "output_rows");
+    if (!Number.isSafeInteger(left + right))
+      throw new Error("Combined input row count is too large to display accurately.");
+    if (output > left + right) throw new Error("Combined output rows exceed the input rows.");
+    return { kind, left, right, output };
   }
   const inputRows = count(row, "input_rows");
   if (kind === "clean") {

@@ -3,6 +3,7 @@ import { mapKnobParameters } from "../Knob/knobSQL";
 import { buildBizFilterPlan, type BizFilterPlan } from "./sqlBizFilterStats";
 import {
   buildBizOperationStats,
+  buildBizCombineStats,
   buildBizRowLimitStats,
   bizCleaningFunctions as cleaningFunctions,
   type BizOperationStatsPlan,
@@ -299,6 +300,7 @@ function summarize(sql: string): BizSummary {
           secondary: `${sourceName(operation.left)} ${connector} ${sourceName(operation.right)}`,
         }
       );
+      steps[steps.length - 1].stats = buildBizCombineStats(expression, filterScopes, result.ast![0]);
       if (operation.order_by) add("SORT", sortDetails(operation.order_by), scope, sortCard(operation.order_by));
       if (operation.offset) {
         add("SKIP", rowCount(expressionSQL(operation.offset)), scope);
