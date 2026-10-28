@@ -459,6 +459,8 @@ func (e *Engine) ExportResult(ctx context.Context, resultID, format, outputPath 
 		copyOptions = "FORMAT CSV, HEADER true"
 	case "parquet":
 		copyOptions = "FORMAT PARQUET, COMPRESSION SNAPPY"
+	case "json":
+		copyOptions = "FORMAT JSON, ARRAY true"
 	default:
 		return fmt.Errorf("unsupported query result export format: %s", format)
 	}

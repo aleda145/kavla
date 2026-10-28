@@ -72,14 +72,14 @@ export function confirmLargeTableDownload({
   isEstimate = true,
 }: {
   bytes: number | null;
-  format: "csv" | "parquet";
+  format: "csv" | "parquet" | "json";
   subject: string;
   isEstimate?: boolean;
 }): boolean {
   if (bytes === null || bytes <= LARGE_TABLE_DOWNLOAD_BYTES) return true;
   return window.confirm(
     `${subject} is ${isEstimate ? "estimated at " : ""}${formatEstimatedBytes(bytes)} before export. Creating the ${
-      format === "csv" ? "CSV" : "Parquet"
+      format === "parquet" ? "Parquet" : format.toUpperCase()
     } file may use significant CPU, memory, and disk space. Continue?`
   );
 }

@@ -503,7 +503,7 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
           }
           startPreparedDownload(download);
         } catch (error) {
-          console.error(`${format === "csv" ? "CSV" : "Parquet"} download failed`, error);
+          console.error(`${format === "parquet" ? "Parquet" : format.toUpperCase()} download failed`, error);
           addToast({
             title: "Download failed",
             description: error instanceof Error ? error.message : String(error),

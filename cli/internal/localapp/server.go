@@ -1094,8 +1094,8 @@ func (s *Server) handleExportSourceTable(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("tableRef is required"))
 		return
 	}
-	if request.Format != "csv" && request.Format != "parquet" {
-		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("format must be csv or parquet"))
+	if request.Format != "csv" && request.Format != "parquet" && request.Format != "json" {
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("format must be csv, parquet, or json"))
 		return
 	}
 
@@ -1138,6 +1138,9 @@ func (s *Server) handleExportSourceTable(w http.ResponseWriter, r *http.Request)
 	if request.Format == "csv" {
 		mimeType = "text/csv; charset=utf-8"
 	}
+	if request.Format == "json" {
+		mimeType = "application/json"
+	}
 	id, err := s.stageTransientFile(outputPath, fileName, mimeType)
 	if err != nil {
 		_ = os.Remove(outputPath)
@@ -1167,8 +1170,8 @@ func (s *Server) handleExportQueryResult(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("shapeId is required"))
 		return
 	}
-	if request.Format != "csv" && request.Format != "parquet" && request.Format != "tsv" {
-		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("format must be csv, tsv, or parquet"))
+	if request.Format != "csv" && request.Format != "parquet" && request.Format != "json" && request.Format != "tsv" {
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("format must be csv, tsv, parquet, or json"))
 		return
 	}
 
@@ -1215,6 +1218,9 @@ func (s *Server) handleExportQueryResult(w http.ResponseWriter, r *http.Request)
 	mimeType := "application/vnd.apache.parquet"
 	if request.Format == "tsv" {
 		mimeType = "text/tab-separated-values; charset=utf-8"
+	}
+	if request.Format == "json" {
+		mimeType = "application/json"
 	}
 	if request.Format == "csv" {
 		mimeType = "text/csv; charset=utf-8"
@@ -1273,6 +1279,8 @@ func sourceExportFileName(requestedName, tableRef, format string) string {
 		name = name[:len(name)-len(".csv")]
 	} else if strings.HasSuffix(lowerName, ".parquet") {
 		name = name[:len(name)-len(".parquet")]
+	} else if strings.HasSuffix(lowerName, ".json") {
+		name = name[:len(name)-len(".json")]
 	}
 	name = strings.Map(func(character rune) rune {
 		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '-' || character == '_' || character == ' ' {

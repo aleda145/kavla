@@ -1,1 +1,1 @@
-export type TableDownloadFormat = "csv" | "parquet";
+export type TableDownloadFormat = "csv" | "parquet" | "json";

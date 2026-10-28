@@ -81,7 +81,7 @@ export function TableDownloadButtons({
             onMouseLeave={() => setIsMenuOpen(false)}
           >
             <div className="kavla-table-download-menu">
-              {(["parquet", "csv"] as const).map((format) => (
+              {(["parquet", "csv", "json"] as const).map((format) => (
                 <button
                   key={format}
                   type="button"
@@ -94,7 +94,7 @@ export function TableDownloadButtons({
                     void startDownload(format);
                   }}
                 >
-                  {format === "csv" ? "CSV" : "Parquet"}
+                  {format === "parquet" ? "Parquet" : format.toUpperCase()}
                 </button>
               ))}
             </div>

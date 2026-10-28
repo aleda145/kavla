@@ -129,6 +129,8 @@ func (e *Engine) ExportSourceTable(ctx context.Context, tableRef, format, output
 		copyOptions = "FORMAT CSV, HEADER true"
 	case "parquet":
 		copyOptions = "FORMAT PARQUET, COMPRESSION SNAPPY"
+	case "json":
+		copyOptions = "FORMAT JSON, ARRAY true"
 	default:
 		return fmt.Errorf("unsupported source export format: %s", format)
 	}

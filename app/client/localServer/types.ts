@@ -57,13 +57,13 @@ export interface LocalServerContextType {
   getSourceStats: (payload: { tableRef: string }) => Promise<{ rowCount: number }>;
   prepareSourceDownload: (payload: {
     tableRef: string;
-    format: "csv" | "parquet";
+    format: "csv" | "parquet" | "json";
     fileName: string;
     rowCount: number | null;
   }) => Promise<{ downloadUrl: string; fileName: string }>;
   prepareQueryResultDownload: (payload: {
     shapeId: string;
-    format: "csv" | "parquet" | "tsv";
+    format: "csv" | "parquet" | "json" | "tsv";
     fileName: string;
   }) => Promise<{ downloadUrl: string; fileName: string }>;
   runRemoteQuery: (payload: RunRemoteQueryPayload) => Promise<{
