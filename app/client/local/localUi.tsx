@@ -14,6 +14,7 @@ import {
   type TLComponents,
   type TLUiOverrides,
   useBreakpoint,
+  useActions,
   useEditor,
   useIsToolSelected,
   usePassThroughWheelEvents,
@@ -457,10 +458,12 @@ export function useLocalComponents({
       Toolbar: LocalToolbar,
       KeyboardShortcutsDialog: (props) => {
         const tools = useTools();
+        const actions = useActions();
         return (
           <DefaultKeyboardShortcutsDialog {...props}>
             <TldrawUiMenuItem {...tools["data-source"]} />
             <TldrawUiMenuItem {...tools["sql-text-area"]} />
+            <TldrawUiMenuItem {...actions["toggle-biz-mode"]} icon="sql" />
             <DefaultKeyboardShortcutsDialogContent />
           </DefaultKeyboardShortcutsDialog>
         );
