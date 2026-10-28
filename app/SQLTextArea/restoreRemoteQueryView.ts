@@ -4,7 +4,7 @@ import type { LocalServerContextType } from "../client/localServer/types";
 import { MissingQueryResultError } from "../client/localServer/types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
-import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
+import { prepareCanvasSQL } from "./prepareCanvasSQL";
 
 export interface RestoredRemoteQueryMetadata {
   rowCount: number;
@@ -43,12 +43,8 @@ export function restoreRemoteQueryView(
       );
     }
 
-    const dagWalk = walkSQLDag(editor, currentShape.props.text);
-    if (!dagWalk.ok) {
-      throw new Error(dagWalk.error.message);
-    }
-
-    const { executionState, orderedDependencies } = dagWalk.plan;
+    const prepared = await prepareCanvasSQL(editor, currentShape.props.text);
+    const { executionState, orderedDependencies } = prepared;
     const readsBigQuery = orderedDependencies.some(
       (dependency) =>
         dependency.type === "data-source" &&
@@ -60,7 +56,7 @@ export function restoreRemoteQueryView(
       );
     }
     const result = await runRemoteQuery({
-      sql: buildRemoteSQLFromDag(currentShape.props.text, orderedDependencies, editor),
+      sql: prepared.sql,
       sourceName: executionState.sourceName,
       sourceType: executionState.sourceType,
       shapeId: currentShape.id,

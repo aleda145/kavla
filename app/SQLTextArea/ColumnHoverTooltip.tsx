@@ -121,16 +121,19 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
     if (remoteSourceName && remoteTableRef && remoteQueryFn) {
       const requestShapeId = `hover_stats_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       setActiveRemoteRequestId(requestShapeId);
-      getCachedRemoteColumnStats(
-        remoteQueryFn,
-        remoteSourceName,
-        remoteSourceType,
-        remoteTableRef,
-        columnName,
-        type,
-        requestShapeId,
-        remoteSource.tableSql
-      )
+      Promise.resolve(remoteSource.prepare ? remoteSource.prepare() : remoteSource)
+        .then((source) =>
+          getCachedRemoteColumnStats(
+            source.runRemoteQuery,
+            source.sourceName,
+            source.sourceType,
+            source.fullTableRef,
+            columnName,
+            type,
+            requestShapeId,
+            source.tableSql
+          )
+        )
         .then((data) => {
           if (mounted) {
             previousStatsRef.current = null;

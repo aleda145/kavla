@@ -1,3 +1,5 @@
+import { dbtRelation } from "../Dbt/dbtCanvas";
+import { resolveDbtReferences } from "../Dbt/dbtSQL";
 import type { Editor } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
@@ -36,7 +38,10 @@ export function getMissingSourceMessage(orderedDependencies: SQLDependencyShape[
   const missing = orderedDependencies.find(
     (dependency) => dependency.type === "data-source" && !getRemoteSourceMetadata(dependency)
   );
-  return missing ? `Source "${missing.props.name}" is missing its uploaded table. Upload the file again.` : null;
+  if (!missing) return null;
+  if (dbtRelation(missing)?.source)
+    return `Source "${missing.props.name}" has no warehouse connection. Choose a connection in dbt settings.`;
+  return `Source "${missing.props.name}" is missing its uploaded table. Upload the file again.`;
 }
 
 export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]): QueryExecutionState {
@@ -158,7 +163,8 @@ export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]
 }
 
 export function walkSQLDag(editor: Editor, sqlText: string): SQLDagWalkResult {
-  const { orderedDependencies, immediateUpstreamIds } = getOrderedDependenciesForSQL(editor, sqlText);
+  const { orderedDependencies, immediateUpstreamIds, cycle } = getOrderedDependenciesForSQL(editor, sqlText);
+  if (cycle) return { ok: false, error: { title: "Circular dependency", message: cycle } };
   const nextUpstreamShapeIds = Array.from(
     new Set([...immediateUpstreamIds, ...getSQLKnobs(editor, sqlText).map((knob) => knob.id)])
   );
@@ -201,15 +207,16 @@ export function walkSQLDag(editor: Editor, sqlText: string): SQLDagWalkResult {
 export function buildRemoteSQLFromDag(
   sqlText: string,
   orderedDependencies: SQLDependencyShape[],
-  editor: Editor
+  editor: Editor,
+  compiled: Record<string, string> = {}
 ): string {
   const ctes = orderedDependencies.map((dependency) => {
     if (dependency.type === "sql-text-area")
-      return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(resolveKnobSQL(editor, dependency.props.text))})`;
+      return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(resolveKnobSQL(editor, resolveDbtReferences(editor, compiled[dependency.id] ?? dependency.props.text, true)))})`;
     const source = getRemoteSourceMetadata(dependency);
     if (!source) throw new Error(`Source "${dependency.props.name}" is unavailable.`);
     return `${quoteIdentifier(dependency.props.name)} AS (SELECT * FROM ${quoteDottedIdentifier(source.remoteTableRef)})`;
   });
-  const query = stripTrailingSemicolons(resolveKnobSQL(editor, sqlText));
+  const query = stripTrailingSemicolons(resolveKnobSQL(editor, resolveDbtReferences(editor, sqlText, true)));
   return ctes.length ? `WITH ${ctes.join(",\n")} SELECT * FROM (${query}) AS kavla_query` : query;
 }

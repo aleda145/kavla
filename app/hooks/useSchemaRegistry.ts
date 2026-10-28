@@ -1,3 +1,4 @@
+import { dbtDocumentation } from "../Dbt/dbtCanvas";
 import { useEditor } from "tldraw";
 import { useEffect, useState } from "react";
 import { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
@@ -34,6 +35,13 @@ export const useSchemaRegistry = () => {
             columns = shape.props.metadata;
           }
 
+          if (!columns.length) {
+            columns =
+              dbtDocumentation(shape)?.columns.map((column) => ({
+                name: column.name,
+                type: column.dataType || "unknown",
+              })) ?? [];
+          }
           if (columns.length > 0) {
             newRegistry[shape.id] = {
               tableName: shape.props.name,

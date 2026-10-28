@@ -1,8 +1,9 @@
 import { clearRestoredRemoteQueryMetadata } from "./restoreRemoteQueryView";
 import { createShapeId, type Editor, type TLShapeId } from "tldraw";
+import { canvasSQLSignature } from "../Dbt/dbtCompilation";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import type { LocalServerContextType } from "../client/localServer/types";
-import { walkSQLDag, buildRemoteSQLFromDag } from "./walkSQLDag";
+import { prepareCanvasSQL } from "./prepareCanvasSQL";
 import { connectShapes, setShapeUpstreamConnections } from "../util/shapeConnections";
 import { dispatchSQLShapeRunStarted, dispatchSQLShapeRunFinished, type SQLShapeRunResult } from "./sqlShapeRun";
 import { ensureQueryKnobs } from "../Knob/createKnobs";
@@ -18,17 +19,13 @@ export async function executeSQLShape(
   signal.throwIfAborted();
   const shape = editor.getShape<SQLTextAreaShape>(id);
   if (!shape || shape.type !== "sql-text-area") throw new Error("The query shape is unavailable.");
+  if (shape.props.dbt?.readOnly)
+    throw new Error("This model is a truncated file preview and cannot be run. Open the full file in your editor.");
   if (shape.props.isRunning) throw new Error("This query is already running.");
   if (options.createMissingKnobs !== false) ensureQueryKnobs(editor, shape, sql);
   clearRestoredRemoteQueryMetadata(id);
   const started = Date.now();
-  const plan = walkSQLDag(editor, sql);
-  if (!plan.ok) throw new Error(plan.error.message);
-  const { executionState, orderedDependencies, nextUpstreamShapeIds } = plan.plan;
-  if (nextUpstreamShapeIds.includes(id))
-    throw new Error("A query cannot read from its own output. Reference an upstream source or query instead.");
   const runnerName = "CLI";
-  setShapeUpstreamConnections(editor, id, nextUpstreamShapeIds as TLShapeId[]);
   editor.updateShape<SQLTextAreaShape>({
     id,
     type: "sql-text-area",
@@ -40,8 +37,13 @@ export async function executeSQLShape(
   let result: SQLShapeRunResult;
   try {
     signal.throwIfAborted();
+    const plan = await prepareCanvasSQL(editor, sql, signal);
+    const { executionState, nextUpstreamShapeIds } = plan;
+    if (nextUpstreamShapeIds.includes(id)) throw new Error("A query cannot read from its own output.");
+    setShapeUpstreamConnections(editor, id, nextUpstreamShapeIds as TLShapeId[]);
+    const inputs = canvasSQLSignature(editor);
     const output = await data.runRemoteQuery({
-      sql: buildRemoteSQLFromDag(sql, orderedDependencies, editor),
+      sql: plan.sql,
       sourceName: executionState.sourceName,
       sourceType: executionState.sourceType,
       sourceNative: executionState.sourceNativePreview,
@@ -51,8 +53,8 @@ export async function executeSQLShape(
     signal.throwIfAborted();
     const current = editor.getShape<SQLTextAreaShape>(id);
     if (!current) throw new Error("The query shape was removed.");
-    if (current.props.text !== sql)
-      throw new Error("The query was edited while it was running; run the edited query again.");
+    if (current.props.text !== sql || canvasSQLSignature(editor) !== inputs)
+      throw new Error("The query or an upstream input changed while it was running; run it again.");
     editor.updateShape<SQLTextAreaShape>({
       id,
       type: "sql-text-area",

@@ -44,6 +44,10 @@ import { LineageHighlights } from "../canvas/LineageHighlights";
 import { LocalAgentDialog } from "./LocalAgentDialog";
 import { LocalSaveDialog } from "./LocalSaveDialog";
 import { LocalSourcesDialog } from "./LocalSourcesDialog";
+import { DbtDialog } from "../../Dbt/DbtDialog";
+import { DbtLogo } from "../../Dbt/DbtFileUtil";
+import { dbtState } from "../../Dbt/dbtRuntime";
+import type { TLShapeId } from "tldraw";
 import type { SaveLocalSessionOptions, SaveLocalSessionResult } from "./localSession";
 
 export const localUiOverrides: TLUiOverrides = {
@@ -118,7 +122,21 @@ function LocalDocumentControls({
   const [dialogMode, setDialogMode] = useState<"load" | "new" | null>(null);
   const [showSources, setShowSources] = useState(false);
   const [showAgentStatus, setShowAgentStatus] = useState(false);
+  const [dbtDialog, setDbtDialog] = useState<{ shapeId?: TLShapeId } | null>(null);
+  const dbtNeedsAttention = useValue(
+    "dbt needs attention",
+    () => Boolean(dbtState.get().error || Object.keys(dbtState.get().issues).length),
+    []
+  );
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const openDbt = (event: Event) => {
+      if (documentsAvailable) setDbtDialog({ shapeId: (event as CustomEvent<TLShapeId>).detail });
+    };
+    window.addEventListener("kavla:open-dbt", openDbt);
+    return () => window.removeEventListener("kavla:open-dbt", openDbt);
+  }, [documentsAvailable]);
 
   useEffect(() => {
     const openSources = () => {
@@ -180,6 +198,8 @@ function LocalDocumentControls({
           .kavla-document-control[data-action="history"] { background: var(--color-orange-100, #ffedd5); }
           .kavla-document-control[data-action="sources"] { background: #dbeafe; }
           .kavla-document-control[data-action="agent"] { background: #ede9fe; }
+          .kavla-document-control[data-action="dbt"] { background: #ffedd5; }
+          .kavla-document-control[data-action="dbt"]:hover { background: #fed7aa; }
           .kavla-document-control[data-action="new"]:hover { background: #fde68a; }
           .kavla-document-control[data-action="save"]:hover { background: #fbcfe8; }
           .kavla-document-control[data-action="load"]:hover { background: #bbf7d0; }
@@ -268,6 +288,20 @@ function LocalDocumentControls({
         <Sparkles color="#6d28d9" size={14} />
         <span className="kavla-control-label">Agent</span>
       </button>
+      <button
+        aria-label={dbtNeedsAttention ? "dbt project — sync needs attention" : "dbt project"}
+        className="kavla-document-control"
+        data-action="dbt"
+        disabled={!documentsAvailable}
+        onClick={() => setDbtDialog({})}
+        onPointerDown={(event) => event.stopPropagation()}
+        title="Connect a dbt project to this canvas"
+        type="button"
+      >
+        <DbtLogo size={14} />
+        dbt{dbtNeedsAttention ? " !" : ""}
+      </button>
+      {dbtDialog ? <DbtDialog initialShapeId={dbtDialog.shapeId} onClose={() => setDbtDialog(null)} /> : null}
       {dialogMode ? (
         <LocalSaveDialog
           documentName={documentName}

@@ -1,10 +1,12 @@
 import { getArrowBindings, type Editor, type TLArrowShape, type TLShape, type TLShapeId } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
+import type { DbtMacroShape } from "../Dbt/dbtTypes";
+import { getDbtMacroInputs } from "../Dbt/dbtMacros";
 import type { KnobShape } from "../Knob/knob-types";
 import createArrowBetweenShapes from "./CreateArrowBetweenShapes";
 
-type ConnectionShape = DataSourceShape | SQLTextAreaShape | KnobShape;
+type ConnectionShape = DataSourceShape | SQLTextAreaShape | KnobShape | DbtMacroShape;
 type ConnectionProps = Pick<ConnectionShape["props"], "downstreamShapeIds" | "upstreamShapeIds">;
 
 interface ConnectorArrow {
@@ -14,10 +16,19 @@ interface ConnectorArrow {
 }
 
 function isConnectionShape(shape: TLShape | undefined): shape is ConnectionShape {
-  return shape?.type === "data-source" || shape?.type === "sql-text-area" || shape?.type === "knob";
+  return (
+    shape?.type === "data-source" ||
+    shape?.type === "sql-text-area" ||
+    shape?.type === "knob" ||
+    shape?.type === "dbt-macro"
+  );
 }
 
 function updateConnectionProps(editor: Editor, shape: ConnectionShape, props: Partial<ConnectionProps>) {
+  if (shape.type === "dbt-macro") {
+    editor.updateShape<DbtMacroShape>({ id: shape.id, type: "dbt-macro", props });
+    return;
+  }
   if (shape.type === "knob") {
     editor.updateShape<KnobShape>({ id: shape.id, type: "knob", props });
     return;
@@ -91,6 +102,12 @@ export function connectShapes(editor: Editor, upstreamShapeId: TLShapeId, downst
   if (!downstreamShape) {
     throw new Error(`Downstream shape ${downstreamShapeId} does not exist.`);
   }
+  if (
+    downstreamShape.type === "dbt-macro" ||
+    (upstreamShape.type === "dbt-macro" && downstreamShape.type !== "sql-text-area")
+  ) {
+    throw new Error("Macros can only connect to SQL queries, as inputs.");
+  }
   if (downstreamShape.type === "knob" || (upstreamShape.type === "knob" && downstreamShape.type !== "sql-text-area")) {
     throw new Error("Knobs can only connect to SQL queries, as inputs.");
   }
@@ -137,6 +154,8 @@ export function setShapeUpstreamConnections(editor: Editor, shapeId: TLShapeId, 
     throw new Error(`Shape ${shapeId} cannot have upstream connections.`);
   }
 
+  if (shape.type === "sql-text-area")
+    nextUpstreamShapeIds = [...nextUpstreamShapeIds, ...getDbtMacroInputs(editor, shape.props.text)];
   const normalizedNextIds = Array.from(
     new Set(nextUpstreamShapeIds.filter((upstreamShapeId) => upstreamShapeId !== shapeId))
   );
@@ -169,7 +188,13 @@ export function setShapeUpstreamConnections(editor: Editor, shapeId: TLShapeId, 
 
     const currentShape = editor.getShape(shapeId);
     if (isConnectionShape(currentShape)) {
-      updateConnectionProps(editor, currentShape, { upstreamShapeIds: normalizedNextIds });
+      const previous = currentShape.props.upstreamShapeIds ?? [];
+      if (
+        previous.length !== normalizedNextIds.length ||
+        previous.some((id, index) => id !== normalizedNextIds[index])
+      ) {
+        updateConnectionProps(editor, currentShape, { upstreamShapeIds: normalizedNextIds });
+      }
     }
   });
 }

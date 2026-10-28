@@ -96,6 +96,7 @@ export default function createArrowBetweenShapes(
       props: {
         kind: "elbow",
         size: "s",
+        ...(startShape.type === "dbt-macro" ? { color: "orange" as const } : {}),
         start: {
           x: arrowPointInParentSpace.x - startTerminalPagePosition.x,
           y: arrowPointInParentSpace.y - startTerminalPagePosition.y,

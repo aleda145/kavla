@@ -5,7 +5,7 @@ import type { AgentToolEnvironment } from "../client/localServer/agentRuns";
 import { quoteIdentifier } from "../src/duckdb/sql";
 import { buildColumnStatsQuery, parseColumnStatsRows } from "../src/duckdb/column-stats-sql";
 import type { ColumnStats } from "../src/duckdb/column-stats-types";
-import { walkSQLDag, buildRemoteSQLFromDag } from "../SQLTextArea/walkSQLDag";
+import { prepareCanvasSQL } from "../SQLTextArea/prepareCanvasSQL";
 import { loadQueryResultRows } from "../client/loadQueryResultRows";
 import { randomUUID } from "../util/randomUUID";
 
@@ -54,13 +54,15 @@ export async function computeAgentProfiles(
     if (!column) throw new Error(`Unknown column ${String(name)}.`);
     return column;
   });
-  const plan = walkSQLDag(editor, `SELECT * FROM ${quoteIdentifier(shape.props.name)}`);
-  if (!plan.ok) throw new Error(plan.error.message);
-  const { orderedDependencies, executionState } = plan.plan;
+  const { executionState, sql: inputSQL } = await prepareCanvasSQL(
+    editor,
+    `SELECT * FROM ${quoteIdentifier(shape.props.name)}`,
+    env.signal
+  );
   const profiles: Record<string, ColumnStats> = {};
   for (const column of selected) {
     env.signal.throwIfAborted();
-    const table = quoteIdentifier(shape.props.name);
+    const table = `(${inputSQL})`;
     const col = quoteIdentifier(column.name);
     const { sql, analysisType } = buildColumnStatsQuery({
       quotedTable: table,
@@ -84,7 +86,7 @@ export async function computeAgentProfiles(
               : "to_json(list(kavla_profile))";
         const packedSQL = `SELECT ${aggregate} AS profile_rows FROM (${sql}) AS kavla_profile`;
         const response = await env.data.runRemoteQuery({
-          sql: buildRemoteSQLFromDag(packedSQL, orderedDependencies, editor),
+          sql: packedSQL,
           sourceName: executionState.sourceName,
           sourceType: executionState.sourceType,
           sourceNative: executionState.sourceNativePreview,

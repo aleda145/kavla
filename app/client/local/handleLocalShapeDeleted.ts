@@ -19,6 +19,7 @@ export function handleLocalShapeDeleted(
   if (
     deletedShape.type === "sql-text-area" ||
     deletedShape.type === "knob" ||
+    deletedShape.type === "dbt-macro" ||
     deletedShape.type === "data-source" ||
     deletedShape.type === "chart-shape" ||
     deletedShape.type === "lens-shape" ||
