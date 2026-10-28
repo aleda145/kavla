@@ -1,4 +1,10 @@
-import { autocompletion, CompletionContext, CompletionSource } from "@codemirror/autocomplete";
+import {
+  autocompletion,
+  CompletionContext,
+  CompletionSource,
+  insertCompletionText,
+  type Completion,
+} from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import { getCachedRemoteColumnStats, type RemoteSourceInfo } from "./remote-column-stats";
 import { quoteIdentifier, quoteSqlString, quoteDottedIdentifier } from "../src/duckdb/sql";
@@ -21,6 +27,18 @@ function getStringLiteralCompletionText(value: string, typedQuote: string): stri
   return quoteSqlString(value);
 }
 
+function getIdentifierCompletion(name: string, quoted: boolean, addComma = false): Completion["apply"] {
+  const identifier = quoted || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name) ? quoteIdentifier(name) : name;
+  const text = addComma ? `${identifier}, ` : identifier;
+  if (!quoted) return text;
+
+  return (view, _completion, from, to) => {
+    // Replace the whole identifier, including any auto-inserted closing quote.
+    const node = syntaxTree(view.state).resolveInner(from, 1);
+    view.dispatch(insertCompletionText(view.state, text, from - 1, node.name === "QuotedIdentifier" ? node.to : to));
+  };
+}
+
 export const createSqlAutocomplete = (
   uniqueTableNames: Set<string>,
   allColumns: SqlColumnDefinition[],
@@ -34,14 +52,21 @@ export const createSqlAutocomplete = (
       async (context: CompletionContext) => {
         const knobPrefix = context.matchBefore(/\{[A-Za-z_][A-Za-z0-9_]*$|\{$/);
         if (knobPrefix && isKnobCodePosition(context.state.doc.toString(), knobPrefix.from)) return null;
-        const dotMatch = context.matchBefore(/([a-zA-Z_][a-zA-Z0-9_]*)\.[\w_]*/);
+        const node = syntaxTree(context.state).resolveInner(context.pos, -1);
+        const quotedIdentifier = node.name === "QuotedIdentifier" ? node : null;
+        const word = quotedIdentifier
+          ? { from: quotedIdentifier.from + 1, to: context.pos }
+          : context.matchBefore(/[\w_]*/);
+        const dotMatch = context.state
+          .sliceDoc(0, quotedIdentifier?.from ?? word?.from ?? context.pos)
+          .match(/([a-zA-Z_][a-zA-Z0-9_]*)\.$/);
 
         const textBeforeForValues = context.state.sliceDoc(Math.max(0, context.pos - 50), context.pos);
         const valueMatch = textBeforeForValues.match(
           /\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(=|!=|<>|IN\s*\()\s*(['"]?)([\w_]*)$/i
         );
 
-        if (valueMatch) {
+        if (valueMatch && !quotedIdentifier) {
           const columnName = valueMatch[1];
           const hasQuote = valueMatch[3];
           const partialValue = valueMatch[4];
@@ -131,36 +156,30 @@ export const createSqlAutocomplete = (
           }
         }
 
-        if (dotMatch) {
-          const parts = dotMatch.text.split(".");
+        if (dotMatch && word) {
+          const matchedTableName = tableNames.get(dotMatch[1].toLowerCase());
 
-          if (parts.length === 2) {
-            const tableNameRaw = parts[0];
+          if (matchedTableName) {
+            const relevantCols = allColumns.filter((col) => col.tableName === matchedTableName);
 
-            const matchedTableName = tableNames.get(tableNameRaw.toLowerCase());
-
-            if (matchedTableName) {
-              const relevantCols = allColumns.filter((col) => col.tableName === matchedTableName);
-
-              return {
-                from: dotMatch.from + tableNameRaw.length + 1,
-                options: relevantCols.map((col) => ({
-                  label: col.name,
-                  type: "property",
-                  detail: col.type,
-                  boost: 1,
-                })),
-                validFor: /^[\w_]*$/,
-              };
-            }
+            return {
+              from: word.from,
+              options: relevantCols.map((col) => ({
+                label: col.name,
+                type: "property",
+                detail: col.type,
+                boost: 1,
+                apply: getIdentifierCompletion(col.name, !!quotedIdentifier),
+              })),
+              validFor: quotedIdentifier ? /^(?:[^"]|"")*$/ : /^[\w_]*$/,
+            };
           }
         }
 
-        const word = context.matchBefore(/[\w_]*/);
         if (!word || (word.from === word.to && !context.explicit)) return null;
 
         const text = context.state.doc.toString();
-        if (isAliasDeclaration(text, word.from)) {
+        if (isAliasDeclaration(text, quotedIdentifier?.from ?? word.from)) {
           return null;
         }
 
@@ -168,8 +187,6 @@ export const createSqlAutocomplete = (
         for (const tableName of findMentionedTables(text, tableNames)) {
           relevantTables.add(tableName);
         }
-
-        let node = syntaxTree(context.state).resolveInner(context.pos, -1);
 
         let inSelect = false;
         let inFrom = false;
@@ -198,7 +215,7 @@ export const createSqlAutocomplete = (
 
         // In incomplete SQL the syntax tree may not identify the current clause.
         if (!inFrom && !inSelect && !inWhereLike) {
-          const textBefore = context.state.sliceDoc(0, word.from);
+          const textBefore = context.state.sliceDoc(0, quotedIdentifier?.from ?? word.from);
           const matches = [...textBefore.matchAll(/\b(SELECT|FROM|JOIN|WHERE|HAVING|GROUP|ORDER|LIMIT)\b/gi)];
           if (matches.length > 0) {
             const lastKeyword = matches[matches.length - 1][0].toUpperCase();
@@ -212,7 +229,7 @@ export const createSqlAutocomplete = (
           }
         }
 
-        const textBeforeWord = context.state.sliceDoc(0, word.from);
+        const textBeforeWord = context.state.sliceDoc(0, quotedIdentifier?.from ?? word.from);
         if (/[\w_]+\s*\(\s*$/.test(textBeforeWord)) {
           inFunction = true;
         }
@@ -231,7 +248,9 @@ export const createSqlAutocomplete = (
 
         let filteredStandardOptions = standardOptions;
 
-        if (inFrom) {
+        if (quotedIdentifier) {
+          filteredStandardOptions = [];
+        } else if (inFrom) {
           // Kavla supplies table completions with connection-aware ranking.
           filteredStandardOptions = standardOptions.filter(
             (opt) =>
@@ -263,6 +282,7 @@ export const createSqlAutocomplete = (
               type: "table",
               detail: isUpstream ? "Connected Source" : "Available Source",
               boost: isUpstream ? 2 : 1,
+              apply: getIdentifierCompletion(t, !!quotedIdentifier),
             };
           });
           customOptions = tableOpts.sort((a, b) => b.boost - a.boost);
@@ -273,13 +293,12 @@ export const createSqlAutocomplete = (
           const colOptions = allColumns
             .filter((col) => relevantTables.has(col.tableName))
             .map((col) => {
-              const applyText = /\s/.test(col.name) ? `"${col.name}"` : col.name;
               return {
                 label: col.name,
                 type: "property",
                 detail: col.tableName,
                 boost: 0,
-                apply: shouldAddComma ? `${applyText}, ` : applyText,
+                apply: getIdentifierCompletion(col.name, !!quotedIdentifier, shouldAddComma),
               };
             });
           customOptions = colOptions;
@@ -288,7 +307,7 @@ export const createSqlAutocomplete = (
         return {
           from: word.from,
           options: [...filteredStandardOptions, ...customOptions],
-          validFor: /^[\w_]*$/,
+          validFor: quotedIdentifier ? /^(?:[^"]|"")*$/ : /^[\w_]*$/,
         };
       },
     ],
