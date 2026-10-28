@@ -51,7 +51,10 @@ export function buildBizFilterPlan(
       // COUNT(CASE ...) treats both FALSE and NULL as removed, just like WHERE.
       const projections = parse(
         `SELECT COUNT(*) AS input_rows, ${predicates
-          .map((part, index) => `COUNT(CASE WHEN (${sql(part)}) THEN 1 END) AS kept_${index}`)
+          .map(
+            (part, index) => `COUNT(CASE WHEN (${sql(part)}) THEN 1 END) AS kept_${index},
+            COUNT(CASE WHEN (${sql(part)}) IS NULL THEN 1 END) AS null_${index}`
+          )
           .join(", ")}`,
         Dialect.DuckDB
       );
@@ -94,7 +97,13 @@ export function buildBizFilterPlan(
   }
 }
 
-export type BizFilterCounts = { input: number; removed: number; conditions: number[] };
+export type BizFilterCounts = {
+  input: number;
+  removed: number;
+  conditions: number[];
+  nulls?: number;
+  conditionNulls: (number | undefined)[];
+};
 
 export function readBizFilterCounts(row: Record<string, unknown>, conditionCount: number): BizFilterCounts {
   const count = (name: string) => {
@@ -112,10 +121,19 @@ export function readBizFilterCounts(row: Record<string, unknown>, conditionCount
     if (kept > input) throw new Error("The filter count exceeds the number of input rows.");
     return input - kept;
   };
+  const nulls = (index: number) => {
+    // Older saved analysis can still supply the original counts.
+    if (!Object.hasOwn(row, `null_${index}`)) return undefined;
+    const value = count(`null_${index}`);
+    if (value > removed(`kept_${index}`)) throw new Error("NULL filter counts exceed removed rows.");
+    return value;
+  };
   return {
     input,
     removed: removed("kept_0"),
     conditions: Array.from({ length: conditionCount }, (_, index) => removed(`kept_${index + 1}`)),
+    nulls: nulls(0),
+    conditionNulls: Array.from({ length: conditionCount }, (_, index) => nulls(index + 1)),
   };
 }
 

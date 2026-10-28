@@ -7,7 +7,7 @@ type Operation =
   "join" | "aggregate" | "deduplicate" | "buckets" | "clean" | "having" | "qualify" | "limit" | "skip" | "combine";
 export type BizOperationStatsPlan =
   | { error: string }
-  | { kind: Exclude<Operation, "combine">; sql: string }
+  | { kind: Exclude<Operation, "combine">; sql: string; aggregateNulls?: string[] }
   | { kind: "combine"; sql: string; operation: "UNION" | "INTERSECT" | "EXCEPT"; all: boolean };
 type StatsTarget =
   | { kind: "join"; index: number }
@@ -158,13 +158,68 @@ function cleanSQL(query: Select, expression: ast.Expression, beforeAggregation: 
   // Compare representations so TRY_CAST can be measured without casting invalid
   // source strings back to the output type. NULL changes count; NULL → NULL does not.
   return `SELECT COUNT(*) AS input_rows,
-    COUNT(CASE WHEN CAST(${beforeName} AS VARCHAR) IS DISTINCT FROM CAST(${afterName} AS VARCHAR) THEN 1 END) AS changed_rows
+    COUNT(CASE WHEN CAST(${beforeName} AS VARCHAR) IS DISTINCT FROM CAST(${afterName} AS VARCHAR) THEN 1 END) AS changed_rows,
+    COUNT(CASE WHEN ${beforeName} IS NULL AND ${afterName} IS NOT NULL THEN 1 END) AS null_replaced,
+    COUNT(CASE WHEN ${beforeName} IS NOT NULL AND ${afterName} IS NULL THEN 1 END) AS null_created
     FROM (${render({ select: values })}) cleaned_values`;
 }
 
 function countsSQL(before: Select, after: Select): string {
   return `SELECT (SELECT COUNT(*) FROM (${render({ select: before })}) before_operation) AS input_rows,
     (SELECT COUNT(*) FROM (${render({ select: after })}) after_operation) AS output_rows`;
+}
+
+function aggregateNullInputs(query: Select): { label: string; value: ast.Expression; filter: ast.Expression | null }[] {
+  const metrics = new Map<string, { label: string; value: ast.Expression; filter: ast.Expression | null }>();
+  const aliases = new Set(
+    query.expressions.flatMap((item) => {
+      if (!("alias" in item)) return [];
+      const name = item.alias.alias.name.toLowerCase();
+      const value = item.alias.this;
+      // An aggregate cannot read another aggregate alias. In SUM(x) AS x,
+      // the inner x therefore still refers to the source column.
+      if (ast.getAggregateFunctions(value).length) return [];
+      if ("column" in value && value.column.name.name.toLowerCase() === name) return [];
+      return [name];
+    })
+  );
+  let nested = 0;
+  for (const expression of [...query.expressions, ...(query.having ? [query.having.this] : [])]) {
+    ast.walk(expression, {
+      enter(node) {
+        if ("select" in node || "window_function" in node) nested++;
+        if (nested) return;
+        const aggregate =
+          "sum" in node
+            ? node.sum
+            : "avg" in node
+              ? node.avg
+              : "min" in node
+                ? node.min
+                : "max" in node
+                  ? node.max
+                  : "count" in node && !node.count.star
+                    ? node.count
+                    : null;
+        if (!aggregate?.this) return;
+        // Without an input schema, SELECT aliases cannot be rebound reliably.
+        // Keep the existing row counts when an individual NULL metric is unavailable.
+        if (
+          ast
+            .getColumns(node)
+            .some((item) => "column" in item && !item.column.table && aliases.has(item.column.name.name.toLowerCase()))
+        )
+          return;
+        if (ast.findAll(node, (item) => "select" in item || "window_function" in item).length) return;
+        const label = render(node).replace(/"\{([A-Za-z_][A-Za-z0-9_]*)\}"/g, "{$1}");
+        metrics.set(label, { label, value: aggregate.this, filter: aggregate.filter });
+      },
+      leave(node) {
+        if ("select" in node || "window_function" in node) nested--;
+      },
+    });
+  }
+  return [...metrics.values()];
 }
 
 function joinSQL(query: Select, index: number): string {
@@ -243,6 +298,7 @@ export function buildBizOperationStats(query: Select, scopes: Scope[], target: S
       throw new Error("Statistics for sampled inputs are not supported yet because samples can change between counts.");
     }
     let sql: string;
+    let aggregateNulls: string[] | undefined;
     if (target.kind === "join") {
       sql = joinSQL(query, target.index);
     } else if (target.kind === "clean") {
@@ -301,6 +357,22 @@ export function buildBizOperationStats(query: Select, scopes: Scope[], target: S
         before = { ...after, distinct: false, distinct_on: null };
       }
       sql = countsSQL(before, after);
+      if (target.kind === "aggregate") {
+        const metrics = aggregateNullInputs(query);
+        if (metrics.length) {
+          aggregateNulls = metrics.map((metric) => metric.label);
+          const projections = metrics.flatMap((metric, index) => {
+            const predicate = metric.filter ? `(${render(metric.filter)})` : "TRUE";
+            return [
+              `COUNT(CASE WHEN ${predicate} THEN 1 END) AS null_input_${index}`,
+              `COUNT(CASE WHEN ${predicate} AND (${render(metric.value)}) IS NULL THEN 1 END) AS null_${index}`,
+            ];
+          });
+          const measured = input(query, ["COUNT(*) AS input_rows", ...projections].join(", "));
+          sql = `SELECT aggregate_input.*, (SELECT COUNT(*) FROM (${render({ select: after })}) after_operation) AS output_rows
+            FROM (${render({ select: measured })}) aggregate_input`;
+        }
+      }
     } else {
       const expression = "alias" in target.expression ? target.expression.alias.this : target.expression;
       let rows: string;
@@ -315,20 +387,23 @@ export function buildBizOperationStats(query: Select, scopes: Scope[], target: S
       }
       // Return all bucket counts in the denominator, but bound the popup to the
       // eight largest buckets plus the remaining distribution combined as Other.
+      // Rank non-NULL buckets first so NULL always has its own row outside Other.
+      // SUM widens BIGINT counts to HUGEINT. Keep Arrow values as Int64 rather
+      // than Decimal128 so live and published statistics retain exact integers.
       sql = `WITH kavla_bucket_counts AS (
         SELECT bucket_value, COUNT(*) AS bucket_rows FROM (${rows}) bucket_input GROUP BY bucket_value
       ), kavla_bucket_ranked AS (
-        SELECT *, ROW_NUMBER() OVER (ORDER BY bucket_rows DESC, CAST(bucket_value AS VARCHAR) ASC NULLS LAST) AS bucket_rank,
-          SUM(bucket_rows) OVER () AS input_rows, COUNT(*) OVER () AS bucket_count FROM kavla_bucket_counts
+        SELECT *, ROW_NUMBER() OVER (ORDER BY bucket_value IS NULL, bucket_rows DESC, CAST(bucket_value AS VARCHAR) ASC NULLS LAST) AS bucket_rank,
+          CAST(SUM(bucket_rows) OVER () AS BIGINT) AS input_rows, COUNT(*) OVER () AS bucket_count FROM kavla_bucket_counts
       )
       SELECT CAST(bucket_value AS VARCHAR) AS bucket_value, bucket_value IS NULL AS bucket_null,
-        bucket_rows, input_rows, bucket_count, FALSE AS other FROM kavla_bucket_ranked WHERE bucket_rank <= 8
+        bucket_rows, input_rows, bucket_count, FALSE AS other FROM kavla_bucket_ranked WHERE bucket_rank <= 8 OR bucket_value IS NULL
       UNION ALL
-      SELECT NULL, FALSE, SUM(bucket_rows), MAX(input_rows), MAX(bucket_count), TRUE
-        FROM kavla_bucket_ranked WHERE bucket_rank > 8 HAVING COUNT(*) > 0
-      ORDER BY other, bucket_rows DESC, bucket_value`;
+      SELECT NULL, FALSE, CAST(SUM(bucket_rows) AS BIGINT), MAX(input_rows), MAX(bucket_count), TRUE
+        FROM kavla_bucket_ranked WHERE bucket_rank > 8 AND bucket_value IS NOT NULL HAVING COUNT(*) > 0
+      ORDER BY other, bucket_null, bucket_rows DESC, bucket_value`;
     }
-    return { kind: target.kind, sql: inScope(sql, query, scopes) };
+    return { kind: target.kind, sql: inScope(sql, query, scopes), ...(aggregateNulls ? { aggregateNulls } : {}) };
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
@@ -446,8 +521,9 @@ export function buildBizRowLimitStats(
 export type BizOperationStats =
   | { kind: "join"; left: number; leftMatched: number; right: number; rightMatched: number }
   | { kind: "combine"; left: number; right: number; output: number }
-  | { kind: "aggregate" | "deduplicate" | "having" | "qualify" | "limit" | "skip"; input: number; output: number }
-  | { kind: "clean"; input: number; changed: number }
+  | { kind: "aggregate"; input: number; output: number; nulls: { label: string; input: number; skipped: number }[] }
+  | { kind: "deduplicate" | "having" | "qualify" | "limit" | "skip"; input: number; output: number }
+  | { kind: "clean"; input: number; changed: number; nullReplaced?: number; nullCreated?: number }
   | {
       kind: "buckets";
       input: number;
@@ -455,7 +531,11 @@ export type BizOperationStats =
       buckets: { label: string; rows: number; other: boolean; isNull: boolean }[];
     };
 
-export function readBizOperationStats(kind: Operation, rows: Record<string, unknown>[]): BizOperationStats {
+export function readBizOperationStats(
+  kind: Operation,
+  rows: Record<string, unknown>[],
+  aggregateNulls: readonly string[] = []
+): BizOperationStats {
   const count = (row: Record<string, unknown>, field: string) => {
     const raw = row[field];
     if (typeof raw !== "number" && typeof raw !== "bigint" && typeof raw !== "string")
@@ -500,9 +580,22 @@ export function readBizOperationStats(kind: Operation, rows: Record<string, unkn
   if (kind === "clean") {
     const changed = count(row, "changed_rows");
     if (changed > inputRows) throw new Error("Changed values exceed the input rows.");
-    return { kind, input: inputRows, changed };
+    const nullReplaced = Object.hasOwn(row, "null_replaced") ? count(row, "null_replaced") : undefined;
+    const nullCreated = Object.hasOwn(row, "null_created") ? count(row, "null_created") : undefined;
+    if ((nullReplaced ?? 0) + (nullCreated ?? 0) > changed) throw new Error("NULL changes exceed the changed values.");
+    return { kind, input: inputRows, changed, nullReplaced, nullCreated };
   }
   const output = count(row, "output_rows");
-  if (kind !== "aggregate" && output > inputRows) throw new Error("Retained rows exceed the input rows.");
+  if (kind === "aggregate") {
+    const nulls = aggregateNulls.flatMap((label, index) => {
+      if (!Object.hasOwn(row, `null_${index}`)) return [];
+      const input = count(row, `null_input_${index}`);
+      const skipped = count(row, `null_${index}`);
+      if (input > inputRows || skipped > input) throw new Error("NULL aggregate counts exceed the input rows.");
+      return [{ label, input, skipped }];
+    });
+    return { kind, input: inputRows, output, nulls };
+  }
+  if (output > inputRows) throw new Error("Retained rows exceed the input rows.");
   return { kind, input: inputRows, output };
 }

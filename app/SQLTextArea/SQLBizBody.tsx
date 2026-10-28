@@ -529,15 +529,28 @@ function FilterCounts({
 }) {
   const analysis = useSQLBizFilterStats(shape, plan, perCondition);
   const { state } = analysis;
-  const percentage = (removed: number, input: number) => (
-    <span
-      title={`${removed.toLocaleString()} of ${input.toLocaleString()} input rows removed`}
-      aria-label={`${removed.toLocaleString()} of ${input.toLocaleString()} input rows removed`}
-      tabIndex={0}
-      className="font-mono text-[10px] font-bold text-black tabular-nums text-right"
-      style={{ whiteSpace: "nowrap", cursor: "help" }}
-    >
-      {formatBizPercentage(removed, input)}
+  const percentage = (removed: number, input: number, nulls?: number) => (
+    <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
+      <span
+        title={`${removed.toLocaleString()} of ${input.toLocaleString()} input rows removed`}
+        aria-label={`${removed.toLocaleString()} of ${input.toLocaleString()} input rows removed`}
+        tabIndex={0}
+        className="font-mono text-[10px] font-bold text-black tabular-nums text-right"
+        style={{ whiteSpace: "nowrap", cursor: "help" }}
+      >
+        {formatBizPercentage(removed, input)}
+      </span>
+      {nulls !== undefined && nulls > 0 && (
+        <span
+          title={`${nulls.toLocaleString()} of ${input.toLocaleString()} input rows removed because the condition evaluated to NULL. Included in the removed percentage.`}
+          aria-label={`${nulls.toLocaleString()} of ${input.toLocaleString()} input rows removed because the condition evaluated to NULL`}
+          tabIndex={0}
+          className="font-mono text-[9px] leading-3 text-black tabular-nums"
+          style={{ cursor: "help" }}
+        >
+          ({formatBizPercentage(nulls, input)} NULL)
+        </span>
+      )}
     </span>
   );
   return (
@@ -553,7 +566,7 @@ function FilterCounts({
                 {highlight ? highlight(`${index ? "AND " : ""}${condition}`, false) : condition}
               </span>
               {perCondition && state.status === "ready" ? (
-                percentage(state.counts.conditions[index], state.counts.input)
+                percentage(state.counts.conditions[index], state.counts.input, state.counts.conditionNulls[index])
               ) : (
                 <span
                   className="font-mono text-[10px] text-black text-right"
@@ -573,9 +586,9 @@ function FilterCounts({
       {state.status === "error" && <div className="text-xs font-bold text-red-500">{state.error}</div>}
       {state.status === "ready" &&
         (popup ? (
-          <div className="flex justify-between items-center gap-2 mt-1 pt-1 border-t border-gray-200">
-            <span className="font-mono text-[10px] text-black">Total removed</span>
-            {percentage(state.counts.removed, state.counts.input)}
+          <div className="flex justify-between items-start gap-2 mt-1 pt-1 border-t border-gray-200">
+            <span className="font-mono text-[10px] text-black">Total excluded</span>
+            {percentage(state.counts.removed, state.counts.input, state.counts.nulls)}
           </div>
         ) : (
           <div>{formatBizFilterCount(state.counts.removed, state.counts.input)}</div>
@@ -619,7 +632,7 @@ function OperationPopup({
         640,
         Math.max(
           320,
-          ...filterPlan.conditions.map((condition, index) => (condition.length + (index ? 4 : 0)) * 7.3 + 90)
+          ...filterPlan.conditions.map((condition, index) => (condition.length + (index ? 4 : 0)) * 7.3 + 170)
         )
       )
     : 320;
@@ -785,7 +798,7 @@ function OperationPopup({
         </pre>
       )}
       {step.filter && <FilterCounts shape={shape} plan={step.filter} perCondition popup highlight={highlight} />}
-      {step.stats && <SQLBizOperationStats shape={shape} plan={step.stats} popup />}
+      {step.stats && <SQLBizOperationStats shape={shape} plan={step.stats} popup highlight={highlight} />}
     </div>,
     document.body
   );
