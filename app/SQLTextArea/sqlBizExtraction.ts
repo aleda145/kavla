@@ -135,8 +135,18 @@ function planCTEExtraction(sql: string, step: BizStep, upstreamName: string): Bi
     enabled: true,
     needsSchema: false,
     direction: "upstream",
-    upstreamSQL: format(sqlFor(cte.this), { language: "duckdb", keywordCase: "upper", tabWidth: 2 }),
-    outputSQL: format(sqlFor({ select: query }), { language: "duckdb", keywordCase: "upper", tabWidth: 2 }),
+    upstreamSQL: format(sqlFor(cte.this), {
+      language: "duckdb",
+      keywordCase: "upper",
+      tabWidth: 2,
+      paramTypes: { named: ["$"] },
+    }),
+    outputSQL: format(sqlFor({ select: query }), {
+      language: "duckdb",
+      keywordCase: "upper",
+      tabWidth: 2,
+      paramTypes: { named: ["$"] },
+    }),
     upstreamSchema: null,
   };
 }
@@ -148,13 +158,43 @@ export function planSQLBizExtraction(
   upstreamName: string,
   outputSchema: Column[] | null = null
 ): BizExtractionPlan {
-  try {
-    let hasKnobs = false;
-    mapKnobParameters(sql, () => {
-      hasKnobs = true;
-      return "0";
+  // Parse knobs as parameters, not columns or their current values. Unique names
+  // keep real SQL parameters, quoted identifiers, strings and comments intact.
+  const reserved = JSON.stringify([sql, step.detail, source, upstreamName, outputSchema]).toLowerCase();
+  let prefix = "__kavla_extract_knob_";
+  while (reserved.includes(prefix)) prefix += "_";
+  const parameters = new Map<string, string>();
+  const encode = (text: string) =>
+    mapKnobParameters(text, (name) => {
+      let parameter = parameters.get(name);
+      if (!parameter) {
+        parameter = `$${prefix}${parameters.size}`;
+        parameters.set(name, parameter);
+      }
+      return parameter;
     });
-    requireSafe(!hasKnobs, "Queries with knob parameters cannot be extracted yet.");
+  const plan = planExtraction(
+    encode(sql),
+    { ...step, detail: encode(step.detail) },
+    source,
+    upstreamName,
+    outputSchema
+  );
+  if (!plan.enabled || plan.needsSchema || !parameters.size) return plan;
+  const references = new Map([...parameters].map(([name, parameter]) => [parameter, `{${name}}`]));
+  const restore = (text: string) =>
+    text.replace(new RegExp(`\\$${prefix}\\d+\\b`, "g"), (parameter) => references.get(parameter) ?? parameter);
+  return { ...plan, upstreamSQL: restore(plan.upstreamSQL), outputSQL: restore(plan.outputSQL) };
+}
+
+function planExtraction(
+  sql: string,
+  step: BizStep,
+  source: { name: string; columns: Column[] | null },
+  upstreamName: string,
+  outputSchema: Column[] | null = null
+): BizExtractionPlan {
+  try {
     if (step.label === "CTE") return planCTEExtraction(sql, step, upstreamName);
     requireSafe(
       !step.scope,
@@ -316,20 +356,35 @@ export function planSQLBizExtraction(
     requireSafe(sourceColumns.length, "The upstream query returned no columns.");
     const inputNames = new Set(sourceColumns.map((item) => item.name.toLowerCase()));
     requireSafe(inputNames.size === sourceColumns.length, "Duplicate source column names make extraction ambiguous.");
-    const aliases = new Set(
-      query.expressions.flatMap((item) => ("alias" in item ? [item.alias.alias.name.toLowerCase()] : []))
-    );
-    const readsOnlyInput = (expression: ast.Expression) => {
-      for (const item of ast.getColumns(expression)) {
-        if (!("column" in item)) continue;
-        const name = item.column.name.name.toLowerCase();
-        requireSafe(inputNames.has(name), "This operation depends on a calculated alias or an unknown input column.");
-        requireSafe(
-          item.column.table || !aliases.has(name),
-          "A column and a SELECT alias have the same name; extraction is ambiguous."
-        );
+    const aliases = new Map<string, ast.Expression[]>();
+    for (const item of query.expressions) {
+      if ("alias" in item) {
+        const name = item.alias.alias.name.toLowerCase();
+        aliases.set(name, [...(aliases.get(name) ?? []), item.alias.this]);
       }
+    }
+    const resolveInputColumn = (expression: ast.Expression, resolving = new Set<string>()): ast.Expression => {
+      if (!("column" in expression)) return expression;
+      const name = expression.column.name.name.toLowerCase();
+      // DuckDB resolves input columns before SELECT aliases in WHERE and expressions.
+      if (inputNames.has(name)) return expression;
+      const matches = !expression.column.table ? aliases.get(name) : undefined;
+      requireSafe(matches?.length, `Unknown input column “${expression.column.name.name}”.`);
+      requireSafe(matches.length === 1, `More than one SELECT expression is named “${name}”.`);
+      requireSafe(!resolving.has(name), `The SELECT alias “${name}” has a circular dependency.`);
+      requireSafe(
+        "column" in matches[0],
+        `This operation depends on the calculated alias “${name}”, which is not available upstream.`
+      );
+      return resolveInputColumn(structuredClone(matches[0]), new Set([...resolving, name]));
     };
+    const resolveInputExpression = (expression: ast.Expression) =>
+      ast.transform(expression, { column: (node) => resolveInputColumn(node) });
+    const inputFilter = () =>
+      query.where_clause && {
+        ...query.where_clause,
+        this: resolveInputExpression(query.where_clause.this),
+      };
     const sourceSelect = parseSelect("SELECT *");
     sourceSelect.from = structuredClone(query.from);
     const output = structuredClone(query);
@@ -347,8 +402,7 @@ export function planSQLBizExtraction(
 
     if (step.label === "FILTER") {
       requireSafe(query.where_clause, "This query no longer contains that filter.");
-      readsOnlyInput(query.where_clause.this);
-      upstream.where_clause = structuredClone(query.where_clause);
+      upstream.where_clause = inputFilter();
       final.where_clause = null;
     } else if (transformOperations.has(step.label)) {
       const index = query.expressions.findIndex(
@@ -369,11 +423,10 @@ export function planSQLBizExtraction(
         !ast.getAggregateFunctions(expression).length,
         "An aggregate expression must stay with its GROUP BY."
       );
-      readsOnlyInput(expression.alias.this);
+      const inputExpression = resolveInputExpression(expression.alias.this);
       // Filtering precedes projection. Keep it with an extracted calculation so
       // expressions are never newly evaluated on rows that WHERE discarded.
-      if (query.where_clause) readsOnlyInput(query.where_clause.this);
-      upstream.where_clause = structuredClone(query.where_clause);
+      upstream.where_clause = inputFilter();
       final.where_clause = null;
       if (query.group_by || hasGroupingAggregate) {
         requireSafe(
@@ -398,7 +451,7 @@ export function planSQLBizExtraction(
         };
         requireSafe(grouped, "This expression is evaluated after grouping and cannot be moved upstream safely.");
       }
-      upstream.expressions.push(structuredClone(expression));
+      upstream.expressions.push({ alias: { ...structuredClone(expression.alias), this: inputExpression } });
       final.expressions[index] = column(name);
       const type = outputSchema?.find((item) => item.name.toLowerCase() === name.toLowerCase())?.type;
       upstreamSchema = type ? [...sourceColumns, { name, type }] : null;
@@ -475,9 +528,8 @@ export function planSQLBizExtraction(
       final = parseSelect(`SELECT * FROM ${quoteIdentifier(upstreamName)}`);
       upstreamSchema = outputSchema;
       if ((step.label === "AGGREGATE" && !aggregateUpstream) || (step.label === "WINDOW" && !windowUpstream)) {
-        if (query.where_clause) readsOnlyInput(query.where_clause.this);
         upstream = sourceSelect;
-        upstream.where_clause = query.where_clause;
+        upstream.where_clause = inputFilter();
         final = output;
         final.where_clause = null;
         upstreamSchema = sourceColumns;
@@ -527,8 +579,18 @@ export function planSQLBizExtraction(
       }
     }
 
-    const upstreamSQL = format(sqlFor({ select: upstream }), { language: "duckdb", keywordCase: "upper", tabWidth: 2 });
-    const outputSQL = format(sqlFor({ select: final }), { language: "duckdb", keywordCase: "upper", tabWidth: 2 });
+    const upstreamSQL = format(sqlFor({ select: upstream }), {
+      language: "duckdb",
+      keywordCase: "upper",
+      tabWidth: 2,
+      paramTypes: { named: ["$"] },
+    });
+    const outputSQL = format(sqlFor({ select: final }), {
+      language: "duckdb",
+      keywordCase: "upper",
+      tabWidth: 2,
+      paramTypes: { named: ["$"] },
+    });
     parseSelect(upstreamSQL);
     parseSelect(outputSQL);
     return { enabled: true, needsSchema: false, direction, upstreamSQL, outputSQL, upstreamSchema };
