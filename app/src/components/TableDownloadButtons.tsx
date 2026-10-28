@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Database, Download, FileSpreadsheet, Loader2 } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
+import { createPortal } from "react-dom";
 import type { TableDownloadFormat } from "../../util/downloadTable";
+import "./table-download-menu.css";
 
 interface TableDownloadButtonsProps {
   buttonClassName: string;
@@ -15,6 +17,9 @@ export function TableDownloadButtons({
   disabledTitle = "Result data is not available locally",
   onDownload,
 }: TableDownloadButtonsProps) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
   const isDownloadingRef = useRef(false);
   const resetTimeoutRef = useRef<number | null>(null);
   const [downloadingFormat, setDownloadingFormat] = useState<TableDownloadFormat | null>(null);
@@ -33,6 +38,7 @@ export function TableDownloadButtons({
     }
 
     isDownloadingRef.current = true;
+    setIsMenuOpen(false);
     setDownloadingFormat(format);
 
     try {
@@ -46,26 +52,88 @@ export function TableDownloadButtons({
     }
   };
 
-  const renderButton = (format: TableDownloadFormat) => {
-    const isCurrentDownload = downloadingFormat === format;
-    const isDisabled = disabled || downloadingFormat !== null;
-    const label = format === "csv" ? "CSV" : "PARQUET";
+  const isDownloading = downloadingFormat !== null;
+  const isDisabled = disabled || isDownloading;
 
-    return (
+  const openMenu = () => {
+    if (isDisabled || !buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    setPosition({ top: rect.top + rect.height / 2, left: rect.right });
+    setIsMenuOpen(true);
+  };
+
+  const popupToRender =
+    isMenuOpen && !isDisabled
+      ? createPortal(
+          <div
+            style={{
+              position: "fixed",
+              top: position.top,
+              left: position.left,
+              transform: "translateY(-50%)",
+              paddingLeft: 8, // Invisible bridge to the button, matching ChartExportMenu.
+              zIndex: 9999999,
+              display: "flex",
+              flexDirection: "column",
+              pointerEvents: "all",
+            }}
+            onMouseEnter={() => setIsMenuOpen(true)}
+            onMouseLeave={() => setIsMenuOpen(false)}
+          >
+            <div className="kavla-table-download-menu">
+              {(["parquet", "csv"] as const).map((format) => (
+                <button
+                  key={format}
+                  type="button"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    if (event.pointerType === "touch") void startDownload(format);
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void startDownload(format);
+                  }}
+                >
+                  {format === "csv" ? "CSV" : "Parquet"}
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
+  return (
+    <div
+      style={{ position: "relative", pointerEvents: "all", width: "100%" }}
+      onMouseEnter={openMenu}
+      onMouseLeave={() => setIsMenuOpen(false)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          setIsMenuOpen(false);
+          buttonRef.current?.focus();
+        }
+      }}
+    >
       <button
-        onClick={() => void startDownload(format)}
+        ref={buttonRef}
+        type="button"
+        aria-expanded={isMenuOpen && !isDisabled}
         onPointerDown={(event) => {
           event.stopPropagation();
-          if (!disabled && event.pointerType === "touch") {
-            void startDownload(format);
-          }
+          if (event.pointerType === "touch") openMenu();
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          openMenu();
         }}
         disabled={isDisabled}
-        title={disabled ? disabledTitle : `Download ${format === "csv" ? "CSV" : "Parquet"}`}
+        title={disabled ? disabledTitle : isDownloading ? "Downloading" : "Download"}
         className={buttonClassName}
         style={{
           width: "100%",
-          minWidth: isCurrentDownload ? 84 : undefined,
+          minWidth: isDownloading ? 84 : undefined,
           justifyContent: "center",
           touchAction: "none",
           backgroundColor: "#fff",
@@ -74,29 +142,16 @@ export function TableDownloadButtons({
           cursor: isDisabled ? "not-allowed" : "pointer",
         }}
       >
-        {isCurrentDownload ? (
-          <Loader2 size={14} className="animate-spin" />
+        {isDownloading ? (
+          <Loader2 size={14} className="animate-spin" aria-hidden="true" />
         ) : (
-          <>
-            <Download size={14} className="kavla-label-mode-icon" aria-hidden="true" />
-            {format === "csv" ? (
-              <FileSpreadsheet size={14} className="kavla-icon-only" aria-hidden="true" />
-            ) : (
-              <Database size={14} className="kavla-icon-only" aria-hidden="true" />
-            )}
-          </>
+          <Download size={14} aria-hidden="true" />
         )}
         <span className="kavla-control-label" style={{ fontSize: 10 }}>
-          {isCurrentDownload ? "DOWNLOADING" : label}
+          {isDownloading ? "Downloading" : "Download"}
         </span>
       </button>
-    );
-  };
-
-  return (
-    <>
-      {renderButton("parquet")}
-      {renderButton("csv")}
-    </>
+      {popupToRender}
+    </div>
   );
 }

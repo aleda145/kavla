@@ -1,0 +1,39 @@
+.kavla-table-download-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 100px;
+  padding: 0;
+  background: #fff;
+  color: #000;
+  border: 2px solid #000;
+  border-radius: 4px;
+  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 1);
+  overflow: hidden;
+}
+
+.kavla-table-download-menu button {
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.kavla-table-download-menu button + button {
+  border-top: 1px solid #000;
+}
+
+.kavla-table-download-menu button:hover,
+.kavla-table-download-menu button:focus-visible {
+  background: #f3f4f6;
+  outline: none;
+}
+
+.kavla-table-download-menu button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
