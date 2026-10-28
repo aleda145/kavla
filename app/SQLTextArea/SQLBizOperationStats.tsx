@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { useSQLBizStats } from "./useSQLBizStats";
 import { readBizOperationStats, type BizOperationStatsPlan } from "./sqlBizOperationStats";
@@ -24,17 +24,23 @@ export function SQLBizOperationStats({
   shape,
   plan,
   popup = false,
+  highlight,
 }: {
   shape: SQLTextAreaShape;
   plan: BizOperationStatsPlan;
   popup?: boolean;
+  highlight?: (sql: string, interactive?: boolean) => ReactNode;
 }) {
   const analysis = useSQLBizStats(shape, "error" in plan ? null : plan.sql, "error" in plan ? plan.error : undefined);
   const { state } = analysis;
   const result = useMemo(() => {
     if (state.status !== "ready" || "error" in plan) return null;
     try {
-      const stats = readBizOperationStats(plan.kind, state.rows);
+      const stats = readBizOperationStats(
+        plan.kind,
+        state.rows,
+        plan.kind === "aggregate" ? plan.aggregateNulls : undefined
+      );
       if (stats.kind === "combine" && plan.kind === "combine") {
         const maximum =
           plan.operation === "UNION"
@@ -88,6 +94,22 @@ export function SQLBizOperationStats({
           {beforeAfter}
         </div>
       )}
+      {popup && stats?.kind === "aggregate" && stats.nulls.some((metric) => metric.skipped > 0) && (
+        <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 text-black">
+          {stats.nulls
+            .filter((metric) => metric.skipped > 0)
+            .map((metric) => (
+              <div key={metric.label} style={{ display: "contents" }}>
+                <span className="font-mono text-xs whitespace-pre-wrap">
+                  {highlight ? highlight(metric.label, false) : metric.label}
+                </span>
+                <span className="font-mono text-[10px] whitespace-nowrap">
+                  NULL skipped {percentage(metric.skipped, metric.input, "skipped because the aggregate input is NULL")}
+                </span>
+              </div>
+            ))}
+        </div>
+      )}
       {reduction &&
         !rowLimit &&
         (popup ? (
@@ -130,9 +152,31 @@ export function SQLBizOperationStats({
         ))}
       {stats?.kind === "clean" &&
         (popup ? (
-          <div className="flex justify-between items-center gap-2">
+          <div className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-1">
             <span className="font-mono text-xs text-black">Values changed</span>
             {percentage(stats.changed, stats.input, "changed by cleaning", "values")}
+            {stats.nullReplaced !== undefined && stats.nullReplaced > 0 && (
+              <>
+                <span className="font-mono text-xs text-black">NULLs replaced</span>
+                {percentage(
+                  stats.nullReplaced,
+                  stats.input,
+                  "changed from NULL to a value; included in values changed",
+                  "values"
+                )}
+              </>
+            )}
+            {stats.nullCreated !== undefined && stats.nullCreated > 0 && (
+              <>
+                <span className="font-mono text-xs text-black">Made NULL</span>
+                {percentage(
+                  stats.nullCreated,
+                  stats.input,
+                  "changed from a value to NULL; included in values changed",
+                  "values"
+                )}
+              </>
+            )}
           </div>
         ) : (
           <div>
@@ -212,7 +256,7 @@ export function SQLBizOperationStats({
                   <span
                     title={
                       bucket.other
-                        ? `${Math.max(0, stats.count - 8).toLocaleString()} remaining buckets`
+                        ? `${Math.max(0, stats.count - stats.buckets.filter((item) => !item.other).length).toLocaleString()} remaining buckets`
                         : bucket.isNull
                           ? "SQL NULL"
                           : bucket.label
