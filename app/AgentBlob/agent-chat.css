@@ -30,10 +30,15 @@
   user-select: none;
 }
 
+.agent-chat-launcher,
+.kavla-agent-chat {
+  --agent-chat-bottom: 80px;
+}
+
 .agent-chat-launcher {
   position: absolute;
   right: 12px;
-  bottom: 56px;
+  bottom: var(--agent-chat-bottom);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -63,7 +68,8 @@
   outline-offset: 2px;
 }
 @media (max-width: 840px) {
-  .agent-chat-launcher {
-    bottom: 66px;
+  .agent-chat-launcher,
+  .kavla-agent-chat {
+    --agent-chat-bottom: 90px;
   }
 }

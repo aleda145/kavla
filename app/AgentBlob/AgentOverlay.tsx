@@ -481,12 +481,12 @@ function AgentChatOverlay() {
                 boxSizing: "border-box",
                 display: "flex",
                 flexDirection: "column",
-                height: isDocked ? "100%" : `min(${CHAT_HEIGHT}px, calc(100% - 72px))`,
+                height: isDocked ? "100%" : `min(${CHAT_HEIGHT}px, calc(100% - var(--agent-chat-bottom) - 16px))`,
                 right: isDocked ? 0 : 12,
                 overflow: isDocked ? "hidden" : "visible",
                 pointerEvents: "all",
                 position: "absolute",
-                bottom: isDocked ? 0 : 56,
+                bottom: isDocked ? 0 : "var(--agent-chat-bottom)",
                 width: isDocked ? "100%" : `min(${CHAT_WIDTH}px, calc(100% - 24px))`,
               }}
             >
