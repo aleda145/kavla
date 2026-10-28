@@ -383,7 +383,7 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
                 onClick={() => setBizMode(editor, isBiz)}
                 onPointerDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => event.stopPropagation()}
-                title={isBiz ? "Show query flows for all queries" : "Show SQL for all queries"}
+                title={`${isBiz ? "Show query flows for all queries" : "Show SQL for all queries"} · Shift+B to toggle`}
                 className="kavla-icon-control focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
                 style={{
                   display: "flex",
