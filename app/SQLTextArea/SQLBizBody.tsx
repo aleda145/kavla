@@ -36,7 +36,7 @@ import { buildSqlSchemaIndex } from "./schema-index";
 import { StaticSQLHighlighter, type SQLHighlightTarget } from "./StaticSQLHighlighter";
 import { SQLIdentifierHover } from "./SQLIdentifierHover";
 import { usePopupPlacement } from "./usePopupPlacement";
-import { useExclusivePopup } from "./useExclusivePopup";
+import { SQLPopupHoverContext, useExclusivePopup } from "./useExclusivePopup";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { extractSQLBizOperation, getSQLBizExtractionPlan, isSQLBizExtracting } from "./extractSQLBizOperation";
 import { useData } from "../client/useLocalServer";
@@ -122,7 +122,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
       </SQLIdentifierHover>
     );
   };
-  const highlight = (sql: string, interactive = true) => (
+  const highlight = (sql: string) => (
     <StaticSQLHighlighter
       inline
       sql={sql}
@@ -132,7 +132,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
       queries={schema.queries}
       columnMapping={schema.columnMapping}
       upstreamTableNames={upstreamTableNames}
-      renderIdentifier={interactive ? renderIdentifier : undefined}
+      renderIdentifier={renderIdentifier}
     />
   );
   const summary = getSQLBizSummary(text);
@@ -525,7 +525,7 @@ function FilterCounts({
   plan: BizFilterPlan;
   perCondition?: boolean;
   popup?: boolean;
-  highlight?: (sql: string, interactive?: boolean) => ReactNode;
+  highlight?: (sql: string) => ReactNode;
 }) {
   const analysis = useSQLBizFilterStats(shape, plan, perCondition);
   const { state } = analysis;
@@ -563,7 +563,7 @@ function FilterCounts({
           {plan.conditions.map((condition, index) => (
             <div key={index} style={{ display: "contents" }}>
               <span style={{ fontFamily: "monospace", whiteSpace: "pre-wrap", userSelect: "text" }}>
-                {highlight ? highlight(`${index ? "AND " : ""}${condition}`, false) : condition}
+                {highlight ? highlight(`${index ? "AND " : ""}${condition}`) : condition}
               </span>
               {perCondition && state.status === "ready" ? (
                 percentage(state.counts.conditions[index], state.counts.input, state.counts.conditionNulls[index])
@@ -614,7 +614,7 @@ function OperationPopup({
   pinned: boolean;
   shape: SQLTextAreaShape;
   text: string;
-  highlight: (sql: string, interactive?: boolean) => ReactNode;
+  highlight: (sql: string) => ReactNode;
   onClose: () => void;
   onPointerEnter: () => void;
   onPointerLeave: () => void;
@@ -666,140 +666,143 @@ function OperationPopup({
   }, [step]);
 
   return createPortal(
-    <div
-      ref={popover}
-      data-sql-popup
-      data-sql-popup-pinned={pinned || undefined}
-      onPointerEnter={onPointerEnter}
-      onPointerLeave={onPointerLeave}
-      onFocus={onPointerEnter}
-      id={tooltipId}
-      role="dialog"
-      aria-label={`${step.label} operation details`}
-      tabIndex={0}
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => event.stopPropagation()}
-      onWheel={(event) => event.stopPropagation()}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === "Escape") onClose();
-      }}
-      style={{
-        position: "fixed",
-        ...position,
-        width: popupWidth,
-        maxWidth: "calc(100vw - 16px)",
-        maxHeight: filterPlan || step.stats ? "calc(100vh - 16px)" : "min(240px, calc(100vh - 16px))",
-        overflow: "auto",
-        padding: "10px 12px",
-        boxSizing: "border-box",
-        border: "2px solid #000",
-        borderRadius: 8,
-        boxShadow: "4px 4px 0 #000",
-        background: "#fff",
-        color: "#000",
-        fontFamily: "Inter, sans-serif",
-        fontSize: 12,
-        pointerEvents: "all",
-        zIndex: pinned ? 1000001 : 999999,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-        <OperationBadge operation={step.label} />
-        <span style={{ display: "flex", gap: 8 }}>
-          <span
-            title={
-              extraction.enabled
-                ? extraction.direction === "upstream"
-                  ? "Extracts Upstream"
-                  : "Extract Downstream"
-                : extraction.reason
-            }
-          >
-            <button
-              type="button"
-              disabled={!extraction.enabled || extracting}
-              aria-busy={extracting}
-              aria-label={extraction.enabled ? `Extract ${extraction.direction}` : "Extract"}
-              aria-describedby={extraction.enabled ? undefined : `${tooltipId}-extraction`}
-              className="h-7 px-2 rounded border-2 border-black bg-white text-xs font-bold cursor-pointer hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-              onClick={async (event) => {
-                event.stopPropagation();
-                if (!extraction?.enabled || extracting) return;
-                try {
-                  const extracted = await extractSQLBizOperation(editor, shape.id, detail.path, text, data);
-                  addToast({
-                    title: `Extracted to ${extracted.name}`,
-                    severity: "success",
-                    actions: [
-                      {
-                        label: "Go to query",
-                        type: "primary",
-                        onClick: () => {
-                          const bounds = editor.getShapePageBounds(extracted.id);
-                          if (!bounds) return;
-                          editor.select(extracted.id);
-                          editor.zoomToBounds(bounds, {
-                            targetZoom: editor.getZoomLevel(),
-                            animation: { duration: 250 },
-                          });
+    <SQLPopupHoverContext.Provider value={{ onPointerEnter, onPointerLeave }}>
+      <div
+        ref={popover}
+        data-sql-popup
+        data-sql-biz-popup
+        data-sql-popup-pinned={pinned || undefined}
+        onPointerEnter={onPointerEnter}
+        onPointerLeave={onPointerLeave}
+        onFocus={onPointerEnter}
+        id={tooltipId}
+        role="dialog"
+        aria-label={`${step.label} operation details`}
+        tabIndex={0}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        onWheel={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Escape") onClose();
+        }}
+        style={{
+          position: "fixed",
+          ...position,
+          width: popupWidth,
+          maxWidth: "calc(100vw - 16px)",
+          maxHeight: filterPlan || step.stats ? "calc(100vh - 16px)" : "min(240px, calc(100vh - 16px))",
+          overflow: "auto",
+          padding: "10px 12px",
+          boxSizing: "border-box",
+          border: "2px solid #000",
+          borderRadius: 8,
+          boxShadow: "4px 4px 0 #000",
+          background: "#fff",
+          color: "#000",
+          fontFamily: "Inter, sans-serif",
+          fontSize: 12,
+          pointerEvents: "all",
+          zIndex: pinned ? 1000001 : 999999,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+          <OperationBadge operation={step.label} />
+          <span style={{ display: "flex", gap: 8 }}>
+            <span
+              title={
+                extraction.enabled
+                  ? extraction.direction === "upstream"
+                    ? "Extracts Upstream"
+                    : "Extract Downstream"
+                  : extraction.reason
+              }
+            >
+              <button
+                type="button"
+                disabled={!extraction.enabled || extracting}
+                aria-busy={extracting}
+                aria-label={extraction.enabled ? `Extract ${extraction.direction}` : "Extract"}
+                aria-describedby={extraction.enabled ? undefined : `${tooltipId}-extraction`}
+                className="h-7 px-2 rounded border-2 border-black bg-white text-xs font-bold cursor-pointer hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={async (event) => {
+                  event.stopPropagation();
+                  if (!extraction?.enabled || extracting) return;
+                  try {
+                    const extracted = await extractSQLBizOperation(editor, shape.id, detail.path, text, data);
+                    addToast({
+                      title: `Extracted to ${extracted.name}`,
+                      severity: "success",
+                      actions: [
+                        {
+                          label: "Go to query",
+                          type: "primary",
+                          onClick: () => {
+                            const bounds = editor.getShapePageBounds(extracted.id);
+                            if (!bounds) return;
+                            editor.select(extracted.id);
+                            editor.zoomToBounds(bounds, {
+                              targetZoom: editor.getZoomLevel(),
+                              animation: { duration: 250 },
+                            });
+                          },
                         },
-                      },
-                    ],
-                  });
-                  onClose();
-                } catch (error) {
-                  addToast({
-                    title: "Could not extract operation",
-                    description: error instanceof Error ? error.message : String(error),
-                    severity: "error",
-                  });
-                }
-              }}
-            >
-              {extracting ? "Running SQL…" : "Extract"}
-            </button>
+                      ],
+                    });
+                    onClose();
+                  } catch (error) {
+                    addToast({
+                      title: "Could not extract operation",
+                      description: error instanceof Error ? error.message : String(error),
+                      severity: "error",
+                    });
+                  }
+                }}
+              >
+                {extracting ? "Running SQL…" : "Extract"}
+              </button>
+            </span>
+            {pinned && (
+              <button
+                type="button"
+                aria-label="Close operation details"
+                onClick={onClose}
+                className="h-7 w-7 flex items-center justify-center rounded border-2 border-black bg-white cursor-pointer hover:bg-gray-100"
+              >
+                <X size={14} aria-hidden />
+              </button>
+            )}
           </span>
-          {pinned && (
-            <button
-              type="button"
-              aria-label="Close operation details"
-              onClick={onClose}
-              className="h-7 w-7 flex items-center justify-center rounded border-2 border-black bg-white cursor-pointer hover:bg-gray-100"
-            >
-              <X size={14} aria-hidden />
-            </button>
-          )}
-        </span>
+        </div>
+        {!extraction.enabled && (
+          <span id={`${tooltipId}-extraction`} className="sr-only">
+            {extraction.reason}
+          </span>
+        )}
+        {step.scope && <div style={{ marginTop: 4, color: "#000" }}>{step.scope}</div>}
+        {!filterPlan && (
+          <pre
+            style={{
+              margin: "6px 0 0",
+              fontFamily: "monospace",
+              lineHeight: "18px",
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+              userSelect: "text",
+            }}
+          >
+            {highlight(formattedDetail.sql)}
+          </pre>
+        )}
+        {!filterPlan && formattedDetail.error && (
+          <pre role="alert" style={{ color: "#b91c1c", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+            {formattedDetail.error}
+          </pre>
+        )}
+        {step.filter && <FilterCounts shape={shape} plan={step.filter} perCondition popup highlight={highlight} />}
+        {step.stats && <SQLBizOperationStats shape={shape} plan={step.stats} popup highlight={highlight} />}
       </div>
-      {!extraction.enabled && (
-        <span id={`${tooltipId}-extraction`} className="sr-only">
-          {extraction.reason}
-        </span>
-      )}
-      {step.scope && <div style={{ marginTop: 4, color: "#000" }}>{step.scope}</div>}
-      {!filterPlan && (
-        <pre
-          style={{
-            margin: "6px 0 0",
-            fontFamily: "monospace",
-            lineHeight: "18px",
-            whiteSpace: "pre-wrap",
-            overflowWrap: "anywhere",
-            userSelect: "text",
-          }}
-        >
-          {highlight(formattedDetail.sql, false)}
-        </pre>
-      )}
-      {!filterPlan && formattedDetail.error && (
-        <pre role="alert" style={{ color: "#b91c1c", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-          {formattedDetail.error}
-        </pre>
-      )}
-      {step.filter && <FilterCounts shape={shape} plan={step.filter} perCondition popup highlight={highlight} />}
-      {step.stats && <SQLBizOperationStats shape={shape} plan={step.stats} popup highlight={highlight} />}
-    </div>,
+    </SQLPopupHoverContext.Provider>,
     document.body
   );
 }

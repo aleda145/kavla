@@ -29,7 +29,7 @@ export function SQLBizOperationStats({
   shape: SQLTextAreaShape;
   plan: BizOperationStatsPlan;
   popup?: boolean;
-  highlight?: (sql: string, interactive?: boolean) => ReactNode;
+  highlight?: (sql: string) => ReactNode;
 }) {
   const analysis = useSQLBizStats(shape, "error" in plan ? null : plan.sql, "error" in plan ? plan.error : undefined);
   const { state } = analysis;
@@ -101,7 +101,7 @@ export function SQLBizOperationStats({
             .map((metric) => (
               <div key={metric.label} style={{ display: "contents" }}>
                 <span className="font-mono text-xs whitespace-pre-wrap">
-                  {highlight ? highlight(metric.label, false) : metric.label}
+                  {highlight ? highlight(metric.label) : metric.label}
                 </span>
                 <span className="font-mono text-[10px] whitespace-nowrap">
                   NULL skipped {percentage(metric.skipped, metric.input, "skipped because the aggregate input is NULL")}

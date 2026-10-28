@@ -110,6 +110,10 @@ export function usePopupPlacement(
       for (const pinned of document.querySelectorAll<HTMLElement>("[data-sql-popup-pinned]")) {
         if (pinned !== element) obstacles.push(pinned.getBoundingClientRect());
       }
+      const parentPopup = anchor.closest<HTMLElement>("[data-sql-popup]");
+      if (parentPopup && parentPopup !== element && !parentPopup.hasAttribute("data-sql-popup-pinned")) {
+        obstacles.push(parentPopup.getBoundingClientRect());
+      }
       const rect = element.getBoundingClientRect();
       const next = findPopupPosition(
         anchor.getBoundingClientRect(),

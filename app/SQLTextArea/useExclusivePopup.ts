@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { createContext, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useEditor, type Editor } from "tldraw";
 
-type PopupKind = "hover" | "pinned";
+export const SQLPopupHoverContext = createContext<{ onPointerEnter: () => void; onPointerLeave: () => void } | null>(
+  null
+);
+
+type PopupKind = "hover" | "pinned" | "identifier";
 type Popup = { owner: symbol; close: () => void };
 const activePopups = new WeakMap<Editor, Partial<Record<PopupKind, Popup>>>();
 
@@ -26,9 +30,18 @@ export function useExclusivePopup(isOpen: boolean, close: () => void, kind: Popu
 
   return useCallback(
     (anchor: HTMLElement) => {
-      // Reading a popup should not open another layer from its highlighted text.
-      if (anchor.closest("[data-sql-popup]")) return false;
+      // Operation panels can open column details without replacing their parent.
+      // Other popups cannot start additional nested layers.
+      const parent = anchor.closest("[data-sql-popup]");
+      if (parent && (kind !== "identifier" || !parent.hasAttribute("data-sql-biz-popup"))) return false;
       const slots = activePopups.get(editor) ?? {};
+      if (kind !== "identifier") {
+        slots.identifier?.close();
+        delete slots.identifier;
+      } else if (!parent) {
+        slots.hover?.close();
+        delete slots.hover;
+      }
       const previous = slots[kind];
       if (previous && previous.owner !== owner.current) previous.close();
       if (kind === "pinned") {
