@@ -16,7 +16,6 @@ import { appendAgentChatEntry, createOrFocusAgentChat, getAgentChat, updateAgent
 import { getShapeCitations, isContextShape } from "./agent-shape-references";
 import type { LensShape } from "../Lens/lens-shape-types";
 import type { SummaryShape } from "../Summary/summary-shape-types";
-import { registerAgentQueryReflow } from "./agentLayout";
 import {
   AGENT_BLOB_SHAPE_ID,
   getAgentBlob,
@@ -34,7 +33,6 @@ export function AgentRuntime() {
   const handled = useRef(new Set<string>());
   const observedActiveRuns = useRef(new Set<string>());
   const blobRunId = useRef<string | null>(null);
-  useEffect(() => registerAgentQueryReflow(editor), [editor]);
   const onActivityShape = useCallback(
     (shapeId: string) => {
       const run = getAgentRuns().find(isAgentRunActive);
