@@ -464,6 +464,7 @@ export function useLocalComponents({
             <TldrawUiMenuItem {...tools["data-source"]} />
             <TldrawUiMenuItem {...tools["sql-text-area"]} />
             <TldrawUiMenuItem {...actions["toggle-biz-mode"]} icon="sql" />
+            <TldrawUiMenuItem {...actions["toggle-just-icons"]} icon={undefined} />
             <DefaultKeyboardShortcutsDialogContent />
           </DefaultKeyboardShortcutsDialog>
         );

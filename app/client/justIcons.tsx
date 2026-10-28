@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { TldrawUiDropdownMenuCheckboxItem } from "tldraw";
+import { TldrawUiDropdownMenuCheckboxItem, TldrawUiKbd } from "tldraw";
 import "./just-icons.css";
 
 const STORAGE_KEY = "kavla.just-icons";
@@ -37,6 +37,13 @@ function subscribe(listener: () => void) {
   };
 }
 
+export function toggleJustIcons() {
+  if (isMobile) return;
+  const value = !justIcons;
+  localStorage.setItem(STORAGE_KEY, String(value));
+  updateJustIcons(value);
+}
+
 export function JustIconsMenuItem() {
   const checked = useSyncExternalStore(subscribe, () => justIcons);
   const mobile = useSyncExternalStore(subscribe, () => isMobile);
@@ -44,15 +51,11 @@ export function JustIconsMenuItem() {
     <TldrawUiDropdownMenuCheckboxItem
       checked={checked}
       disabled={mobile}
-      title={mobile ? "Always on for mobile" : "Just icons"}
-      onSelect={() => {
-        if (isMobile) return;
-        const value = !justIcons;
-        localStorage.setItem(STORAGE_KEY, String(value));
-        updateJustIcons(value);
-      }}
+      title={mobile ? "Always on for mobile" : "Just icons (Shift+C)"}
+      onSelect={toggleJustIcons}
     >
       <span className="tlui-button__label">Just icons</span>
+      <TldrawUiKbd>!c</TldrawUiKbd>
     </TldrawUiDropdownMenuCheckboxItem>
   );
 }

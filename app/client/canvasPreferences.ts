@@ -1,5 +1,6 @@
 import type { Editor, TLUiOverrides } from "tldraw";
 import { isBizMode, setBizMode } from "./canvas/bizMode";
+import { toggleJustIcons } from "./justIcons";
 
 export function applyCanvasPreferences(editor: Editor) {
   editor.user.updateUserPreferences({
@@ -36,6 +37,13 @@ export const canvasPreferenceActions: NonNullable<TLUiOverrides["actions"]> = (e
     kbd: "!b",
     readonlyOk: true,
     onSelect: () => setBizMode(editor, !isBizMode(editor)),
+  };
+  actions["toggle-just-icons"] = {
+    id: "toggle-just-icons",
+    label: "Just icons",
+    kbd: "!c",
+    readonlyOk: true,
+    onSelect: toggleJustIcons,
   };
   return actions;
 };
