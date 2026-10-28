@@ -6,7 +6,7 @@ import { format } from "sql-formatter";
 import { EditorView, Decoration, ViewPlugin, DecorationSet, ViewUpdate, keymap, tooltips } from "@codemirror/view";
 import { RangeSetBuilder, Prec } from "@codemirror/state";
 import { closeCompletion } from "@codemirror/autocomplete";
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { useSchemaRegistry } from "../hooks/useSchemaRegistry";
 import { linter, Diagnostic } from "@codemirror/lint";
@@ -134,7 +134,7 @@ const createColumnHighlightPlugin = (
       }
 
       update(update: ViewUpdate) {
-        if (update.docChanged || update.viewportChanged) {
+        if (update.docChanged || update.viewportChanged || syntaxTree(update.startState) !== syntaxTree(update.state)) {
           this.decorations = this.computeDecorations(update.view);
         }
       }
@@ -145,10 +145,12 @@ const createColumnHighlightPlugin = (
 
         const mentionedTables = findMentionedTables(text, tableNames);
         const knobReferences = getKnobReferences(text);
+        const tree = syntaxTree(view.state);
 
         for (const identifier of scanSqlIdentifiers(text)) {
           if (knobReferences.some((reference) => reference.from <= identifier.from && reference.to >= identifier.to))
             continue;
+          if (/String|Comment|Number/.test(tree.resolveInner(identifier.from, 1).name)) continue;
           if (!shouldSuppressColumn(text, identifier)) {
             const colDefs = columnMapping[identifier.name.toLowerCase()];
             if (colDefs && colDefs.length > 0) {
@@ -160,7 +162,7 @@ const createColumnHighlightPlugin = (
                   identifier.from,
                   identifier.to,
                   Decoration.mark({
-                    class: `${colorClass} rounded-none text-black`,
+                    class: `cm-sql-column ${colorClass} rounded-none text-black`,
                   })
                 );
               }
@@ -784,6 +786,11 @@ export const LiveCodeMirror = ({
         .cm-spatial-link-query {
           background-color: #fef9c3; /* Yellow 100 */
           border-bottom: 2px solid #ca8a04; /* Yellow 600 - darker for contrast */
+        }
+        /* Column colors override syntax spans nested inside quoted identifiers. */
+        .cm-editor .cm-sql-column,
+        .cm-editor .cm-sql-column * {
+          color: black;
         }
         /* Hover pointer only when ctrl is pressed */
         .cm-ctrl-pressed .cm-spatial-link:hover,
