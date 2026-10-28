@@ -1,6 +1,6 @@
 import { ast, Dialect, generate, parse } from "@polyglot-sql/sdk";
 import { mapKnobParameters } from "../Knob/knobSQL";
-import { buildBizFilterPlan, type BizFilterPlan } from "./sqlBizFilterStats";
+import { buildBizFilterPlan, getBizFilterConditions, type BizFilterPlan } from "./sqlBizFilterStats";
 import {
   buildBizOperationStats,
   buildBizCombineStats,
@@ -37,6 +37,7 @@ export type BizStep = {
   cteName?: string;
   children?: BizStep[];
   filter?: BizFilterPlan;
+  filterCards?: BizCard[];
   stats?: BizOperationStatsPlan;
 };
 export type BizSummary = { steps: BizStep[]; note: string | null; error?: string };
@@ -353,6 +354,13 @@ function summarize(sql: string): BizSummary {
     if (query.where_clause) {
       add("FILTER", expressionSQL(query.where_clause.this), scope, conditionCard(query.where_clause.this));
       steps[steps.length - 1].filter = buildBizFilterPlan(query, filterScopes);
+      const conditions = getBizFilterConditions(query.where_clause.this);
+      if (conditions.length > 1) {
+        steps[steps.length - 1].filterCards = conditions.map((condition) => ({
+          primary: conditionCard(condition).primary,
+          secondary: `+${conditions.length - 1} ${conditions.length === 2 ? "condition" : "conditions"}`,
+        }));
+      }
     }
 
     const projections = query.expressions.map((expression) => ({ expression, ...expressionFacts(expression) }));
@@ -601,13 +609,23 @@ export function getSQLBizStep(summary: BizSummary, path: readonly number[]): Biz
   return step;
 }
 
+export function getSQLBizFilterPreview(step: BizStep, removed?: readonly number[]): BizCard {
+  const fallback = step.card ?? { primary: step.detail };
+  if (!step.filterCards?.length || removed?.length !== step.filterCards.length) return fallback;
+  // Every condition uses the same input denominator. Ties retain SQL order.
+  const first = removed.reduce((best, count, index) => (count > removed[best] ? index : best), 0);
+  return step.filterCards[first];
+}
+
 export function getSQLBizCardWidth(step: BizStep, availableWidth = Infinity): number {
   if (step.children) return getSQLBizGroupLayout(step, availableWidth).w;
-  const card = step.card ?? { primary: step.detail };
+  const cards = [step.card ?? { primary: step.detail }, ...(step.filterCards ?? [])];
   // Match the monospace card text, leaving room for padding and borders.
-  const primaryWidth = Math.max(...card.primary.split("\n").map((line) => Array.from(line).length)) * 7.3;
+  const primaryWidth =
+    Math.max(...cards.flatMap((card) => card.primary.split("\n").map((line) => Array.from(line).length))) * 7.3;
   const secondaryWidth =
-    Math.max(0, ...(card.secondary ?? "").split("\n").map((line) => Array.from(line).length)) * 6.1;
+    Math.max(0, ...cards.flatMap((card) => (card.secondary ?? "").split("\n").map((line) => Array.from(line).length))) *
+    6.1;
   return Math.ceil(Math.max(132, primaryWidth + 24, secondaryWidth + 24));
 }
 
@@ -615,16 +633,19 @@ export const SQL_BIZ_CARD_GAP = 12;
 
 export function getSQLBizCardHeight(step: BizStep, availableWidth = Infinity): number {
   if (step.children) return getSQLBizGroupLayout(step, availableWidth).h;
-  const card = step.card ?? { primary: step.detail };
+  const cards = [step.card ?? { primary: step.detail }, ...(step.filterCards ?? [])];
   return Math.max(
     82,
-    52 +
-      card.primary.split("\n").length * 16 +
-      (card.secondary && !(step.stats && step.label === "CONDITIONAL" && /^\d+ groups$/.test(card.secondary))
-        ? 3 + card.secondary.split("\n").length * 14
-        : 0) +
-      (step.filter || step.stats ? 32 : 0) +
-      (step.scope ? 18 : 0)
+    ...cards.map(
+      (card) =>
+        52 +
+        card.primary.split("\n").length * 16 +
+        (card.secondary && !(step.stats && step.label === "CONDITIONAL" && /^\d+ groups$/.test(card.secondary))
+          ? 3 + card.secondary.split("\n").length * 14
+          : 0) +
+        (step.filter || step.stats ? 32 : 0) +
+        (step.scope ? 18 : 0)
+    )
   );
 }
 

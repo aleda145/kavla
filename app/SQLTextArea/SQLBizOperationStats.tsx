@@ -69,6 +69,15 @@ export function SQLBizOperationStats({
     stats?.kind === "combine" && !("error" in plan) && plan.kind === "combine"
       ? { ...stats, operation: plan.operation, all: plan.all }
       : null;
+  const largestBucket =
+    stats?.kind === "buckets"
+      ? stats.buckets
+          .filter((bucket) => !bucket.other)
+          .reduce<(typeof stats.buckets)[number] | null>(
+            (largest, bucket) => (!largest || bucket.rows > largest.rows ? bucket : largest),
+            null
+          )
+      : null;
   return (
     <div
       aria-live="polite"
@@ -249,6 +258,18 @@ export function SQLBizOperationStats({
           >
             {stats.count.toLocaleString()} {stats.count === 1 ? "bucket" : "buckets"}
           </div>
+          {!popup && largestBucket && (
+            <div className="flex items-baseline gap-1 text-black" style={{ minWidth: 0 }}>
+              <span
+                className="truncate"
+                title={`Largest bucket: ${largestBucket.isNull ? "NULL" : largestBucket.label}`}
+              >
+                {largestBucket.isNull ? "NULL" : JSON.stringify(largestBucket.label)}
+              </span>
+              <span>·</span>
+              {percentage(largestBucket.rows, stats.input, "in the largest bucket")}
+            </div>
+          )}
           {popup && (
             <div className="mt-2 flex flex-col gap-1">
               {stats.buckets.map((bucket, index) => (

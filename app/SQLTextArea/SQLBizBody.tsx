@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import {
   getSQLBizCardWidth,
+  getSQLBizFilterPreview,
   getSQLBizColumns,
   getSQLBizSummary,
   getSQLBizStep,
@@ -351,32 +352,14 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
           ) : (
             <>
               <OperationBadge operation={step.label} />
-              <span
-                style={{
-                  whiteSpace: "pre",
-                  fontSize: 12,
-                  lineHeight: "16px",
-                  fontWeight: 700,
-                }}
-              >
-                {highlight(card.primary)}
-              </span>
-              {card.secondary &&
-                !(step.stats && step.label === "CONDITIONAL" && /^\d+ groups$/.test(card.secondary)) && (
-                  <span
-                    style={{
-                      fontSize: 10,
-                      lineHeight: "14px",
-                      color: "#000",
-                      marginTop: 3,
-                      whiteSpace: "pre",
-                    }}
-                  >
-                    {highlight(card.secondary)}
-                  </span>
-                )}
-              {step.filter && <FilterCounts shape={shape} plan={step.filter} />}
-              {step.stats && <SQLBizOperationStats shape={shape} plan={step.stats} />}
+              {step.filter ? (
+                <FilterCounts shape={shape} plan={step.filter} perCondition preview={step} highlight={highlight} />
+              ) : (
+                <>
+                  <BizCardText step={step} highlight={highlight} />
+                  {step.stats && <SQLBizOperationStats shape={shape} plan={step.stats} />}
+                </>
+              )}
             </>
           )}
         </div>
@@ -514,17 +497,42 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
 
 type OperationDetail = { path: number[]; anchor: HTMLElement };
 
+function BizCardText({
+  step,
+  card = step.card ?? { primary: step.detail },
+  highlight,
+}: {
+  step: BizStep;
+  card?: NonNullable<BizStep["card"]>;
+  highlight: (sql: string) => ReactNode;
+}) {
+  return (
+    <>
+      <span style={{ whiteSpace: "pre", fontSize: 12, lineHeight: "16px", fontWeight: 700 }}>
+        {highlight(card.primary)}
+      </span>
+      {card.secondary && !(step.stats && step.label === "CONDITIONAL" && /^\d+ groups$/.test(card.secondary)) && (
+        <span style={{ fontSize: 10, lineHeight: "14px", color: "#000", marginTop: 3, whiteSpace: "pre" }}>
+          {highlight(card.secondary)}
+        </span>
+      )}
+    </>
+  );
+}
+
 function FilterCounts({
   shape,
   plan,
   perCondition = false,
   popup = false,
+  preview,
   highlight,
 }: {
   shape: SQLTextAreaShape;
   plan: BizFilterPlan;
   perCondition?: boolean;
   popup?: boolean;
+  preview?: BizStep;
   highlight?: (sql: string) => ReactNode;
 }) {
   const analysis = useSQLBizFilterStats(shape, plan, perCondition);
@@ -556,8 +564,17 @@ function FilterCounts({
   return (
     <div
       aria-live="polite"
-      style={{ marginTop: 6, fontSize: popup ? 12 : 10, lineHeight: "14px", overflowWrap: "anywhere" }}
+      style={{ marginTop: preview ? 0 : 6, fontSize: popup ? 12 : 10, lineHeight: "14px", overflowWrap: "anywhere" }}
     >
+      {preview && highlight && (
+        <div style={{ display: "flex", flexDirection: "column", marginBottom: 6 }}>
+          <BizCardText
+            step={preview}
+            card={getSQLBizFilterPreview(preview, state.status === "ready" ? state.counts.conditions : undefined)}
+            highlight={highlight}
+          />
+        </div>
+      )}
       {popup && !("error" in plan) && (
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 8, lineHeight: "20px" }}>
           {plan.conditions.map((condition, index) => (

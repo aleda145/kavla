@@ -11,12 +11,13 @@ function sql(expression: ast.Expression): string {
 }
 
 // Split only top-level ANDs. OR groups, NOT and BETWEEN remain single conditions.
-function conditions(expression: ast.Expression): ast.Expression[] {
+export function getBizFilterConditions(expression: ast.Expression): ast.Expression[] {
   if ("paren" in expression) {
-    const parts = conditions(expression.paren.this);
+    const parts = getBizFilterConditions(expression.paren.this);
     return parts.length > 1 ? parts : [expression];
   }
-  if ("and" in expression) return [...conditions(expression.and.left), ...conditions(expression.and.right)];
+  if ("and" in expression)
+    return [...getBizFilterConditions(expression.and.left), ...getBizFilterConditions(expression.and.right)];
   return [expression];
 }
 
@@ -45,7 +46,7 @@ export function buildBizFilterPlan(
         "Filter counts are not supported yet when a condition refers to a SELECT alias. Use the source column or expression instead."
       );
     }
-    const parts = conditions(predicate);
+    const parts = getBizFilterConditions(predicate);
     const build = (includeConditions: boolean) => {
       const predicates = [predicate, ...(includeConditions ? parts : [])];
       // COUNT(CASE ...) treats both FALSE and NULL as removed, just like WHERE.
