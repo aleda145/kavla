@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useData } from "../client/useLocalServer";
@@ -11,7 +11,7 @@ import type { SQLTextAreaShape } from "./sql-text-area-types";
 import type { SQLHighlightTarget } from "./StaticSQLHighlighter";
 import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
 import { usePopupPlacement } from "./usePopupPlacement";
-import { useExclusivePopup } from "./useExclusivePopup";
+import { SQLPopupHoverContext, useExclusivePopup } from "./useExclusivePopup";
 import { describeKnob, findKnob } from "../Knob/knobReferences";
 
 export function SQLIdentifierHover({
@@ -28,14 +28,19 @@ export function SQLIdentifierHover({
   children: ReactNode;
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const parentPopup = useContext(SQLPopupHoverContext);
   const popup = useRef<HTMLDivElement>(null);
   const position = usePopupPlacement(anchor, popup, ownerShapeId);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const cancelClose = () => clearTimeout(timer.current);
-  const claimPopup = useExclusivePopup(Boolean(anchor), () => {
-    clearTimeout(timer.current);
-    setAnchor(null);
-  });
+  const claimPopup = useExclusivePopup(
+    Boolean(anchor),
+    () => {
+      clearTimeout(timer.current);
+      setAnchor(null);
+    },
+    "identifier"
+  );
   const open = (element: HTMLElement) => {
     cancelClose();
     if (claimPopup(element)) setAnchor(element);
@@ -123,13 +128,25 @@ export function SQLIdentifierHover({
                   : `${target.tableName} schema`
             }
             tabIndex={0}
-            onPointerEnter={cancelClose}
-            onPointerLeave={closeSoon}
+            onPointerEnter={() => {
+              cancelClose();
+              parentPopup?.onPointerEnter();
+            }}
+            onPointerLeave={(event) => {
+              closeSoon();
+              const panel = anchor.closest("[data-sql-biz-popup]");
+              if (event.relatedTarget instanceof Node && panel?.contains(event.relatedTarget)) {
+                parentPopup?.onPointerEnter();
+              } else {
+                parentPopup?.onPointerLeave();
+              }
+            }}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
             onFocus={(event) => {
               event.stopPropagation();
               cancelClose();
+              parentPopup?.onPointerEnter();
             }}
             onBlur={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget)) closeSoon();
@@ -142,7 +159,7 @@ export function SQLIdentifierHover({
               maxHeight: "min(350px, calc(100vh - 16px))",
               overflow: "auto",
               pointerEvents: "all",
-              zIndex: 1000000,
+              zIndex: 1000002,
             }}
           >
             {target.kind === "knob" ? (
