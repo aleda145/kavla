@@ -96,6 +96,7 @@ export default function createArrowBetweenShapes(
       props: {
         kind: "elbow",
         size: "s",
+        color: "black",
         start: {
           x: arrowPointInParentSpace.x - startTerminalPagePosition.x,
           y: arrowPointInParentSpace.y - startTerminalPagePosition.y,

@@ -1,0 +1,5 @@
+order_id,customer_id,order_date,amount_cents,status
+101,1,2026-01-04,4200,completed
+102,2,2026-01-05,1800,completed
+103,1,2026-01-09,2500,completed
+104,3,2026-01-10,1200,returned

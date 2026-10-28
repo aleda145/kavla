@@ -1,0 +1,13 @@
+name: kavla_shop
+version: '1.0.0'
+config-version: 2
+profile: kavla_shop
+model-paths: [analytics]
+seed-paths: [seeds]
+macro-paths: [macros]
+models:
+  kavla_shop:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

@@ -1,3 +1,4 @@
+import { dbtReferenceSignature } from "../Dbt/dbtSQL";
 import { useMemo, useRef, useCallback, useEffect } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
@@ -10,7 +11,9 @@ import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/lang
 import { tags } from "@lezer/highlight";
 import { useSchemaRegistry } from "../hooks/useSchemaRegistry";
 import { linter, Diagnostic } from "@codemirror/lint";
-import { useEditor, TLShapeId } from "tldraw";
+import { dbtMacroSignature } from "../Dbt/dbtMacros";
+import { createDbtMacroEditorExtensions } from "../Dbt/dbtMacroEditor";
+import { useEditor, useValue, TLShapeId } from "tldraw";
 import { DataSourceShape } from "../DataSource/data-source-types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
 import type { RemoteSourceInfo } from "./remote-column-stats";
@@ -39,7 +42,9 @@ import {
 } from "./sql-identifiers";
 import { buildSqlSchemaIndex } from "./schema-index";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
-import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
+import { walkSQLDag } from "./walkSQLDag";
+import { prepareCanvasSQL } from "./prepareCanvasSQL";
+import { canvasSQLSignature } from "../Dbt/dbtCompilation";
 import { createKnobEditorExtensions, getKnobHoverSource } from "./knob-editor";
 import { getKnobReferences } from "../Knob/knobReferences";
 
@@ -278,7 +283,10 @@ export const LiveCodeMirror = ({
   readOnly = false,
 }: LiveCodeMirrorProps) => {
   const registry = useSchemaRegistry();
+  const currentTableName = registry[shapeId]?.tableName;
   const editor = useEditor();
+  const referenceSignature = useValue("SQL dbt references", () => dbtReferenceSignature(editor), [editor]);
+  const macroSignature = useValue("SQL macro definitions", () => dbtMacroSignature(editor), [editor]);
   const { runRemoteQuery, cancelRemoteQuery } = useData();
   const isFormattingRef = useRef(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -412,13 +420,26 @@ export const LiveCodeMirror = ({
       const dagWalk = walkSQLDag(editor, queryShape.props.text);
       if (!dagWalk.ok) continue;
 
-      const { executionState, orderedDependencies } = dagWalk.plan;
+      const { executionState } = dagWalk.plan;
       {
         remoteMap.set(entry.tableName, {
           sourceName: executionState.sourceName ?? "uploaded_files",
           sourceType: executionState.sourceNativePreview ? executionState.sourceType : "duckdb",
-          fullTableRef: `query:${queryShape.id}:${buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies, editor)}`,
-          tableSql: buildRemoteSQLFromDag(queryShape.props.text, orderedDependencies, editor),
+          fullTableRef: `query:${queryShape.id}:${canvasSQLSignature(editor)}`,
+          prepare: async () => {
+            const current = editor.getShape<SQLTextAreaShape>(queryShape.id);
+            if (!current) throw new Error("The query was removed.");
+            const plan = await prepareCanvasSQL(editor, current.props.text);
+            return {
+              sourceName: plan.executionState.sourceName ?? "uploaded_files",
+              sourceType: plan.executionState.sourceNativePreview ? plan.executionState.sourceType : "duckdb",
+              fullTableRef: `query:${queryShape.id}:${plan.sql}`,
+              tableSql: plan.sql,
+              runRemoteQuery: (payload) =>
+                runRemoteQuery({ ...payload, sourceNative: plan.executionState.sourceNativePreview }),
+              cancelRemoteQuery,
+            };
+          },
           runRemoteQuery,
           cancelRemoteQuery,
         });
@@ -636,6 +657,7 @@ export const LiveCodeMirror = ({
       }),
       createSpatialPlugin(tableNames, sources, queries, onNavigate),
       createKnobEditorExtensions(editor),
+      Prec.highest(createDbtMacroEditorExtensions(editor)),
       createColumnHighlightPlugin(columnMapping, upstreamTableNames, tableNames), // Add column highlighting
       gracePeriodHoverTooltip(
         [
@@ -647,7 +669,8 @@ export const LiveCodeMirror = ({
             upstreamTableNames,
             onTooltipActive,
             remoteSourceMap,
-            localTableLoaders
+            localTableLoaders,
+            currentTableName
           ),
           getSchemaHoverSource(fullSchemaConfig, onTooltipActive, remoteSourceMap),
         ],
@@ -699,6 +722,13 @@ export const LiveCodeMirror = ({
             run: (view) => {
               try {
                 const original = view.state.doc.toString();
+                const query = editor.getShape(shapeId);
+                if (
+                  query?.type === "dbt-macro" ||
+                  (query?.type === "sql-text-area" && (query as SQLTextAreaShape).props.dbt) ||
+                  /\{[{%#]/.test(original)
+                )
+                  return true;
                 const cursor = view.state.selection.main.head;
                 const beforeCursor = original.slice(0, cursor);
                 const nonWhitespaceCount = beforeCursor.replace(/\s/g, "").length;
@@ -760,6 +790,9 @@ export const LiveCodeMirror = ({
     editor,
     remoteSourceMap,
     localTableLoaders,
+    currentTableName,
+    macroSignature,
+    referenceSignature,
     language,
   ]);
 
@@ -791,6 +824,12 @@ export const LiveCodeMirror = ({
         .cm-editor .cm-sql-column,
         .cm-editor .cm-sql-column * {
           color: black;
+        }
+        .cm-spatial-link,
+        .cm-spatial-link *,
+        .cm-spatial-link-query,
+        .cm-spatial-link-query * {
+          color: #000 !important;
         }
         /* Hover pointer only when ctrl is pressed */
         .cm-ctrl-pressed .cm-spatial-link:hover,

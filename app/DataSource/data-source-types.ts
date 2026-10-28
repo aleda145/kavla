@@ -1,3 +1,4 @@
+import type { DbtDocumentation } from "../Dbt/dbtTypes";
 import { TLBaseShape, TLDefaultColorStyle } from "tldraw";
 import type { RemoteSourceInfo } from "../SQLTextArea/remote-column-stats";
 import type { ColumnStats } from "../src/duckdb/column-stats-types";
@@ -8,6 +9,7 @@ export type ColumnMetadata = {
 };
 
 export type SchemaTableProps = {
+  columnDocumentation?: DbtDocumentation["columns"];
   metadata: ColumnMetadata[] | null;
   selectedColumns?: Set<string>;
   onColumnClick?: (columnName: string, shiftKey: boolean) => void;

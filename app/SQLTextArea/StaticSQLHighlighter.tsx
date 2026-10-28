@@ -1,3 +1,5 @@
+import { dbtReferenceSignature, getDbtRelationReferences } from "../Dbt/dbtSQL";
+import { dbtColors } from "../Dbt/dbtColors";
 import { highlightTree } from "@lezer/highlight";
 import { defaultHighlightStyle } from "@codemirror/language";
 import React, { memo, useMemo } from "react";
@@ -5,6 +7,7 @@ import { getColumnTypeMutedColor } from "../util/column-colors";
 import { DuckDBDialect } from "./duckdb-dialect";
 import { useEditor, useValue } from "tldraw";
 import { describeKnob, findKnob, getKnobReferences, navigateToKnob } from "../Knob/knobReferences";
+import { dbtMacroSignature, getDbtMacroReferences, navigateToDbtShape } from "../Dbt/dbtMacros";
 import {
   createSqlNameLookup,
   findMentionedTables,
@@ -45,12 +48,22 @@ export const StaticSQLHighlighter = memo(
     columnMapping,
     upstreamTableNames,
   }: StaticSQLHighlighterProps) => {
+    const editor = useEditor();
+    const referenceSignature = useValue("static SQL dbt references", () => dbtReferenceSignature(editor), [editor]);
+    const macroSignature = useValue("static SQL macro definitions", () => dbtMacroSignature(editor), [editor]);
     const spansByLine = useMemo(() => {
       const tableNames = createSqlNameLookup(validTableNames ?? []);
       const mentionedTables = findMentionedTables(contextSql ?? sql, tableNames);
       const upstreamTables = new Set(upstreamTableNames ?? []);
       const tree = parser.parse(sql);
-      let tokens: { from: number; to: number; classes?: string; knobName?: string }[] = [];
+      let tokens: {
+        from: number;
+        to: number;
+        classes?: string;
+        knobName?: string;
+        relation?: ReturnType<typeof getDbtRelationReferences>[number];
+        macro?: ReturnType<typeof getDbtMacroReferences>[number];
+      }[] = [];
       let pos = 0;
 
       highlightTree(tree, defaultHighlightStyle, (from, to, classes) => {
@@ -74,6 +87,26 @@ export const StaticSQLHighlighter = memo(
           ];
         });
         tokens.push({ from: reference.from, to: reference.to, knobName: reference.name });
+      }
+      for (const macro of getDbtMacroReferences(editor, sql)) {
+        tokens = tokens.flatMap((token) => {
+          if (token.to <= macro.from || token.from >= macro.to) return [token];
+          return [
+            ...(token.from < macro.from ? [{ ...token, to: macro.from }] : []),
+            ...(token.to > macro.to ? [{ ...token, from: macro.to }] : []),
+          ];
+        });
+        tokens.push({ from: macro.from, to: macro.to, macro });
+      }
+      for (const relation of getDbtRelationReferences(editor, sql)) {
+        tokens = tokens.flatMap((token) => {
+          if (token.to <= relation.from || token.from >= relation.to) return [token];
+          return [
+            ...(token.from < relation.from ? [{ ...token, to: relation.from }] : []),
+            ...(token.to > relation.to ? [{ ...token, from: relation.to }] : []),
+          ];
+        });
+        tokens.push({ from: relation.from, to: relation.to, relation });
       }
       tokens.sort((a, b) => a.from - b.from);
 
@@ -110,7 +143,46 @@ export const StaticSQLHighlighter = memo(
             // contents are not mistaken for schema identifiers.
             const isSafe = /String|Comment|Number/.test(tree.resolveInner(intersectionStart, 1).name);
 
-            if (token.knobName !== undefined) {
+            if (token.macro || token.relation) {
+              const reference = token.macro ?? token.relation!;
+              lineNodes.push(
+                <span
+                  key={intersectionStart}
+                  title={
+                    token.macro
+                      ? `${token.macro.path} · Ctrl/Cmd+click to go to macro`
+                      : `${token.relation!.label} · Ctrl/Cmd+click to go to node`
+                  }
+                  style={{
+                    fontFamily: "monospace",
+                    ...(token.macro
+                      ? {
+                          backgroundColor: dbtColors.surface,
+                          color: dbtColors.text,
+                          borderBottom: `2px solid ${dbtColors.accent}`,
+                          fontWeight: 700,
+                        }
+                      : token.relation?.shapeType === "sql-text-area"
+                        ? {
+                            backgroundColor: "#fef9c3",
+                            borderBottom: "2px solid #ca8a04",
+                          }
+                        : {
+                            backgroundColor: "rgba(59, 130, 246, 0.1)",
+                            borderBottom: "2px solid #3b82f6",
+                          }),
+                  }}
+                  onMouseDown={(event) => {
+                    if (!event.ctrlKey && !event.metaKey) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    navigateToDbtShape(editor, reference.shapeId);
+                  }}
+                >
+                  {textPart}
+                </span>
+              );
+            } else if (token.knobName !== undefined) {
               lineNodes.push(
                 <StaticKnobReference key={intersectionStart} name={token.knobName} renderIdentifier={renderIdentifier}>
                   {textPart}
@@ -164,7 +236,19 @@ export const StaticSQLHighlighter = memo(
 
         return lineNodes;
       });
-    }, [sql, contextSql, renderIdentifier, validTableNames, sources, queries, columnMapping, upstreamTableNames]);
+    }, [
+      sql,
+      contextSql,
+      renderIdentifier,
+      validTableNames,
+      sources,
+      queries,
+      columnMapping,
+      upstreamTableNames,
+      editor,
+      macroSignature,
+      referenceSignature,
+    ]);
 
     if (inline) {
       return (

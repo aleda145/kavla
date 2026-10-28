@@ -1,3 +1,4 @@
+import type { SqlColumnDefinition } from "./sql-identifiers";
 import { createRoot } from "react-dom/client";
 import {
   EditorView,
@@ -20,7 +21,7 @@ import { INTERACTIVE_HOVER_TOOLTIP_CLASS, type HoverSource } from "./grace-perio
 const COLUMN_TOOLTIP_HIDE_DELAY = 200;
 
 export const getSchemaHoverSource = (
-  fullSchemaConfig: { [table: string]: { name: string; type: string }[] },
+  fullSchemaConfig: { [table: string]: Omit<SqlColumnDefinition, "tableName">[] },
   onTooltipActive?: (active: boolean) => void,
   remoteSourceMap?: Map<string, RemoteSourceInfo>
 ): HoverSource => {
@@ -178,6 +179,7 @@ export const getSchemaHoverSource = (
               <ColumnHoverTooltip
                 columnName={colName}
                 type={colType}
+                documentation={columns.find((column) => column.name === colName)?.documentation}
                 tableName={actualName}
                 remoteSource={remoteSourceMap?.get(actualName) ?? null}
               />

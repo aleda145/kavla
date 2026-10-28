@@ -18,6 +18,7 @@ Kavla features a distinct "Neo-Brutalist" or "Pop" aesthetic characterized by hi
 - **Violet**: `bg-violet-300` / `#c4b5fd` - **Strictly** for Kavla Branding elements only.
 - **Blue**: `bg-blue-100` / `#dbeafe` - Product headers (DataSource).
 - **Pink**: `bg-pink-100` / `#fce7f3` - Product headers (Chart).
+- **dbt coral**: `#FF694B` accent, `#FFD4CA` surface, `#FFF0EC` subtle surface, `#8A2516` text. Use for dbt tabs, macro headers, and macro calls in SQL; keep distinct from varchar orange. In SQL, `ref(...)` and `source(...)` links use the referenced canvas node’s existing color: yellow for SQL queries, blue for data sources (including seeds). Shared values live in `app/Dbt/dbtColors.ts`. Macro-to-SQL arrows remain black like other connectors.
 - **Teal**: `bg-teal-100` - Knob headers, controls, SQL parameter highlights, and hints.
 
 ---

@@ -1,7 +1,9 @@
+import { dbtColors } from "../Dbt/dbtColors";
 import React from "react";
 import { createPortal } from "react-dom";
 import { Database, FileJson, FileSpreadsheet, FileText, Folder, type LucideIcon } from "lucide-react";
 import { siDuckdb, siGooglebigquery, siPostgresql } from "simple-icons";
+import dbtLogo from "../Dbt/dbt-logo.svg";
 
 export type ShapeEngineTab = {
   key: string;
@@ -11,6 +13,7 @@ export type ShapeEngineTab = {
   details?: string[];
   layerZIndex?: number;
   topOffset?: number;
+  onClick?: () => void;
 };
 
 type EngineAppearance = {
@@ -21,6 +24,9 @@ type EngineAppearance = {
 };
 
 export function getEngineAppearance(type: string | null | undefined): EngineAppearance {
+  if (type === "dbt") {
+    return { label: "dbt", backgroundColor: dbtColors.surface, iconSvg: null, IconComponent: Database };
+  }
   if (type === "duckdb") {
     return {
       label: "DuckDB",
@@ -95,6 +101,8 @@ export function getEngineAppearance(type: string | null | undefined): EngineAppe
 function ShapeEngineTabIcon({ type }: { type: string | null | undefined }) {
   const appearance = getEngineAppearance(type);
 
+  if (type === "dbt") return <img src={dbtLogo} alt="" aria-hidden="true" style={{ width: 20, height: 20 }} />;
+
   if (appearance.iconSvg) {
     return (
       <svg
@@ -114,26 +122,35 @@ function ShapeEngineTabIcon({ type }: { type: string | null | undefined }) {
 }
 
 export function ShapeEngineTabs({ tabs, style }: { tabs: ShapeEngineTab[]; style?: React.CSSProperties }) {
-  if (!tabs.length) {
-    return null;
-  }
-
   const [openTabPopover, setOpenTabPopover] = React.useState<{
     key: string;
     rect: DOMRect;
-    title: string;
-    details?: string[];
   } | null>(null);
+  const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  React.useEffect(
+    () => () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    },
+    []
+  );
+  const keepPopover = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+  };
+  const closePopover = () => {
+    keepPopover();
+    closeTimer.current = setTimeout(() => setOpenTabPopover(null), 150);
+  };
+  const openTab = tabs.find((tab) => tab.key === openTabPopover?.key);
+  if (!tabs.length) return null;
 
   const openPopover = (
     event: React.MouseEvent<HTMLDivElement> | React.FocusEvent<HTMLDivElement>,
     tab: ShapeEngineTab
   ) => {
+    keepPopover();
     setOpenTabPopover({
       key: tab.key,
       rect: event.currentTarget.getBoundingClientRect(),
-      title: tab.title,
-      details: tab.details,
     });
   };
 
@@ -166,11 +183,27 @@ export function ShapeEngineTabs({ tabs, style }: { tabs: ShapeEngineTab[]; style
               <div
                 title={tab.title}
                 aria-label={tab.title}
+                role={tab.onClick ? "button" : undefined}
                 tabIndex={0}
-                onMouseEnter={(event) => openPopover(event, tab)}
-                onMouseLeave={() => {
-                  setOpenTabPopover((currentPopover) => (currentPopover?.key === tab.key ? null : currentPopover));
+                onPointerDown={tab.onClick ? (event) => event.stopPropagation() : undefined}
+                onClick={
+                  tab.onClick
+                    ? () => {
+                        setOpenTabPopover(null);
+                        tab.onClick?.();
+                      }
+                    : undefined
+                }
+                onKeyDown={(event) => {
+                  if (tab.onClick && (event.key === "Enter" || event.key === " ")) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setOpenTabPopover(null);
+                    tab.onClick();
+                  }
                 }}
+                onMouseEnter={(event) => openPopover(event, tab)}
+                onMouseLeave={closePopover}
                 onFocus={(event) => openPopover(event, tab)}
                 onBlur={() => {
                   setOpenTabPopover((currentPopover) => (currentPopover?.key === tab.key ? null : currentPopover));
@@ -189,7 +222,7 @@ export function ShapeEngineTabs({ tabs, style }: { tabs: ShapeEngineTab[]; style
                   paddingBottom: tab.active ? 3 : 0,
                   boxShadow: tab.active ? "none" : "2px 2px 0px 0px rgba(0,0,0,0.15)",
                   zIndex: tab.layerZIndex ?? (tab.active ? 3 : 1),
-                  cursor: "help",
+                  cursor: tab.onClick ? "pointer" : "help",
                   outline: "none",
                 }}
               >
@@ -200,16 +233,28 @@ export function ShapeEngineTabs({ tabs, style }: { tabs: ShapeEngineTab[]; style
         })}
       </div>
       {openTabPopover &&
+        openTab &&
         createPortal(
           <div
+            onMouseEnter={keepPopover}
+            onMouseLeave={closePopover}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) => event.stopPropagation()}
             style={{
               position: "fixed",
-              left: openTabPopover.rect.left + openTabPopover.rect.width / 2,
-              top: openTabPopover.rect.top - 12,
-              transform: "translate(-50%, -100%)",
-              minWidth: 220,
-              maxWidth: 280,
-              pointerEvents: "none",
+              left: Math.max(
+                openTab.type === "dbt" ? 190 : 150,
+                Math.min(
+                  window.innerWidth - (openTab.type === "dbt" ? 190 : 150),
+                  openTabPopover.rect.left + openTabPopover.rect.width / 2
+                )
+              ),
+              top: openTabPopover.rect.top < 340 ? openTabPopover.rect.bottom + 12 : openTabPopover.rect.top - 12,
+              transform: openTabPopover.rect.top < 340 ? "translateX(-50%)" : "translate(-50%, -100%)",
+              width: openTab.type === "dbt" ? 360 : 280,
+              maxWidth: "calc(100vw - 24px)",
+              overflowWrap: "anywhere",
+              pointerEvents: "auto",
               zIndex: 999999,
             }}
           >
@@ -217,10 +262,10 @@ export function ShapeEngineTabs({ tabs, style }: { tabs: ShapeEngineTab[]; style
               style={{
                 position: "absolute",
                 left: "50%",
-                bottom: -8,
+                ...(openTabPopover.rect.top < 340 ? { top: -8 } : { bottom: -8 }),
                 width: 14,
                 height: 14,
-                transform: "translateX(-50%) rotate(45deg)",
+                transform: `translateX(-50%) rotate(${openTabPopover.rect.top < 340 ? 225 : 45}deg)`,
                 backgroundColor: "#fff",
                 borderRight: "2px solid #000",
                 borderBottom: "2px solid #000",
@@ -232,6 +277,12 @@ export function ShapeEngineTabs({ tabs, style }: { tabs: ShapeEngineTab[]; style
                 border: "2px solid #000",
                 borderRadius: 10,
                 padding: "10px 12px",
+                maxHeight:
+                  openTabPopover.rect.top < 340
+                    ? `calc(100vh - ${openTabPopover.rect.bottom + 36}px)`
+                    : openTabPopover.rect.top - 36,
+                overflowY: "auto",
+                overscrollBehavior: "contain",
                 boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
               }}
             >
@@ -241,12 +292,12 @@ export function ShapeEngineTabs({ tabs, style }: { tabs: ShapeEngineTab[]; style
                   fontWeight: 900,
                   textTransform: "uppercase",
                   letterSpacing: "0.6px",
-                  marginBottom: openTabPopover.details?.length ? 6 : 0,
+                  marginBottom: openTab.details?.length ? 6 : 0,
                 }}
               >
-                {openTabPopover.title}
+                {openTab.title}
               </div>
-              {openTabPopover.details?.map((detail) => (
+              {openTab.details?.map((detail) => (
                 <div
                   key={detail}
                   style={{

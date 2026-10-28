@@ -60,6 +60,7 @@ export function SQLTextAreaBody({
           <LazySQLEditor
             shapeId={shape.id}
             text={text}
+            readOnly={shape.props.dbt?.readOnly}
             onChange={onTextChange}
             onRun={onRun}
             onFormat={onFormat}

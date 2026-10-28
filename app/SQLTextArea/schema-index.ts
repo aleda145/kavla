@@ -4,7 +4,7 @@ import type { SqlColumnDefinition } from "./sql-identifiers";
 
 export interface SqlSchemaIndex {
   schemaConfig: Record<string, string[]>;
-  fullSchemaConfig: Record<string, { name: string; type: string }[]>;
+  fullSchemaConfig: Record<string, Omit<SqlColumnDefinition, "tableName">[]>;
   tableNames: Set<string>;
   allColumns: SqlColumnDefinition[];
   sources: Set<string>;
@@ -15,7 +15,7 @@ export interface SqlSchemaIndex {
 
 export function buildSqlSchemaIndex(registry: SchemaRegistry): SqlSchemaIndex {
   const schemaConfig: Record<string, string[]> = {};
-  const fullSchemaConfig: Record<string, { name: string; type: string }[]> = {};
+  const fullSchemaConfig: Record<string, Omit<SqlColumnDefinition, "tableName">[]> = {};
   const tableNames = new Set<string>();
   const allColumns: SqlColumnDefinition[] = [];
   const sources = new Set<string>();
@@ -40,6 +40,7 @@ export function buildSqlSchemaIndex(registry: SchemaRegistry): SqlSchemaIndex {
         tableName: entry.tableName,
         type: column.type,
         name: column.name,
+        documentation: column.documentation,
       };
       allColumns.push(definition);
       const normalizedName = column.name.toLowerCase();

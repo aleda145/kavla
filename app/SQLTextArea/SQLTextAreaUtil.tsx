@@ -11,35 +11,27 @@ import {
 import { SQLTextAreaMigrations } from "./sql-text-area-migrations";
 import { SQLTextAreaProps } from "./sql-text-area-props";
 import { SQLTextAreaShape } from "./sql-text-area-types";
-import { connectShapes, disconnectShapes, setShapeUpstreamConnections } from "../util/shapeConnections";
+import { connectShapes, disconnectShapes } from "../util/shapeConnections";
 
 import { getUniqueName } from "../util/getUniqueName";
 import { useData } from "../client/useLocalServer";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { validateBackendQuery } from "../client/backendCompute";
 import { ShapeEngineTabs } from "../util/ShapeEngineTabs";
-import {
-  type EditorValidationIssue,
-  issueFromMessage,
-  issueFromUnknownError,
-  validateDuckDBSyntax,
-} from "./editor-validation";
+import { type EditorValidationIssue, issueFromUnknownError, validateDuckDBSyntax } from "./editor-validation";
 import { format } from "sql-formatter";
 import { getOrderedDependenciesForSQL } from "./sqlDependencies";
-import {
-  RUN_SQL_SHAPE_REQUEST_EVENT,
-  dispatchSQLShapeRunFinished,
-  dispatchSQLShapeRunStarted,
-  type RunSQLShapeRequestDetail,
-} from "./sqlShapeRun";
+import { RUN_SQL_SHAPE_REQUEST_EVENT, dispatchSQLShapeRunFinished, type RunSQLShapeRequestDetail } from "./sqlShapeRun";
 import { SQLTextAreaBody } from "./SQLTextAreaBody";
 import { SQLTextAreaFooter } from "./SQLTextAreaFooter";
 import { SQLTextAreaHeader } from "./SQLTextAreaHeader";
-import { clearRestoredRemoteQueryMetadata } from "./restoreRemoteQueryView";
-import { buildRemoteSQLFromDag, describeQueryExecution, getMissingSourceMessage, walkSQLDag } from "./walkSQLDag";
+import { describeQueryExecution } from "./walkSQLDag";
+import { prepareCanvasSQL } from "./prepareCanvasSQL";
+import { executeSQLShape } from "./executeSQLShape";
+import { hasDbtTemplate } from "../Dbt/dbtSQL";
+import { useDbtTab } from "../Dbt/useDbtTab";
 import { getAutoExpandedSQLShapeSize } from "./sqlShapeSize";
 import { getKnobNames, getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
-import { ensureQueryKnobs } from "../Knob/createKnobs";
 import { useBizMode } from "../client/canvas/bizMode";
 
 export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
@@ -108,7 +100,10 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   component(shape: SQLTextAreaShape) {
     const bizMode = useBizMode(this.editor, shape.id);
     const { addToast } = useToasts();
-    const { updateSourceName, runRemoteQuery, cancelRemoteQuery } = useData();
+    const data = useData();
+    const dbtTab = useDbtTab(shape);
+    const { updateSourceName, cancelRemoteQuery } = data;
+    const runController = useRef<AbortController | null>(null);
     this.updateSourceName = updateSourceName;
     const [isRemoteRunning, setIsRemoteRunning] = useState(false);
 
@@ -151,7 +146,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       update({ showTable: nextState });
 
       if (nextState) {
-        if (shape.props.isDirty) {
+        if (shape.props.isDirty || shape.props.stale || !shape.props.lastRunStats) {
           await handleRun();
         } else {
           await ensureResultTable();
@@ -196,18 +191,13 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         return null;
 
       try {
-        const syntaxIssue = validateDuckDBSyntax(resolveKnobSQL(this.editor, sql));
-        if (syntaxIssue) {
-          return syntaxIssue;
+        if (!hasDbtTemplate(sql)) {
+          const syntaxIssue = validateDuckDBSyntax(resolveKnobSQL(this.editor, sql));
+          if (syntaxIssue) return syntaxIssue;
         }
-
-        const { orderedDependencies } = getOrderedDependencies(sql);
-        const execution = describeQueryExecution(orderedDependencies);
-        const missingSource = getMissingSourceMessage(orderedDependencies);
-        if (missingSource) return issueFromMessage(missingSource);
-        // Native remote queries retain syntax-only validation; preparing them can contact a paid source.
-        if (execution.sourceNativePreview && execution.sourceType !== "duckdb") return null;
-        await validateBackendQuery(buildRemoteSQLFromDag(sql, orderedDependencies, this.editor));
+        const prepared = await prepareCanvasSQL(this.editor, sql);
+        if (prepared.executionState.sourceNativePreview && prepared.executionState.sourceType !== "duckdb") return null;
+        await validateBackendQuery(prepared.sql);
         return null;
       } catch (e: unknown) {
         console.error("Validation error", e);
@@ -215,126 +205,32 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       }
     };
 
-    const runQueryLogic = async (sqlText: string, markRunning: boolean = true) => {
-      if (this.editor.getShape<SQLTextAreaShape>(shape.id)?.props.isRunning) {
-        return { success: false, error: "Query is already running." };
-      }
-      const startTime = Date.now();
-      clearRestoredRemoteQueryMetadata(shape.id);
-      ensureQueryKnobs(this.editor, shape, sqlText);
-
-      const dagWalk = walkSQLDag(this.editor, sqlText);
-      if (!dagWalk.ok) {
-        update({ error: dagWalk.error.message, isDirty: true });
-        addToast({
-          title: dagWalk.error.title,
-          description: dagWalk.error.message,
-          severity: "error",
-        });
-        return { success: false, error: dagWalk.error.message };
-      }
-      const { executionState: currentQueryExecutionState, nextUpstreamShapeIds, orderedDependencies } = dagWalk.plan;
-      if (nextUpstreamShapeIds.includes(shape.id)) {
-        const error = "A query cannot read from its own output.";
-        update({ error, isDirty: true });
-        return { success: false, error };
-      }
-      const runnerName = "CLI";
-      setShapeUpstreamConnections(
-        this.editor,
-        shape.id,
-        nextUpstreamShapeIds.map((shapeId) => shapeId as TLShapeId)
-      );
-
-      if (markRunning) {
-        update({
-          isRunning: true,
-          error: null,
-          isDirty: false,
-          queryStartTime: startTime,
-          runnerName,
-        });
-      }
-
-      try {
-        let rowCount: number;
-        let schema: { name: string; type: string }[];
-        let sampleRows: Record<string, unknown>[] = [];
-        setIsRemoteRunning(true);
-
-        {
-          const { sourceName, sourceType, sourceNativePreview } = currentQueryExecutionState;
-          const finalSQL = buildRemoteSQLFromDag(sqlText, orderedDependencies, this.editor);
-
-          const result = await runRemoteQuery({
-            sql: finalSQL,
-            sourceName: sourceName,
-            sourceType,
-            shapeId: shape.id,
-            queryName: shape.props.name,
-            sourceNative: sourceNativePreview,
-          });
-          rowCount = result.rowCount;
-          schema = result.schema;
-          sampleRows = result.sampleRows;
-        }
-
-        const executionTime = Date.now() - startTime;
-        update({
-          isRunning: false,
-          queryStartTime: null,
-          runnerName: null,
-          outputSchema: schema,
-          stale: false,
-          columnStats: null,
-          lastRunStats: {
-            executionTime,
-            rowCount,
-            runnerName,
-          },
-        });
-        const latestShape = this.editor.getShape<SQLTextAreaShape>(shape.id);
-        if (latestShape?.props.showTable) {
-          await ensureResultTable();
-        }
-
-        return { success: true, rowCount, outputSchema: schema, sampleRows };
-      } catch (e: any) {
-        console.error(e);
-        if (e?.name === "AbortError" || e?.message === "Query cancelled") {
-          update({ isRunning: false, error: null, queryStartTime: null, runnerName: null });
-          return { success: false, error: "Query cancelled" };
-        } else {
-          const errorMessage = e.message ?? "Unknown error";
-          update({ isRunning: false, error: errorMessage, queryStartTime: null, runnerName: null });
-          return { success: false, error: errorMessage };
-        }
-      } finally {
-        setIsRemoteRunning(false);
-      }
-    };
     const handleRun = async (options?: { sqlText?: string; formatBeforeRun?: boolean }) => {
-      const nextSql = typeof options?.sqlText === "string" ? options.sqlText : text;
-      const shouldFormatBeforeRun = options?.formatBeforeRun ?? typeof options?.sqlText !== "string";
-      dispatchSQLShapeRunStarted(shape.id, nextSql);
-
+      const sql =
+        typeof options?.sqlText === "string"
+          ? options.sqlText
+          : (this.editor.getShape<SQLTextAreaShape>(shape.id)?.props.text ?? text);
+      if (runController.current || this.editor.getShape<SQLTextAreaShape>(shape.id)?.props.isRunning)
+        return { success: false, error: "Query is already running." };
+      const controller = new AbortController();
+      runController.current = controller;
+      setIsRemoteRunning(true);
       try {
-        const result = shouldFormatBeforeRun
-          ? await runQueryLogic(handleFormat(nextSql) || nextSql)
-          : await runQueryLogic(nextSql);
-        dispatchSQLShapeRunFinished(shape.id, result);
-        return result;
+        return await executeSQLShape(this.editor, data, shape.id, sql, controller.signal);
       } catch (error) {
-        dispatchSQLShapeRunFinished(shape.id, {
-          success: false,
-          error: error instanceof Error ? error.message : "Query failed.",
-        });
-        throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        update({ error: message, isDirty: true });
+        dispatchSQLShapeRunFinished(shape.id, { success: false, error: message });
+        return { success: false, error: message };
+      } finally {
+        runController.current = null;
+        setIsRemoteRunning(false);
       }
     };
 
     const handleCancel = () => {
       if (!this.editor.getShape<SQLTextAreaShape>(shape.id)?.props.isRunning) return;
+      runController.current?.abort();
       cancelRemoteQuery(shape.id, shape.props.name);
     };
 
@@ -359,8 +255,9 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     };
 
     const handleCreateChart = async () => {
-      if (shape.props.isDirty) {
-        await handleRun();
+      if (shape.props.isDirty || shape.props.stale || !shape.props.lastRunStats) {
+        const result = await handleRun();
+        if (!result.success) return;
       }
       const newShapeId = createShapeId();
       this.editor.createShape({
@@ -386,6 +283,9 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     };
 
     const handleFormat = (overrideText?: string) => {
+      if (shape.props.dbt || hasDbtTemplate(overrideText ?? shape.props.text)) {
+        return overrideText ?? shape.props.text;
+      }
       try {
         let formattedSql = "";
         if (typeof overrideText === "string") {
@@ -458,7 +358,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         }}
       >
         <ShapeEngineTabs
-          tabs={queryExecutionState.tabs}
+          tabs={dbtTab ? [...queryExecutionState.tabs, dbtTab] : queryExecutionState.tabs}
           style={{ position: "absolute", top: -46, left: 0, right: 0 }}
         />
         <div

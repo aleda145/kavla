@@ -17,6 +17,7 @@ interface LazySQLEditorProps {
   validator?: (sql: string) => Promise<import("./editor-validation").EditorValidationIssue | null>;
   onCreateEditor?: (view: EditorView) => void;
   forceLive?: boolean;
+  readOnly?: boolean;
 }
 
 import { useSchemaRegistry } from "../hooks/useSchemaRegistry";
@@ -35,6 +36,7 @@ export const LazySQLEditor = ({
   validator,
   onCreateEditor,
   forceLive = false,
+  readOnly = false,
 }: LazySQLEditorProps) => {
   const editor = useEditor();
   const registry = useSchemaRegistry();
@@ -117,6 +119,7 @@ export const LazySQLEditor = ({
           <LiveCodeMirror
             shapeId={shapeId}
             value={text}
+            readOnly={readOnly}
             onChange={onChange}
             language={language}
             onRun={onRun}

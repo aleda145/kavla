@@ -348,6 +348,12 @@ func (s *Server) Close(ctx context.Context) error {
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/dbt", s.handleDBTProject)
+	mux.HandleFunc("PUT /api/dbt", s.sameOriginMutation(s.handleDBTConnect))
+	mux.HandleFunc("DELETE /api/dbt", s.sameOriginMutation(s.handleDBTDisconnect))
+	mux.HandleFunc("POST /api/dbt/compile", s.sameOriginMutation(s.handleDBTCompile))
+	mux.HandleFunc("POST /api/dbt/seed", s.sameOriginMutation(s.handleDBTSeed))
+	mux.HandleFunc("PUT /api/dbt/file", s.sameOriginMutation(s.handleDBTWrite))
 	mux.HandleFunc("POST /api/session/uploads", s.sameOriginMutation(s.handleUpload))
 	mux.HandleFunc("DELETE /api/session/uploads/{id}", s.sameOriginMutation(s.handleDeleteUpload))
 	mux.HandleFunc("POST /api/session/compute", s.sameOriginMutation(s.handleCompute))

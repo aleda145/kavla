@@ -344,7 +344,7 @@ func (s *Server) documentRequests(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		exclusive := r.Method != http.MethodGet && (strings.HasPrefix(r.URL.Path, "/api/session/uploads") || strings.HasPrefix(r.URL.Path, "/api/cli/sources") || strings.HasPrefix(r.URL.Path, "/api/session/blobs") || r.URL.Path == "/api/session/document" || r.URL.Path == "/api/session/save" || r.URL.Path == "/api/session/transfer" || r.URL.Path == "/api/session/save-as" || r.URL.Path == "/api/session/close" || r.URL.Path == "/api/session/load-path" || r.URL.Path == "/api/session/new")
+		exclusive := r.Method != http.MethodGet && (r.URL.Path == "/api/dbt/seed" || strings.HasPrefix(r.URL.Path, "/api/session/uploads") || strings.HasPrefix(r.URL.Path, "/api/cli/sources") || strings.HasPrefix(r.URL.Path, "/api/session/blobs") || r.URL.Path == "/api/session/document" || r.URL.Path == "/api/session/save" || r.URL.Path == "/api/session/transfer" || r.URL.Path == "/api/session/save-as" || r.URL.Path == "/api/session/close" || r.URL.Path == "/api/session/load-path" || r.URL.Path == "/api/session/new")
 		exclusive = exclusive || (r.Method != http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/session/snapshots"))
 		if exclusive {
 			s.documentGate.Lock()

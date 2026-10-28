@@ -66,6 +66,7 @@ function getShapeOrThrow(editor: Editor, shapeId: string): TLShape {
 const getDataShapeOrThrow = resolveAgentDataShape;
 
 function formatAgentSQL(sql: string): string {
+  if (/\{[{%#]/.test(sql)) return sql;
   try {
     return format(sql, {
       language: "duckdb",
@@ -371,7 +372,8 @@ async function updateQuery(editor: Editor, args: ToolArguments, env: AgentToolEn
   const shape = getShapeOrThrow(editor, shapeId);
   if (shape.type !== "sql-text-area") throw new Error(`Shape ${shapeId} is not a SQL query.`);
   const query = shape as SQLTextAreaShape;
-  const sql = formatAgentSQL(requiredString(args, "sql"));
+  const sourceSQL = requiredString(args, "sql");
+  const sql = query.props.dbt ? sourceSQL : formatAgentSQL(sourceSQL);
   if (!query.meta.agentQueryLayout) {
     trackAgentQueryLayout(
       editor,

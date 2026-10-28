@@ -1,3 +1,4 @@
+import { dbtDocumentation } from "../Dbt/dbtCanvas";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { Editor } from "tldraw";
@@ -167,6 +168,7 @@ export function LocalDataSourceBody({
               >
                 <SchemaTable
                   metadata={shape.props.metadata}
+                  columnDocumentation={dbtDocumentation(shape)?.columns}
                   selectedColumns={selectedColumns}
                   onColumnClick={onColumnClick}
                   tableName={shape.props.name}

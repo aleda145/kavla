@@ -7,6 +7,7 @@ export type SQLTextAreaShape = TLBaseShape<
     w: number;
     h: number;
     text: string;
+    dbt?: import("../Dbt/dbtTypes").DbtLink;
     linkedTableId: string | null;
     error: string | null;
     isRunning: boolean;

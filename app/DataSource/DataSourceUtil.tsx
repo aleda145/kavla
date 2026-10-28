@@ -1,3 +1,4 @@
+import { useDbtTab } from "../Dbt/useDbtTab";
 import { HTMLContainer, Rectangle2d, ShapeUtil, TLResizeInfo, getDefaultColorTheme, resizeBox } from "tldraw";
 import { DataSourceShape } from "./data-source-types";
 import { DataSourceProps } from "./data-source-props";
@@ -102,6 +103,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
     };
 
     const cliSources = useCliSources();
+    const dbtTab = useDbtTab(shape);
     const remoteSourceInfo = getRemoteSourceMetadata(shape);
     const remoteTableDisplayName = remoteSourceInfo ? getRemoteTableDisplayName(remoteSourceInfo.remoteTableRef) : null;
     const sourceType = remoteSourceInfo?.sourceType?.toLowerCase() ?? getLocalSourceType(shape.props.filename);
@@ -372,7 +374,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
         }}
       >
         <ShapeEngineTabs
-          tabs={sourceTabs}
+          tabs={dbtTab ? [...sourceTabs, dbtTab] : sourceTabs}
           style={{
             position: "absolute",
             top: -46,

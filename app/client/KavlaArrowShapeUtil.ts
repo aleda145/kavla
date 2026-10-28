@@ -39,14 +39,14 @@ export const KavlaArrowShapeUtil = ArrowShapeUtil.configure({
 
 export class KavlaArrowBindingUtil extends ArrowBindingUtil {
   override onAfterCreate(options: BindingOnCreateOptions<TLArrowBinding>): void {
-    if (this.removeInvalidKnobBinding(options.binding)) return;
+    if (this.removeInvalidInputBinding(options.binding)) return;
     if (!this.isKavlaConnectorArrow(options.binding.fromId)) {
       super.onAfterCreate(options);
     }
   }
 
   override onAfterChange(options: BindingOnChangeOptions<TLArrowBinding>): void {
-    if (this.removeInvalidKnobBinding(options.bindingAfter)) return;
+    if (this.removeInvalidInputBinding(options.bindingAfter)) return;
     if (!this.isKavlaConnectorArrow(options.bindingAfter.fromId)) {
       super.onAfterChange(options);
     }
@@ -69,13 +69,17 @@ export class KavlaArrowBindingUtil extends ArrowBindingUtil {
     return shape?.type === "arrow" && shape.meta?.kavlaConnector === true;
   }
 
-  private removeInvalidKnobBinding(binding: TLArrowBinding): boolean {
+  private removeInvalidInputBinding(binding: TLArrowBinding): boolean {
     const arrow = this.editor.getShape<TLArrowShape>(binding.fromId);
     if (!arrow) return false;
     const bindings = getArrowBindings(this.editor, arrow);
     const start = bindings.start && this.editor.getShape(bindings.start.toId);
     const end = bindings.end && this.editor.getShape(bindings.end.toId);
-    if (end?.type === "knob" || (start?.type === "knob" && end && end.type !== "sql-text-area")) {
+    if (
+      end?.type === "knob" ||
+      end?.type === "dbt-macro" ||
+      ((start?.type === "knob" || start?.type === "dbt-macro") && end && end.type !== "sql-text-area")
+    ) {
       this.editor.deleteBindings([binding.id]);
       return true;
     }

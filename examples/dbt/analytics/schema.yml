@@ -1,0 +1,11 @@
+version: 2
+models:
+  - name: stg_customers
+    description: One row per customer, from the local customers seed.
+    columns:
+      - name: customer_id
+        description: Customer identifier.
+  - name: stg_orders
+    description: Orders with amounts converted from cents.
+  - name: customer_orders
+    description: Completed order counts and lifetime spend per customer.

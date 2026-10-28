@@ -1,7 +1,7 @@
 import type { Editor } from "tldraw";
 import type { LocalServerContextType } from "../client/localServer/types";
 import { getColumnAnalysisType } from "../src/duckdb/column-stats-sql";
-import { buildRemoteSQLFromDag, walkSQLDag } from "../SQLTextArea/walkSQLDag";
+import { prepareCanvasSQL } from "../SQLTextArea/prepareCanvasSQL";
 import { randomUUID } from "../util/randomUUID";
 import { mapKnobParameters } from "./knobSQL";
 import type { KnobShape } from "./knob-types";
@@ -110,10 +110,7 @@ export async function inferKnob(
   columnQuery: string,
   signal: AbortSignal
 ): Promise<Partial<KnobShape["props"]>> {
-  const plan = walkSQLDag(editor, columnQuery);
-  if (!plan.ok) throw new Error(plan.error.message);
-  const { orderedDependencies, executionState } = plan.plan;
-  const input = buildRemoteSQLFromDag(columnQuery, orderedDependencies, editor);
+  const { executionState, sql: input } = await prepareCanvasSQL(editor, columnQuery, signal);
   const requestId = `knob-options:${randomUUID()}`;
   const cancel = () => data.cancelRemoteQuery(requestId);
   signal.addEventListener("abort", cancel, { once: true });

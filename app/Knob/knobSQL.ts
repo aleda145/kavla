@@ -19,6 +19,11 @@ function tokenizeKnobSQL(sql: string): KnobSQLToken[] {
     if (/\s/.test(sql[i])) {
       kind = "ignored";
       while (i < sql.length && /\s/.test(sql[i])) i++;
+    } else if (sql.startsWith("{{", i) || sql.startsWith("{%", i) || sql.startsWith("{#", i)) {
+      kind = "ignored";
+      const closing = sql[i + 1] === "{" ? "}}" : sql[i + 1] === "%" ? "%}" : "#}";
+      const end = sql.indexOf(closing, i + 2);
+      i = end < 0 ? sql.length : end + closing.length;
     } else if (sql.startsWith("--", i)) {
       kind = "ignored";
       while (i < sql.length && sql[i] !== "\n") i++;

@@ -1,0 +1,7 @@
+kavla_shop:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: target/kavla_shop.duckdb
+      threads: 2

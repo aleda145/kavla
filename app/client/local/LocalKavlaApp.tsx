@@ -43,6 +43,9 @@ import { SQLTextAreaUtil } from "../../SQLTextArea/SQLTextAreaUtil";
 import { KnobUtil } from "../../Knob/KnobUtil";
 import { getUniqueKnobName } from "../../Knob/createKnobs";
 import { KnobRuntime } from "../../Knob/KnobRuntime";
+import { DbtMacroUtil } from "../../Dbt/DbtMacroUtil";
+import { DbtFileUtil } from "../../Dbt/DbtFileUtil";
+import { DbtRuntime, flushDbt } from "../../Dbt/dbtRuntime";
 import source from "../../util/source.svg";
 import sql from "../../util/sql.svg";
 import { SourceTextAreaTool } from "../../DataSource/DataSourceTool";
@@ -75,6 +78,8 @@ import { getUniqueName } from "../../util/getUniqueName";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 
 const customShapeUtils = [
+  DbtFileUtil,
+  DbtMacroUtil,
   KnobUtil,
   SQLTextAreaUtil,
   SQLResultTableUtil,
@@ -179,6 +184,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
     const revisionBeingSaved = documentRevisionRef.current;
     setIsDocumentSaving(true);
     try {
+      await flushDbt(editorRef.current);
       await waitForBackendOperations();
       await stageCurrentCanvas(true);
       const savedDocument = await saveLocalSession();
@@ -202,6 +208,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const prepareCanvasForSave = useCallback(async () => {
     if (loadingDocumentRef.current) throw new Error("A canvas is already being opened.");
     loadingDocumentRef.current = true;
+    await flushDbt(editorRef.current);
     setIsNavigating(true);
     editorRef.current?.updateInstanceState({ isReadonly: true });
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
@@ -725,6 +732,7 @@ function LocalCanvasMount({
         options={{ actionShortcutsLocation: "menu", maxPages: 1 }}
       >
         <KnobRuntime />
+        <DbtRuntime />
       </Tldraw>
     </AgentChatLayout>
   );

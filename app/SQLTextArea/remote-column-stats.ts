@@ -24,6 +24,7 @@ export interface RemoteSourceInfo {
   sourceType?: string | null;
   fullTableRef: string;
   tableSql?: string;
+  prepare?: () => Promise<RemoteSourceInfo>;
   runRemoteQuery: RunRemoteQueryFn;
   cancelRemoteQuery: CancelRemoteQueryFn;
 }
