@@ -454,7 +454,7 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
             onKeyDown={(event) => event.stopPropagation()}
             title="Auto layout nodes"
             type="button"
-            className="kavla-icon-control bg-white hover:bg-yellow-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
+            className="kavla-icon-control bg-white hover:bg-gray-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
             style={{
               ...lightStyle,
               color: "#000",
@@ -480,7 +480,7 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
             onKeyDown={(event) => event.stopPropagation()}
             title="Fit query nodes to their content"
             type="button"
-            className="kavla-icon-control bg-white hover:bg-yellow-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
+            className="kavla-icon-control bg-white hover:bg-gray-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
             style={{
               ...lightStyle,
               color: "#000",
