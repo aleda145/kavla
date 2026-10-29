@@ -1,4 +1,5 @@
 import { ast, Dialect, generate, parse } from "@polyglot-sql/sdk";
+import type { TLShapeId } from "tldraw";
 import { mapKnobParameters } from "../Knob/knobSQL";
 import { buildBizFilterPlan, getBizFilterConditions, type BizFilterPlan } from "./sqlBizFilterStats";
 import {
@@ -10,6 +11,7 @@ import {
 } from "./sqlBizOperationStats";
 
 export type BizOperation =
+  | "MACRO"
   | "CTE"
   | "READ"
   | "JOIN"
@@ -29,6 +31,7 @@ export type BizOperation =
   | "LIMIT"
   | "COMBINE";
 type BizCard = { primary: string; secondary?: string };
+export type BizMacroCall = { name: string; shapeId: TLShapeId; path: string; call: string };
 export type BizStep = {
   label: BizOperation;
   detail: string;
@@ -39,6 +42,7 @@ export type BizStep = {
   filter?: BizFilterPlan;
   filterCards?: BizCard[];
   stats?: BizOperationStatsPlan;
+  macros?: BizMacroCall[];
 };
 export type BizSummary = { steps: BizStep[]; note: string | null; error?: string };
 
@@ -213,7 +217,7 @@ function fetchDetails(fetch: ast.ExpressionInner<"fetch">) {
   return `${fetch.percent ? `${count}%` : rowCount(count)}${fetch.with_ties ? " WITH TIES" : ""}`;
 }
 
-function summarize(sql: string): BizSummary {
+function summarize(sql: string, macroWrappers: ReadonlyMap<string, BizMacroCall[]>, originalSQL?: string): BizSummary {
   if (!sql.trim()) return { steps: [], note: "No query yet." };
   // Keep controls recognizable without substituting their current values.
   const result = parse(
@@ -224,6 +228,50 @@ function summarize(sql: string): BizSummary {
   if (!Array.isArray(result.ast) || result.ast.length !== 1) {
     return { steps: [], note: "The pipeline supports one query at a time." };
   }
+  // Inspection wrappers carry call identity through compilation. Remove them
+  // before building any statistics: all analysis must use the actual SQL.
+  const macroNodes = new WeakMap<ast.Expression, BizMacroCall[]>();
+  const foundWrappers = new Set<string>();
+  ast.walk(result.ast[0], {
+    enter(node) {
+      if (!("function" in node)) return;
+      const macros = macroWrappers.get(node.function.name.toLowerCase());
+      if (!macros || node.function.args.length !== 1) return;
+      foundWrappers.add(node.function.name.toLowerCase());
+      const value = node.function.args[0];
+      Reflect.deleteProperty(node, "function");
+      Object.assign(node, value);
+      macroNodes.set(node, macros);
+    },
+  });
+  if (foundWrappers.size !== macroWrappers.size) {
+    return { steps: [], note: null, error: "A macro expands outside a SQL expression." };
+  }
+  if (macroWrappers.size && originalSQL !== undefined) {
+    const original = parse(
+      mapKnobParameters(originalSQL, (name) => `"{${name}}"`),
+      Dialect.DuckDB
+    );
+    const actual = original.success && original.ast ? generate(original.ast, Dialect.DuckDB) : null;
+    const inspected = generate(result.ast, Dialect.DuckDB);
+    // A fragment such as a + b in {{ macro() }} * 2 must not become (a + b) * 2.
+    // Only collapse calls that align with the compiled query's expression tree.
+    if (!actual?.success || !inspected.success || JSON.stringify(actual.sql) !== JSON.stringify(inspected.sql)) {
+      return { steps: [], note: null, error: "A macro spans part of a SQL expression." };
+    }
+  }
+  const macrosIn = (expression: ast.Expression) => {
+    const macros = new Set<BizMacroCall>();
+    ast.walk(expression, { enter: (node) => macroNodes.get(node)?.forEach((macro) => macros.add(macro)) });
+    return [...macros];
+  };
+  const describeMacros = (expression: ast.Expression | ast.Expression[]) => {
+    const macros = [...new Set((Array.isArray(expression) ? expression : [expression]).flatMap(macrosIn))];
+    if (!macros.length) return;
+    const step = steps[steps.length - 1];
+    step.macros = macros;
+    step.card = { primary: [...new Set(macros.map((macro) => macro.call))].join("\n") };
+  };
   const steps: BizStep[] = [];
   const add = (label: BizOperation, detail: string, scope?: string, card?: BizCard) =>
     steps.push({ label, detail, scope, card });
@@ -350,6 +398,7 @@ function summarize(sql: string): BizSummary {
         secondary: condition.trim() || undefined,
       });
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "join", index });
+      describeMacros({ join });
     }
     if (query.where_clause) {
       add("FILTER", expressionSQL(query.where_clause.this), scope, conditionCard(query.where_clause.this));
@@ -361,6 +410,7 @@ function summarize(sql: string): BizSummary {
           secondary: `+${conditions.length - 1} ${conditions.length === 2 ? "condition" : "conditions"}`,
         }));
       }
+      describeMacros(query.where_clause.this);
     }
 
     const projections = query.expressions.map((expression) => ({ expression, ...expressionFacts(expression) }));
@@ -384,7 +434,9 @@ function summarize(sql: string): BizSummary {
     }
     const transforms = projections.filter(
       (projection) =>
-        !isPlainProjection(projection.expression) && !projection.aggregates.length && !projection.windows.length
+        (!isPlainProjection(projection.expression) || macrosIn(projection.expression).length > 0) &&
+        !projection.aggregates.length &&
+        !projection.windows.length
     );
     const groupingExpressions = query.group_by?.expressions.map(resolvePosition) ?? [];
     const groupKeys = new Set(groupingExpressions.map(expressionSQL));
@@ -434,6 +486,7 @@ function summarize(sql: string): BizSummary {
             beforeAggregation,
           });
         }
+        describeMacros(item.expression);
       }
     };
     appendTransforms(early, true);
@@ -452,10 +505,17 @@ function summarize(sql: string): BizSummary {
         secondary: grouping ? caption : undefined,
       });
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "aggregate" });
+      describeMacros([
+        ...projections
+          .filter((projection) => projection.aggregates.length && !projection.windows.length)
+          .map((projection) => projection.expression),
+        ...(query.group_by?.expressions ?? []),
+      ]);
     }
     if (query.having) {
       add("FILTER GROUPS", `HAVING ${expressionSQL(query.having.this)}`, scope, conditionCard(query.having.this));
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "having" });
+      describeMacros(query.having.this);
     }
     for (const projection of projections) {
       if (projection.windows.length) {
@@ -472,6 +532,7 @@ function summarize(sql: string): BizSummary {
               ? `ORDER ${expressionSQL(over.order_by[0].this)}`
               : undefined,
         });
+        describeMacros(projection.expression);
       }
     }
     const displayedWindows = new Set(projections.flatMap((projection) => projection.windows.map(expressionSQL)));
@@ -506,6 +567,7 @@ function summarize(sql: string): BizSummary {
     if (query.qualify) {
       add("FILTER WINDOW", expressionSQL(query.qualify.this), scope, conditionCard(query.qualify.this));
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "qualify" });
+      describeMacros(query.qualify.this);
     }
     add("SELECT", query.expressions.map(outputProjection).join(", "), scope);
     if (query.distinct || query.distinct_on) {
@@ -518,8 +580,10 @@ function summarize(sql: string): BizSummary {
       );
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "deduplicate" });
     }
-    if (query.order_by)
+    if (query.order_by) {
       add("SORT", sortDetails(query.order_by, resolvePosition), scope, sortCard(query.order_by, resolvePosition));
+      describeMacros({ order_by: query.order_by });
+    }
     if (query.offset) {
       add("SKIP", rowCount(expressionSQL(query.offset.this)), scope);
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "skip" });
@@ -577,10 +641,15 @@ function sortCard(
   };
 }
 
-export function getSQLBizSummary(sql: string): BizSummary {
-  const existing = cache.get(sql);
+export function getSQLBizSummary(
+  sql: string,
+  macroWrappers: ReadonlyMap<string, BizMacroCall[]> = new Map(),
+  originalSQL?: string
+): BizSummary {
+  const cacheKey = macroWrappers.size ? JSON.stringify([sql, [...macroWrappers], originalSQL]) : sql;
+  const existing = cache.get(cacheKey);
   if (existing) return existing;
-  const summary = summarize(sql);
+  const summary = summarize(sql, macroWrappers, originalSQL);
   const visibleSteps = (items: BizStep[]): BizStep[] => {
     const steps = items.filter((step) => step.label !== "READ");
     for (const step of steps) {
@@ -594,7 +663,7 @@ export function getSQLBizSummary(sql: string): BizSummary {
   };
   summary.steps = visibleSteps(summary.steps);
   if (cache.size >= 100) cache.delete(cache.keys().next().value!);
-  cache.set(sql, summary);
+  cache.set(cacheKey, summary);
   return summary;
 }
 
@@ -626,7 +695,9 @@ export function getSQLBizCardWidth(step: BizStep, availableWidth = Infinity): nu
   const secondaryWidth =
     Math.max(0, ...cards.flatMap((card) => (card.secondary ?? "").split("\n").map((line) => Array.from(line).length))) *
     6.1;
-  return Math.ceil(Math.max(132, primaryWidth + 24, secondaryWidth + 24));
+  const macroCount = new Set(step.macros?.map((macro) => macro.shapeId)).size;
+  const badgeWidth = macroCount ? macroCount * 72 + (step.label === "MACRO" ? 0 : step.label.length * 7 + 32) + 24 : 0;
+  return Math.ceil(Math.max(132, badgeWidth, primaryWidth + 24, secondaryWidth + 24));
 }
 
 export const SQL_BIZ_CARD_GAP = 12;

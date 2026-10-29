@@ -1,4 +1,6 @@
 import { dbtColors } from "./dbtColors";
+import { BriefcaseBusiness, Code2, SquareFunction } from "lucide-react";
+import { useMemo } from "react";
 import {
   HTMLContainer,
   Rectangle2d,
@@ -15,6 +17,9 @@ import { DbtFileUtil, DbtLogo } from "./DbtFileUtil";
 import { dbtState } from "./dbtState";
 import { getDbtMacroNames } from "./dbtMacros";
 import type { DbtMacroShape } from "./dbtTypes";
+import { setQueryBizMode, useBizMode } from "../client/canvas/bizMode";
+import { SQLBizPipeline } from "../SQLTextArea/SQLBizBody";
+import { getDbtMacroBizSummary } from "./dbtBizSummary";
 
 export class DbtMacroUtil extends ShapeUtil<DbtMacroShape> {
   static override type = "dbt-macro" as const;
@@ -57,6 +62,11 @@ export class DbtMacroUtil extends ShapeUtil<DbtMacroShape> {
     return <rect width={shape.props.w} height={shape.props.h} />;
   }
   component(shape: DbtMacroShape) {
+    const bizMode = useBizMode(this.editor, shape.id);
+    const summary = useMemo(
+      () => (bizMode ? getDbtMacroBizSummary(shape.props.text) : null),
+      [bizMode, shape.props.text]
+    );
     const state = useValue("dbt macro sync", () => dbtState.get(), []);
     const readOnly = useValue("dbt macro readonly", () => this.editor.getInstanceState().isReadonly, [this.editor]);
     const p = shape.props;
@@ -127,17 +137,53 @@ export class DbtMacroUtil extends ShapeUtil<DbtMacroShape> {
             >
               {p.path.split("/").pop() || p.name}
             </strong>
-            <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800 }}>MACRO</span>
+            <span
+              style={{
+                marginLeft: "auto",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                flexShrink: 0,
+                fontSize: 10,
+                lineHeight: "14px",
+                fontWeight: 800,
+                padding: "3px 6px",
+                border: "1px solid #000",
+                borderRadius: 999,
+                background: dbtColors.surface,
+                color: "#000",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <SquareFunction size={13} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
+              Macro
+            </span>
+            <button
+              type="button"
+              aria-label="Biz mode for this macro"
+              aria-pressed={bizMode}
+              title={bizMode ? "Biz mode · click to show SQL" : "SQL mode · click to show Biz flow"}
+              onClick={() => setQueryBizMode(this.editor, shape.id, !bizMode)}
+              onPointerDown={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+              className="flex h-6 w-7 shrink-0 items-center justify-center rounded border-2 border-black bg-white p-0 text-black shadow-none cursor-pointer aria-pressed:translate-x-px aria-pressed:translate-y-px active:translate-x-px active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+            >
+              {bizMode ? <BriefcaseBusiness size={14} aria-hidden /> : <Code2 size={14} aria-hidden />}
+            </button>
           </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <LazySQLEditor
-              shapeId={shape.id}
-              text={p.text}
-              readOnly={readOnly || p.readOnly}
-              onChange={(text) =>
-                this.editor.updateShape<DbtMacroShape>({ id: shape.id, type: shape.type, props: { text } })
-              }
-            />
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {bizMode && summary ? (
+              <SQLBizPipeline text={p.text} shape={shape} summary={summary} />
+            ) : (
+              <LazySQLEditor
+                shapeId={shape.id}
+                text={p.text}
+                readOnly={readOnly || p.readOnly}
+                onChange={(text) =>
+                  this.editor.updateShape<DbtMacroShape>({ id: shape.id, type: shape.type, props: { text } })
+                }
+              />
+            )}
           </div>
           <button
             type="button"

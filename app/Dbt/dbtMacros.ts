@@ -4,8 +4,8 @@ import { dbtState } from "./dbtState";
 
 // Inspect Jinja blocks only: SQL functions, quoted Jinja strings, comments and
 // raw blocks are not calls to project macros. Preserve offsets for both editors.
-function jinjaCode(text: string) {
-  const blocks: { code: string; from: number }[] = [];
+export function getDbtJinjaBlocks(text: string) {
+  const blocks: { code: string; from: number; to: number; kind: string }[] = [];
   const openings = /\{[{%#]/g;
   let opening: RegExpExecArray | null;
   while ((opening = openings.exec(text))) {
@@ -44,20 +44,20 @@ function jinjaCode(text: string) {
       openings.lastIndex = rawEnd.lastIndex;
       continue;
     }
-    blocks.push({ code, from: start });
+    blocks.push({ code, from: start, to: end, kind: opening[0] });
   }
   return blocks;
 }
 
 export function getDbtMacroNames(text: string): string[] {
-  return jinjaCode(text).flatMap(({ code }) => {
+  return getDbtJinjaBlocks(text).flatMap(({ code }) => {
     const declaration = code.match(/^[-+]?\s*macro\s+([A-Za-z_]\w*)\s*\(/);
     return declaration ? [declaration[1]] : [];
   });
 }
 
 export function getDbtMacroCalls(text: string) {
-  return jinjaCode(text).flatMap(({ code, from }) => {
+  return getDbtJinjaBlocks(text).flatMap(({ code, from }) => {
     const declaration = code.match(/^[-+]?\s*macro\s+([A-Za-z_]\w*)\s*\(/);
     const declarationEnd = declaration ? declaration[0].length : 0;
     return Array.from(code.matchAll(/\b([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*(?=\()/g)).flatMap((match) =>

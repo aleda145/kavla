@@ -1,11 +1,13 @@
 import { atom, useValue, type Editor, type TLShapeId } from "tldraw";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { getAutoExpandedSQLShapeSize } from "../../SQLTextArea/sqlShapeSize";
+import type { DbtMacroShape } from "../../Dbt/dbtTypes";
 
 // A view preference belongs to this editor, never to the saved document.
 const modes = new WeakMap<Editor, ReturnType<typeof createMode>>();
 type SQLSize = Pick<SQLTextAreaShape["props"], "w" | "h" | "isManuallyResized" | "text">;
 const sqlSizes = new WeakMap<Editor, Map<TLShapeId, SQLSize>>();
+const macroSizes = new WeakMap<Editor, Map<TLShapeId, Pick<DbtMacroShape["props"], "w" | "h">>>();
 
 function createMode() {
   return atom<{ enabled: boolean; queryModes: ReadonlyMap<TLShapeId, boolean> }>("Kavla biz mode", {
@@ -28,7 +30,19 @@ export function isBizMode(editor: Editor, shapeId?: TLShapeId) {
   return shapeId ? (mode.queryModes.get(shapeId) ?? mode.enabled) : mode.enabled;
 }
 
-function fitQueryToMode(editor: Editor, shape: SQLTextAreaShape, enabled: boolean) {
+function fitQueryToMode(editor: Editor, shape: SQLTextAreaShape | DbtMacroShape, enabled: boolean) {
+  if (shape.type === "dbt-macro") {
+    let sizes = macroSizes.get(editor);
+    if (!sizes) {
+      sizes = new Map();
+      macroSizes.set(editor, sizes);
+    }
+    const current = { w: shape.props.w, h: shape.props.h };
+    const size = enabled ? current : (sizes.get(shape.id) ?? current);
+    if (enabled) sizes.set(shape.id, current);
+    else sizes.delete(shape.id);
+    return { id: shape.id, type: shape.type, props: size };
+  }
   let savedSizes = sqlSizes.get(editor);
   if (!savedSizes) {
     savedSizes = new Map();
@@ -71,8 +85,10 @@ export function setBizMode(editor: Editor, enabled: boolean) {
   const queries = editor.store
     .allRecords()
     .filter(
-      (record): record is SQLTextAreaShape =>
-        record.typeName === "shape" && record.type === "sql-text-area" && isBizMode(editor, record.id) !== enabled
+      (record): record is SQLTextAreaShape | DbtMacroShape =>
+        record.typeName === "shape" &&
+        (record.type === "sql-text-area" || record.type === "dbt-macro") &&
+        isBizMode(editor, record.id) !== enabled
     );
   editor.run(() => {
     // A global toggle applies to every query, clearing individual view choices.
@@ -85,14 +101,14 @@ export function setQueryBizMode(editor: Editor, shapeId: TLShapeId, enabled: boo
   editor.complete();
   editor.setEditingShape(null);
   const mode = modeFor(editor).get();
-  const shape = editor.getShape<SQLTextAreaShape>(shapeId);
+  const shape = editor.getShape<SQLTextAreaShape | DbtMacroShape>(shapeId);
   const modeChanged = isBizMode(editor, shapeId) !== enabled;
   const queryModes = new Map(mode.queryModes);
   if (enabled === mode.enabled) queryModes.delete(shapeId);
   else queryModes.set(shapeId, enabled);
   editor.run(() => {
     modeFor(editor).set({ ...mode, queryModes });
-    if (shape?.type === "sql-text-area" && modeChanged) {
+    if ((shape?.type === "sql-text-area" || shape?.type === "dbt-macro") && modeChanged) {
       editor.updateShapes([fitQueryToMode(editor, shape, enabled)]);
     }
   });

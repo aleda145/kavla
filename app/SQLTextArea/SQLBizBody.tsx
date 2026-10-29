@@ -17,6 +17,7 @@ import {
   Layers,
   ListFilter,
   Sigma,
+  SquareFunction,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -24,13 +25,17 @@ import {
   getSQLBizCardWidth,
   getSQLBizFilterPreview,
   getSQLBizColumns,
-  getSQLBizSummary,
   getSQLBizStep,
   getSQLBizGroupLayout,
   SQL_BIZ_CARD_GAP,
   type BizOperation,
   type BizStep,
+  type BizSummary,
 } from "./sqlBizSummary";
+import type { DbtMacroShape } from "../Dbt/dbtTypes";
+import { dbtColors } from "../Dbt/dbtColors";
+import { getDbtQueryBizSummary, traceDbtBizMacros } from "../Dbt/dbtBizSummary";
+import { navigateToDbtShape } from "../Dbt/dbtMacros";
 
 import { useSchemaRegistry } from "../hooks/useSchemaRegistry";
 import { buildSqlSchemaIndex } from "./schema-index";
@@ -50,6 +55,7 @@ import { TldrawScrollAreaIndicator } from "../DataSource/TldrawScrollAreaIndicat
 import { useSQLBizQuery } from "./useSQLBizQuery";
 
 const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
+  MACRO: { Icon: SquareFunction, color: dbtColors.surface },
   CTE: { Icon: Layers, color: "#bfdbfe" },
   READ: { Icon: Database, color: "#bfdbfe" },
   JOIN: { Icon: GitMerge, color: "#fed7aa" },
@@ -70,11 +76,38 @@ const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
   COMBINE: { Icon: Combine, color: "#cbd5e1" },
 };
 
-function OperationBadge({ operation }: { operation: BizOperation }) {
+function OperationBadge({
+  operation,
+  onClick,
+  title,
+}: {
+  operation: BizOperation;
+  onClick?: () => void;
+  title?: string;
+}) {
   const { Icon, color } = operations[operation];
-  const label = operation === "CONDITIONAL" ? "CLASSIFY" : operation;
+  const label = operation === "MACRO" ? "Macro" : operation === "CONDITIONAL" ? "CLASSIFY" : operation;
+  const Tag = onClick ? "button" : "span";
   return (
-    <span
+    <Tag
+      type={onClick ? "button" : undefined}
+      title={title}
+      aria-label={onClick ? title : undefined}
+      onPointerDown={onClick ? (event) => event.stopPropagation() : undefined}
+      onKeyDown={onClick ? (event) => event.stopPropagation() : undefined}
+      onClick={
+        onClick
+          ? (event) => {
+              event.stopPropagation();
+              onClick();
+            }
+          : undefined
+      }
+      className={
+        onClick
+          ? "cursor-pointer hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+          : undefined
+      }
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -88,17 +121,42 @@ function OperationBadge({ operation }: { operation: BizOperation }) {
         borderRadius: 999,
         border: "1px solid #000",
         background: color,
+        color: "#000",
+        fontFamily: "inherit",
         whiteSpace: "nowrap",
       }}
     >
       <Icon size={13} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
-      {label}
-    </span>
+      <span className={onClick && operation !== "MACRO" ? "kavla-control-label" : undefined}>{label}</span>
+    </Tag>
+  );
+}
+
+function OperationBadges({ step, onNavigate }: { step: BizStep; onNavigate: () => void }) {
+  const editor = useEditor();
+  const macros = [...new Map(step.macros?.map((macro) => [macro.shapeId, macro])).values()];
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 6, flexWrap: "wrap" }}>
+      {macros.map((macro) => (
+        <OperationBadge
+          key={macro.shapeId}
+          operation="MACRO"
+          title={`Open macro ${macro.name} · ${macro.path}`}
+          onClick={() => {
+            onNavigate();
+            navigateToDbtShape(editor, macro.shapeId);
+          }}
+        />
+      ))}
+      {(step.label !== "MACRO" || !macros.length) && <OperationBadge operation={step.label} />}
+    </div>
   );
 }
 
 export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaShape }) {
-  const query = useSQLBizQuery(text);
+  const editor = useEditor();
+  const traced = useValue("Biz macro calls", () => traceDbtBizMacros(editor, text), [editor, text]);
+  const query = useSQLBizQuery(traced.text);
   if (query.sql === undefined) {
     return (
       <div style={{ padding: 12, fontSize: 12, overflow: "auto", minHeight: 0 }}>
@@ -124,10 +182,18 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
       </div>
     );
   }
-  return <SQLBizPipeline text={query.sql} shape={shape} />;
+  return <SQLBizPipeline text={query.sql} shape={shape} summary={getDbtQueryBizSummary(query.sql, traced.traces)} />;
 }
 
-function SQLBizPipeline({ text, shape }: { text: string; shape: SQLTextAreaShape }) {
+export function SQLBizPipeline({
+  text,
+  shape,
+  summary,
+}: {
+  text: string;
+  shape: SQLTextAreaShape | DbtMacroShape;
+  summary: BizSummary;
+}) {
   const registry = useSchemaRegistry();
   const schema = useMemo(() => buildSqlSchemaIndex(registry), [registry]);
   const upstreamTableNames = (shape.props.upstreamShapeIds ?? []).flatMap((id) => {
@@ -167,7 +233,6 @@ function SQLBizPipeline({ text, shape }: { text: string; shape: SQLTextAreaShape
       renderIdentifier={renderIdentifier}
     />
   );
-  const summary = getSQLBizSummary(text);
   const container = useRef<HTMLDivElement | null>(null);
   const scrollArea = useTldrawScrollArea();
   const setScrollRef = useCallback(
@@ -382,13 +447,22 @@ function SQLBizPipeline({ text, shape }: { text: string; shape: SQLTextAreaShape
             </>
           ) : (
             <>
-              <OperationBadge operation={step.label} />
-              {step.filter ? (
+              <OperationBadges
+                step={step}
+                onNavigate={() => {
+                  cancelHoverTimer();
+                  setDetail(null);
+                  setPinned(null);
+                }}
+              />
+              {step.filter && !step.macros?.length && shape.type === "sql-text-area" ? (
                 <FilterCounts shape={shape} plan={step.filter} perCondition preview={step} highlight={highlight} />
               ) : (
                 <>
                   <BizCardText step={step} highlight={highlight} />
-                  {step.stats && <SQLBizOperationStats shape={shape} plan={step.stats} />}
+                  {step.stats && shape.type === "sql-text-area" && (
+                    <SQLBizOperationStats shape={shape} plan={step.stats} />
+                  )}
                 </>
               )}
             </>
@@ -657,7 +731,7 @@ function OperationPopup({
   detail: OperationDetail;
   step: BizStep;
   pinned: boolean;
-  shape: SQLTextAreaShape;
+  shape: SQLTextAreaShape | DbtMacroShape;
   highlight: (sql: string) => ReactNode;
   onClose: () => void;
   onPointerEnter: () => void;
@@ -687,6 +761,7 @@ function OperationPopup({
   );
   const formattedDetail = useMemo(() => {
     if (!step) return { sql: "", error: null };
+    if (shape.type === "dbt-macro" && /\{[{%#]/.test(step.detail)) return { sql: step.detail, error: null };
     try {
       return {
         sql: format(step.detail, {
@@ -707,7 +782,7 @@ function OperationPopup({
     } catch (error) {
       return { sql: step.detail, error: error instanceof Error ? error.message : String(error) };
     }
-  }, [step]);
+  }, [step, shape.type]);
 
   return createPortal(
     <SQLPopupHoverContext.Provider value={{ onPointerEnter, onPointerLeave }}>
@@ -751,67 +826,69 @@ function OperationPopup({
         }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-          <OperationBadge operation={step.label} />
+          <OperationBadges step={step} onNavigate={onClose} />
           <span style={{ display: "flex", gap: 8 }}>
-            <span
-              title={
-                extraction.enabled
-                  ? extraction.direction === "upstream"
-                    ? "Extracts Upstream"
-                    : "Extract Downstream"
-                  : extraction.reason
-              }
-            >
-              <button
-                type="button"
-                disabled={!extraction.enabled || extracting}
-                aria-busy={extracting}
-                aria-label={extraction.enabled ? `Extract ${extraction.direction}` : "Extract"}
-                aria-describedby={extraction.enabled ? undefined : `${tooltipId}-extraction`}
-                className="h-7 px-2 rounded border-2 border-black bg-white text-xs font-bold cursor-pointer hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                onClick={async (event) => {
-                  event.stopPropagation();
-                  if (!extraction?.enabled || extracting) return;
-                  try {
-                    const extracted = await extractSQLBizOperation(
-                      editor,
-                      shape.id,
-                      detail.path,
-                      shape.props.text,
-                      data
-                    );
-                    addToast({
-                      title: `Extracted to ${extracted.name}`,
-                      severity: "success",
-                      actions: [
-                        {
-                          label: "Go to query",
-                          type: "primary",
-                          onClick: () => {
-                            const bounds = editor.getShapePageBounds(extracted.id);
-                            if (!bounds) return;
-                            editor.select(extracted.id);
-                            editor.zoomToBounds(bounds, {
-                              targetZoom: editor.getZoomLevel(),
-                              animation: { duration: 250 },
-                            });
-                          },
-                        },
-                      ],
-                    });
-                    onClose();
-                  } catch (error) {
-                    addToast({
-                      title: "Could not extract operation",
-                      description: error instanceof Error ? error.message : String(error),
-                      severity: "error",
-                    });
-                  }
-                }}
+            {shape.type === "sql-text-area" && (
+              <span
+                title={
+                  extraction.enabled
+                    ? extraction.direction === "upstream"
+                      ? "Extracts Upstream"
+                      : "Extract Downstream"
+                    : extraction.reason
+                }
               >
-                {extracting ? "Running SQL…" : "Extract"}
-              </button>
-            </span>
+                <button
+                  type="button"
+                  disabled={!extraction.enabled || extracting}
+                  aria-busy={extracting}
+                  aria-label={extraction.enabled ? `Extract ${extraction.direction}` : "Extract"}
+                  aria-describedby={extraction.enabled ? undefined : `${tooltipId}-extraction`}
+                  className="h-7 px-2 rounded border-2 border-black bg-white text-xs font-bold cursor-pointer hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={async (event) => {
+                    event.stopPropagation();
+                    if (!extraction?.enabled || extracting) return;
+                    try {
+                      const extracted = await extractSQLBizOperation(
+                        editor,
+                        shape.id,
+                        detail.path,
+                        shape.props.text,
+                        data
+                      );
+                      addToast({
+                        title: `Extracted to ${extracted.name}`,
+                        severity: "success",
+                        actions: [
+                          {
+                            label: "Go to query",
+                            type: "primary",
+                            onClick: () => {
+                              const bounds = editor.getShapePageBounds(extracted.id);
+                              if (!bounds) return;
+                              editor.select(extracted.id);
+                              editor.zoomToBounds(bounds, {
+                                targetZoom: editor.getZoomLevel(),
+                                animation: { duration: 250 },
+                              });
+                            },
+                          },
+                        ],
+                      });
+                      onClose();
+                    } catch (error) {
+                      addToast({
+                        title: "Could not extract operation",
+                        description: error instanceof Error ? error.message : String(error),
+                        severity: "error",
+                      });
+                    }
+                  }}
+                >
+                  {extracting ? "Running SQL…" : "Extract"}
+                </button>
+              </span>
+            )}
             {pinned && (
               <button
                 type="button"
@@ -824,13 +901,14 @@ function OperationPopup({
             )}
           </span>
         </div>
-        {!extraction.enabled && (
+        {shape.type === "sql-text-area" && !extraction.enabled && (
           <span id={`${tooltipId}-extraction`} className="sr-only">
             {extraction.reason}
           </span>
         )}
         {step.scope && <div style={{ marginTop: 4, color: "#000" }}>{step.scope}</div>}
-        {!filterPlan && (
+        {step.macros && <div style={{ fontSize: 10, fontWeight: 800, margin: "8px 0" }}>COMPILED SQL</div>}
+        {(!filterPlan || step.macros?.length) && (
           <pre
             style={{
               margin: "6px 0 0",
@@ -849,8 +927,12 @@ function OperationPopup({
             {formattedDetail.error}
           </pre>
         )}
-        {step.filter && <FilterCounts shape={shape} plan={step.filter} perCondition popup highlight={highlight} />}
-        {step.stats && <SQLBizOperationStats shape={shape} plan={step.stats} popup highlight={highlight} />}
+        {step.filter && shape.type === "sql-text-area" && (
+          <FilterCounts shape={shape} plan={step.filter} perCondition popup highlight={highlight} />
+        )}
+        {step.stats && shape.type === "sql-text-area" && (
+          <SQLBizOperationStats shape={shape} plan={step.stats} popup highlight={highlight} />
+        )}
       </div>
     </SQLPopupHoverContext.Provider>,
     document.body
