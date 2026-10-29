@@ -35,15 +35,21 @@ export default function createArrowBetweenShapes(
 ) {
   const { start = {}, end = {}, parentId } = options;
 
+  const startShape = editor.getShape(startShapeId);
+  const endShape = editor.getShape(endShapeId);
+  if (!startShape || !endShape || startShapeId === endShapeId) return;
+  const isQueryFlow =
+    endShape.type === "sql-text-area" && ["sql-text-area", "data-source", "knob"].includes(startShape.type);
+
   const {
-    normalizedAnchor: startNormalizedAnchor = { x: 0.5, y: 0.5 },
+    normalizedAnchor: startNormalizedAnchor = { x: isQueryFlow ? 1 : 0.5, y: 0.5 },
     isExact: startIsExact = false,
-    isPrecise: startIsPrecise = false,
+    isPrecise: startIsPrecise = isQueryFlow,
   } = start;
   const {
-    normalizedAnchor: endNormalizedAnchor = { x: 0.5, y: 0.5 },
+    normalizedAnchor: endNormalizedAnchor = { x: isQueryFlow ? 0 : 0.5, y: 0.5 },
     isExact: endIsExact = false,
-    isPrecise: endIsPrecise = false,
+    isPrecise: endIsPrecise = isQueryFlow,
   } = end;
 
   const startTerminalNormalizedPosition = Vec.From(startNormalizedAnchor);
@@ -74,12 +80,6 @@ export default function createArrowBetweenShapes(
   }
 
   const arrowId = createShapeId();
-
-  const startShape = editor.getShape(startShapeId);
-  const endShape = editor.getShape(endShapeId);
-  if (!startShape || !endShape) return;
-
-  if (startShapeId === endShapeId) return;
 
   editor.run(() => {
     const arrowParentId = parentId ?? editor.getCurrentPageId();

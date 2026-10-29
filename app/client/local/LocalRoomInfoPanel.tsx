@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BriefcaseBusiness, Code2, Pin, Terminal } from "lucide-react";
+import { BriefcaseBusiness, Code2, LayoutDashboard, Loader2, Pin, Terminal } from "lucide-react";
 import { siDuckdb, siGithub } from "simple-icons";
-import { createShapeId, useEditor, useValue } from "tldraw";
+import { createShapeId, useEditor, useToasts, useValue } from "tldraw";
 import { isBackendComputing } from "../backendCompute";
 import { setBizMode, useBizMode } from "../canvas/bizMode";
 import { getCliTerminalDisplay } from "../cliTerminalDisplay";
@@ -44,6 +44,10 @@ function formatCompactFileSize(fileSize: number): string {
 export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
   const editor = useEditor();
   const bizMode = useBizMode(editor);
+  const [layingOut, setLayingOut] = useState(false);
+  const layoutInProgress = useRef(false);
+  const { addToast } = useToasts();
+  const isReadonly = useValue("Layout readonly", () => editor.getIsReadonly(), [editor]);
   const cliConnected = useCliStatus();
   const cliOutput = useCliOutput();
   const cliTerminalDisplay = getCliTerminalDisplay(cliConnected, cliOutput);
@@ -56,6 +60,25 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
   const terminalPopoverRef = useRef<HTMLDivElement>(null);
   const terminalOutputRef = useRef<HTMLDivElement>(null);
   const terminalCloseTimerRef = useRef<number | null>(null);
+
+  const layout = async () => {
+    if (layoutInProgress.current) return;
+    layoutInProgress.current = true;
+    setLayingOut(true);
+    try {
+      const { layoutKavlaNodes } = await import("../canvas/layoutKavlaNodes");
+      await layoutKavlaNodes(editor);
+    } catch (error) {
+      addToast({
+        title: "Could not arrange nodes",
+        description: error instanceof Error ? error.message : String(error),
+        severity: "error",
+      });
+    } finally {
+      layoutInProgress.current = false;
+      setLayingOut(false);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setTimeout(() => setIsComputing(isComputingRaw), isComputingRaw ? 50 : 500);
@@ -408,6 +431,33 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
             );
           })}
         </div>
+        <button
+          aria-label="Auto layout Kavla nodes"
+          aria-busy={layingOut}
+          disabled={isReadonly || layingOut}
+          onClick={() => void layout()}
+          onPointerDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+          title="Arrange queries left to right, with charts above and tables below"
+          type="button"
+          className="kavla-icon-control bg-white hover:bg-yellow-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
+          style={{
+            ...lightStyle,
+            color: "#000",
+            cursor: isReadonly || layingOut ? "default" : "pointer",
+            fontFamily: "Inter, sans-serif",
+            fontSize: 11,
+            fontWeight: 850,
+            gap: 5,
+          }}
+        >
+          {layingOut ? (
+            <Loader2 className="animate-spin" size={14} aria-hidden />
+          ) : (
+            <LayoutDashboard size={14} aria-hidden />
+          )}
+          <span className="kavla-control-label">Layout</span>
+        </button>
       </div>
       {fileSize !== null ? (
         <button
