@@ -446,13 +446,13 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
         </div>
         <div className="flex items-center gap-2">
           <button
-            aria-label="Auto layout Kavla nodes"
+            aria-label="Auto layout nodes"
             aria-busy={layingOut}
             disabled={isReadonly || layingOut}
             onClick={() => void layout()}
             onPointerDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
-            title="Arrange queries left to right, with charts above and tables below"
+            title="Auto layout nodes"
             type="button"
             className="kavla-icon-control bg-white hover:bg-yellow-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
             style={{
@@ -473,12 +473,12 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
             <span className="kavla-control-label">Layout</span>
           </button>
           <button
-            aria-label="Resize query nodes to fit their active view"
+            aria-label="Fit query nodes to their content"
             disabled={isReadonly || layingOut}
             onClick={resizeQueries}
             onPointerDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
-            title="Fit unlocked query nodes to their SQL or Biz content"
+            title="Fit query nodes to their content"
             type="button"
             className="kavla-icon-control bg-white hover:bg-yellow-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
             style={{
@@ -492,7 +492,7 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
             }}
           >
             <Scan size={14} aria-hidden />
-            <span className="kavla-control-label">Resize</span>
+            <span className="kavla-control-label">Fit</span>
           </button>
         </div>
       </div>
