@@ -8,6 +8,7 @@ import type { ChartShape } from "../../Chart/chart-shape-types";
 import type { SQLResultTableShape } from "../../SQLResultArea/sql-result-table-types";
 import type { LensShape } from "../../Lens/lens-shape-types";
 import type { SummaryShape } from "../../Summary/summary-shape-types";
+import { layoutQueryBranches, type LayoutConnection } from "./layoutQueryBranches";
 
 // Explicitly opt in: native tldraw shapes and the hidden agent-chat record aren't nodes.
 const nodeTypes = new Set([
@@ -130,11 +131,13 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
   }
 
   const edges = new Map<string, ElkExtendedEdge>();
+  const connections = new Map<string, LayoutConnection>();
   const addEdge = (from: string, to: string) => {
     const fromGroup = groupByShape.get(from as TLShapeId);
     const toGroup = groupByShape.get(to as TLShapeId);
     if (!fromGroup || !toGroup || fromGroup === toGroup) return;
     const id = JSON.stringify([fromGroup, toGroup]);
+    connections.set(id, { from: fromGroup, to: toGroup });
     edges.set(id, { id, sources: [`${fromGroup}:out`], targets: [`${toGroup}:in`] });
   };
 
@@ -194,15 +197,23 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
   const worker = new Worker(elkWorkerUrl);
   const elk = new ELK({ workerFactory: () => worker });
   let layout: ElkNode;
+  let branchByGroup: Map<string, string>;
   try {
-    layout = await Promise.race([
-      elk.layout(graph),
+    const result = await Promise.race([
+      layoutQueryBranches(
+        elk,
+        graph,
+        [...connections.values()],
+        new Map(shapes.map((shape) => [shape.id, shape.type]))
+      ),
       new Promise<never>((_, reject) => {
         worker.addEventListener("error", (event) => reject(new Error(event.message || "Layout worker failed.")), {
           once: true,
         });
       }),
     ]);
+    layout = result.layout;
+    branchByGroup = result.branchByGroup;
   } finally {
     elk.terminateWorker();
   }
@@ -281,25 +292,33 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
         const targetGroupId = groupByShape.get(target.id);
         if (!sourceGroupId || !targetGroupId || sourceGroupId === targetGroupId) continue;
 
+        const sourceGroup = laidOutGroups.get(sourceGroupId)!;
+        const targetGroup = laidOutGroups.get(targetGroupId)!;
+        const sourceWidth = groups.get(sourceGroupId)!.width;
+        const targetWidth = groups.get(targetGroupId)!.width;
+        // A shared source can now sit to the right of an independent branch.
+        // Keep side connections, but face that branch instead of looping around it.
+        const reverse =
+          branchByGroup.get(sourceGroupId) !== branchByGroup.get(targetGroupId) &&
+          targetGroup.x! + targetWidth / 2 < sourceGroup.x! + sourceWidth / 2;
+
         editor.updateBindings([
           {
             id: start.id,
             type: "arrow",
-            props: { normalizedAnchor: { x: 1, y: 0.5 }, isPrecise: true, isExact: false, snap: "edge" },
+            props: { normalizedAnchor: { x: reverse ? 0 : 1, y: 0.5 }, isPrecise: true, isExact: false, snap: "edge" },
           },
           {
             id: end.id,
             type: "arrow",
-            props: { normalizedAnchor: { x: 0, y: 0.5 }, isPrecise: true, isExact: false, snap: "edge" },
+            props: { normalizedAnchor: { x: reverse ? 1 : 0, y: 0.5 }, isPrecise: true, isExact: false, snap: "edge" },
           },
         ]);
 
         // Use the gap between entire groups, not just between the query boxes:
         // their charts and tables may be much wider than the queries themselves.
-        const sourceGroup = laidOutGroups.get(sourceGroupId)!;
-        const targetGroup = laidOutGroups.get(targetGroupId)!;
-        const gapStart = originX + sourceGroup.x! + groups.get(sourceGroupId)!.width;
-        const gapEnd = originX + targetGroup.x!;
+        const gapStart = originX + (reverse ? targetGroup.x! + targetWidth : sourceGroup.x! + sourceWidth);
+        const gapEnd = originX + (reverse ? sourceGroup.x! : targetGroup.x!);
         if (gapEnd <= gapStart) continue;
         const transform = editor.getShapePageTransform(arrow);
         // A page-vertical bend needs an arrow whose local x axis is horizontal.
