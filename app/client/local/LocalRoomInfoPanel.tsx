@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BriefcaseBusiness, Code2, LayoutDashboard, Loader2, Pin, Terminal } from "lucide-react";
+import { BriefcaseBusiness, Code2, LayoutDashboard, Loader2, Pin, Scan, Terminal } from "lucide-react";
 import { siDuckdb, siGithub } from "simple-icons";
 import { createShapeId, useEditor, useToasts, useValue } from "tldraw";
 import { isBackendComputing } from "../backendCompute";
 import { setBizMode, useBizMode } from "../canvas/bizMode";
+import { fitQueryNodes } from "../canvas/fitQueryNodes";
 import { getCliTerminalDisplay } from "../cliTerminalDisplay";
 import { useCliOutput, useCliStatus } from "../localServer/runtimeStore";
 import { LocalAssetsDialog } from "./LocalAssetsDialog";
@@ -77,6 +78,18 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
     } finally {
       layoutInProgress.current = false;
       setLayingOut(false);
+    }
+  };
+
+  const resizeQueries = () => {
+    try {
+      fitQueryNodes(editor);
+    } catch (error) {
+      addToast({
+        title: "Could not resize queries",
+        description: error instanceof Error ? error.message : String(error),
+        severity: "error",
+      });
     }
   };
 
@@ -431,33 +444,57 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
             );
           })}
         </div>
-        <button
-          aria-label="Auto layout Kavla nodes"
-          aria-busy={layingOut}
-          disabled={isReadonly || layingOut}
-          onClick={() => void layout()}
-          onPointerDown={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-          title="Arrange queries left to right, with charts above and tables below"
-          type="button"
-          className="kavla-icon-control bg-white hover:bg-yellow-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
-          style={{
-            ...lightStyle,
-            color: "#000",
-            cursor: isReadonly || layingOut ? "default" : "pointer",
-            fontFamily: "Inter, sans-serif",
-            fontSize: 11,
-            fontWeight: 850,
-            gap: 5,
-          }}
-        >
-          {layingOut ? (
-            <Loader2 className="animate-spin" size={14} aria-hidden />
-          ) : (
-            <LayoutDashboard size={14} aria-hidden />
-          )}
-          <span className="kavla-control-label">Layout</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            aria-label="Auto layout Kavla nodes"
+            aria-busy={layingOut}
+            disabled={isReadonly || layingOut}
+            onClick={() => void layout()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            title="Arrange queries left to right, with charts above and tables below"
+            type="button"
+            className="kavla-icon-control bg-white hover:bg-yellow-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
+            style={{
+              ...lightStyle,
+              color: "#000",
+              cursor: isReadonly || layingOut ? "default" : "pointer",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 11,
+              fontWeight: 850,
+              gap: 5,
+            }}
+          >
+            {layingOut ? (
+              <Loader2 className="animate-spin" size={14} aria-hidden />
+            ) : (
+              <LayoutDashboard size={14} aria-hidden />
+            )}
+            <span className="kavla-control-label">Layout</span>
+          </button>
+          <button
+            aria-label="Resize query nodes to fit their active view"
+            disabled={isReadonly || layingOut}
+            onClick={resizeQueries}
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            title="Fit unlocked query nodes to their SQL or Biz content"
+            type="button"
+            className="kavla-icon-control bg-white hover:bg-yellow-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
+            style={{
+              ...lightStyle,
+              color: "#000",
+              cursor: isReadonly || layingOut ? "default" : "pointer",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 11,
+              fontWeight: 850,
+              gap: 5,
+            }}
+          >
+            <Scan size={14} aria-hidden />
+            <span className="kavla-control-label">Resize</span>
+          </button>
+        </div>
       </div>
       {fileSize !== null ? (
         <button
