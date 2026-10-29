@@ -300,7 +300,8 @@ function LocalDocumentControls({
         type="button"
       >
         <DbtLogo size={14} />
-        dbt{dbtNeedsAttention ? " !" : ""}
+        <span className="kavla-control-label">dbt</span>
+        {dbtNeedsAttention ? " !" : ""}
       </button>
       {dbtDialog ? <DbtDialog initialShapeId={dbtDialog.shapeId} onClose={() => setDbtDialog(null)} /> : null}
       {dialogMode ? (
