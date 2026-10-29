@@ -38,18 +38,15 @@ export default function createArrowBetweenShapes(
   const startShape = editor.getShape(startShapeId);
   const endShape = editor.getShape(endShapeId);
   if (!startShape || !endShape || startShapeId === endShapeId) return;
-  const isQueryFlow =
-    endShape.type === "sql-text-area" && ["sql-text-area", "data-source", "knob"].includes(startShape.type);
-
   const {
-    normalizedAnchor: startNormalizedAnchor = { x: isQueryFlow ? 1 : 0.5, y: 0.5 },
+    normalizedAnchor: startNormalizedAnchor = { x: 0.5, y: 0.5 },
     isExact: startIsExact = false,
-    isPrecise: startIsPrecise = isQueryFlow,
+    isPrecise: startIsPrecise = false,
   } = start;
   const {
-    normalizedAnchor: endNormalizedAnchor = { x: isQueryFlow ? 0 : 0.5, y: 0.5 },
+    normalizedAnchor: endNormalizedAnchor = { x: 0.5, y: 0.5 },
     isExact: endIsExact = false,
-    isPrecise: endIsPrecise = isQueryFlow,
+    isPrecise: endIsPrecise = false,
   } = end;
 
   const startTerminalNormalizedPosition = Vec.From(startNormalizedAnchor);
