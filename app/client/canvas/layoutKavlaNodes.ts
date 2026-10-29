@@ -9,6 +9,7 @@ import type { SQLResultTableShape } from "../../SQLResultArea/sql-result-table-t
 import type { LensShape } from "../../Lens/lens-shape-types";
 import type { SummaryShape } from "../../Summary/summary-shape-types";
 import { layoutQueryBranches, type LayoutConnection } from "./layoutQueryBranches";
+import { avoidLayoutArrows } from "./avoidLayoutArrows";
 
 // Explicitly opt in: native tldraw shapes and the hidden agent-chat record aren't nodes.
 const nodeTypes = new Set([
@@ -282,6 +283,10 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
           props: { elbowMidPoint: 0.5 },
         });
       }
+      avoidLayoutArrows(
+        editor,
+        new Map([...groupByShape].filter(([id, groupId]) => id !== groupId && isQueryView(shapesById.get(id)!)))
+      );
     },
     { ignoreShapeLock: true }
   );
