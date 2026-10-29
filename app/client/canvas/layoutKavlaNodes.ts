@@ -10,6 +10,7 @@ import type { LensShape } from "../../Lens/lens-shape-types";
 import type { SummaryShape } from "../../Summary/summary-shape-types";
 import { layoutQueryBranches, type LayoutConnection } from "./layoutQueryBranches";
 import { avoidLayoutArrows } from "./avoidLayoutArrows";
+import { captureLayoutAnnotations } from "./layoutAnnotations";
 
 // Explicitly opt in: native tldraw shapes and the hidden agent-chat record aren't nodes.
 const nodeTypes = new Set([
@@ -44,6 +45,8 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
   const shapes = editor.getCurrentPageShapes();
   const nodes = shapes.filter((shape) => isLayoutNode(shape) && !editor.isShapeOrAncestorLocked(shape));
   if (nodes.length < 2) return;
+  const allNodes = shapes.filter(isLayoutNode);
+  const moveAnnotations = captureLayoutAnnotations(editor, shapes, allNodes);
 
   const bounds = new Map(
     nodes.map((shape) => {
@@ -237,8 +240,8 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
     const delta = deltas.get(shape.id);
     const parentDelta = deltas.get(shape.parentId as TLShapeId);
     if (!delta && !parentDelta) return [];
-    // Native annotations can be children of a chart. Counteract the parent's
-    // translation to keep those children (including locked ones) fixed on the page.
+    // Keep children fixed during node placement. Nearby unlocked annotations
+    // follow their chosen node after arrow avoidance has finished.
     const origin = editor.getShapePageTransform(shape).applyToPoint({ x: 0, y: 0 });
     const point = editor.getPointInParentSpace(shape, {
       x: origin.x + (delta?.x ?? 0) - (parentDelta?.x ?? 0),
@@ -285,8 +288,10 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
       }
       avoidLayoutArrows(
         editor,
-        new Map([...groupByShape].filter(([id, groupId]) => id !== groupId && isQueryView(shapesById.get(id)!)))
+        new Map([...groupByShape].filter(([id, groupId]) => id !== groupId && isQueryView(shapesById.get(id)!))),
+        new Set(allNodes.map((shape) => shape.id))
       );
+      moveAnnotations();
     },
     { ignoreShapeLock: true }
   );

@@ -60,7 +60,11 @@ function crosses(route: Route, id: TLShapeId, box: Bounds): boolean {
 
 // Run after ELK's positions are applied, in the same undo step. Use tldraw's
 // actual routes, without changing bindings or imposing particular arrow sides.
-export function avoidLayoutArrows(editor: Editor, queryByView: Map<TLShapeId, TLShapeId>): void {
+export function avoidLayoutArrows(
+  editor: Editor,
+  queryByView: Map<TLShapeId, TLShapeId>,
+  nodeIds: Set<TLShapeId>
+): void {
   const shapes = editor.getCurrentPageShapes();
   const arrowIds = shapes.filter((shape) => shape.type === "arrow").map((shape) => shape.id);
   if (!arrowIds.length) return;
@@ -81,7 +85,8 @@ export function avoidLayoutArrows(editor: Editor, queryByView: Map<TLShapeId, TL
       if (!blocking.length) continue;
 
       const obstacles = shapes.flatMap((shape) => {
-        if (shape.id === viewId || shape.type === "arrow" || editor.hasAncestor(view, shape.id)) return [];
+        // Annotations follow afterward and mustn't constrain node placement.
+        if (!nodeIds.has(shape.id) || shape.id === viewId || editor.hasAncestor(view, shape.id)) return [];
         const bounds = editor.getShapePageBounds(shape.id);
         return bounds ? [{ id: shape.id, box: bounds }] : [];
       });
