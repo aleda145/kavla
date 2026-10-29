@@ -1,6 +1,6 @@
 import ELK, { type ElkExtendedEdge, type ElkNode } from "elkjs/lib/elk-api";
 import elkWorkerUrl from "elkjs/lib/elk-worker.min.js?url";
-import { getArrowBindings, getArrowInfo, type Editor, type TLArrowShape, type TLShape, type TLShapeId } from "tldraw";
+import { getArrowBindings, type Editor, type TLArrowShape, type TLShape, type TLShapeId } from "tldraw";
 import type { DataSourceShape } from "../../DataSource/data-source-types";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import type { KnobShape } from "../../Knob/knob-types";
@@ -34,7 +34,6 @@ function isQueryView(shape: TLShape): shape is ChartShape | SQLResultTableShape 
 type LayoutGroup = {
   width: number;
   height: number;
-  flowY: number;
   offsets: Map<TLShapeId, { x: number; y: number }>;
 };
 
@@ -125,7 +124,6 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
     groups.set(groupId, {
       width,
       height: tables.length ? tableY + below.height : queryY + anchor.h,
-      flowY: queryY + anchor.h / 2,
       offsets,
     });
   }
@@ -138,7 +136,7 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
     if (!fromGroup || !toGroup || fromGroup === toGroup) return;
     const id = JSON.stringify([fromGroup, toGroup]);
     connections.set(id, { from: fromGroup, to: toGroup });
-    edges.set(id, { id, sources: [`${fromGroup}:out`], targets: [`${toGroup}:in`] });
+    edges.set(id, { id, sources: [fromGroup], targets: [toGroup] });
   };
 
   for (const shape of shapes) {
@@ -175,20 +173,6 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
       id,
       width: group.width,
       height: group.height,
-      // Anchor the flow at query height, even when its charts and tables have
-      // different heights. The full group bounds still reserve their space.
-      layoutOptions: { "elk.portConstraints": "FIXED_POS" },
-      ports: [
-        { id: `${id}:in`, x: 0, y: group.flowY, width: 0, height: 0, layoutOptions: { "elk.port.side": "WEST" } },
-        {
-          id: `${id}:out`,
-          x: group.width,
-          y: group.flowY,
-          width: 0,
-          height: 0,
-          layoutOptions: { "elk.port.side": "EAST" },
-        },
-      ],
     })),
     edges: [...edges.values()],
   };
@@ -197,9 +181,8 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
   const worker = new Worker(elkWorkerUrl);
   const elk = new ELK({ workerFactory: () => worker });
   let layout: ElkNode;
-  let branchByGroup: Map<string, string>;
   try {
-    const result = await Promise.race([
+    layout = await Promise.race([
       layoutQueryBranches(
         elk,
         graph,
@@ -212,8 +195,6 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
         });
       }),
     ]);
-    layout = result.layout;
-    branchByGroup = result.branchByGroup;
   } finally {
     elk.terminateWorker();
   }
@@ -250,7 +231,6 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
     }
   }
   if (deltas.size !== nodes.length) throw new Error("Layout did not return every node.");
-  const laidOutGroups = new Map(layout.children!.map((node) => [node.id, node]));
 
   const updates = shapes.flatMap((shape) => {
     const delta = deltas.get(shape.id);
@@ -271,8 +251,9 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
     () => {
       editor.updateShapes(updates);
 
-      // ELK's ports only affect its layout calculation. Give actual Kavla arrows
-      // matching side bindings so query dependencies don't leave through a table.
+      // Clear endpoint pins and custom bends saved by earlier layout versions.
+      // Generated query connectors return to automatic routing; native arrows
+      // and query-to-chart/table connections keep their existing bindings.
       for (const shape of shapes) {
         if (shape.type !== "arrow" || shape.meta.kavlaConnector !== true || editor.isShapeOrAncestorLocked(shape.id))
           continue;
@@ -288,50 +269,17 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
           !["sql-text-area", "data-source", "knob"].includes(source.type)
         )
           continue;
-        const sourceGroupId = groupByShape.get(source.id);
-        const targetGroupId = groupByShape.get(target.id);
-        if (!sourceGroupId || !targetGroupId || sourceGroupId === targetGroupId) continue;
-
-        const sourceGroup = laidOutGroups.get(sourceGroupId)!;
-        const targetGroup = laidOutGroups.get(targetGroupId)!;
-        const sourceWidth = groups.get(sourceGroupId)!.width;
-        const targetWidth = groups.get(targetGroupId)!.width;
-        // A shared source can now sit to the right of an independent branch.
-        // Keep side connections, but face that branch instead of looping around it.
-        const reverse =
-          branchByGroup.get(sourceGroupId) !== branchByGroup.get(targetGroupId) &&
-          targetGroup.x! + targetWidth / 2 < sourceGroup.x! + sourceWidth / 2;
-
-        editor.updateBindings([
-          {
-            id: start.id,
+        editor.updateBindings(
+          [start, end].map((binding) => ({
+            id: binding.id,
             type: "arrow",
-            props: { normalizedAnchor: { x: reverse ? 0 : 1, y: 0.5 }, isPrecise: true, isExact: false, snap: "edge" },
-          },
-          {
-            id: end.id,
-            type: "arrow",
-            props: { normalizedAnchor: { x: reverse ? 1 : 0, y: 0.5 }, isPrecise: true, isExact: false, snap: "edge" },
-          },
-        ]);
-
-        // Use the gap between entire groups, not just between the query boxes:
-        // their charts and tables may be much wider than the queries themselves.
-        const gapStart = originX + (reverse ? targetGroup.x! + targetWidth : sourceGroup.x! + sourceWidth);
-        const gapEnd = originX + (reverse ? sourceGroup.x! : targetGroup.x!);
-        if (gapEnd <= gapStart) continue;
-        const transform = editor.getShapePageTransform(arrow);
-        // A page-vertical bend needs an arrow whose local x axis is horizontal.
-        if (Math.abs(Math.sin(transform.rotation())) > 0.0001) continue;
-        const info = getArrowInfo(editor, arrow);
-        if (info?.type !== "elbow" || info.route.midpointHandle?.axis !== "x") continue;
-        const range = info.elbow.midXRange;
-        if (!range || range.hi === range.lo) continue;
-        const bend = editor.getPointInShapeSpace(arrow, { x: (gapStart + gapEnd) / 2, y: 0 });
+            props: { normalizedAnchor: { x: 0.5, y: 0.5 }, isPrecise: false, isExact: false, snap: "none" },
+          }))
+        );
         editor.updateShape<TLArrowShape>({
           id: arrow.id,
           type: "arrow",
-          props: { elbowMidPoint: Math.max(0, Math.min(1, (bend.x - range.lo) / (range.hi - range.lo))) },
+          props: { elbowMidPoint: 0.5 },
         });
       }
     },

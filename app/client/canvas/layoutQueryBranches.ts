@@ -17,7 +17,7 @@ export async function layoutQueryBranches(
   graph: ElkNode,
   connections: LayoutConnection[],
   shapeTypes: Map<string, string>
-): Promise<{ layout: ElkNode; branchByGroup: Map<string, string> }> {
+): Promise<ElkNode> {
   const children = graph.children ?? [];
   const queryIds = new Set(
     children.filter((node) => shapeTypes.get(node.id) === "sql-text-area").map((node) => node.id)
@@ -62,7 +62,7 @@ export async function layoutQueryBranches(
   for (const node of children) {
     if (!branchByGroup.has(node.id)) branchByGroup.set(node.id, `standalone:${node.id}`);
   }
-  if (!hasSharedInput) return { layout: await elk.layout(graph), branchByGroup };
+  if (!hasSharedInput) return elk.layout(graph);
 
   const branchMembers = new Map<string, ElkNode[]>();
   for (const node of children) {
@@ -77,7 +77,7 @@ export async function layoutQueryBranches(
     const ids = new Set(members.map((node) => node.id));
     const internalEdges: ElkExtendedEdge[] = connections
       .filter(({ from, to }) => ids.has(from) && ids.has(to))
-      .map(({ from, to }) => ({ id: JSON.stringify([from, to]), sources: [`${from}:out`], targets: [`${to}:in`] }));
+      .map(({ from, to }) => ({ id: JSON.stringify([from, to]), sources: [from], targets: [to] }));
     const layout: ElkNode =
       members.length === 1
         ? { id, width: members[0].width, height: members[0].height, children: [{ ...members[0], x: 0, y: 0 }] }
@@ -131,5 +131,5 @@ export async function layoutQueryBranches(
     }
   }
   if (placed.length !== children.length) throw new Error("Layout did not return every branch node.");
-  return { layout: { ...graph, children: placed }, branchByGroup };
+  return { ...graph, children: placed };
 }
