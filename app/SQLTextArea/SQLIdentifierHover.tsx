@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useData } from "../client/useLocalServer";
@@ -9,7 +9,9 @@ import { ColumnHoverTooltip } from "./ColumnHoverTooltip";
 import type { RemoteSourceInfo } from "./remote-column-stats";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import type { SQLHighlightTarget } from "./StaticSQLHighlighter";
-import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
+import { walkSQLDag } from "./walkSQLDag";
+import { prepareCanvasSQL } from "./prepareCanvasSQL";
+import { canvasSQLSignature } from "../Dbt/dbtCompilation";
 import { usePopupPlacement } from "./usePopupPlacement";
 import { SQLPopupHoverContext, useExclusivePopup } from "./useExclusivePopup";
 import { describeKnob, findKnob } from "../Knob/knobReferences";
@@ -229,35 +231,51 @@ function ColumnDetails({
 }) {
   const editor = useEditor();
   const { runRemoteQuery, cancelRemoteQuery } = useData();
-  const remoteSource = useMemo<RemoteSourceInfo | null>(() => {
-    const shape = tableId ? editor.getShape(tableId) : undefined;
-    if (shape?.type === "data-source") {
-      const source = getRemoteSourceMetadata(shape as DataSourceShape);
-      return source
-        ? {
-            sourceName: source.sourceName,
-            sourceType: source.sourceType,
-            fullTableRef: source.remoteTableRef,
-            runRemoteQuery,
+  const remoteSource = useValue<RemoteSourceInfo | null>(
+    "Biz column stats source",
+    () => {
+      const shape = tableId ? editor.getShape(tableId) : undefined;
+      if (shape?.type === "data-source") {
+        const source = getRemoteSourceMetadata(shape as DataSourceShape);
+        return source
+          ? {
+              sourceName: source.sourceName,
+              sourceType: source.sourceType,
+              fullTableRef: source.remoteTableRef,
+              runRemoteQuery,
+              cancelRemoteQuery,
+            }
+          : null;
+      }
+      if (shape?.type !== "sql-text-area") return null;
+      const query = shape as SQLTextAreaShape;
+      const dag = walkSQLDag(editor, query.props.text);
+      if (!dag.ok) return null;
+      const { executionState } = dag.plan;
+      return {
+        sourceName: executionState.sourceName ?? "uploaded_files",
+        sourceType: executionState.sourceNativePreview ? executionState.sourceType : "duckdb",
+        fullTableRef: `query:${query.id}:${canvasSQLSignature(editor)}`,
+        prepare: async () => {
+          const current = editor.getShape<SQLTextAreaShape>(query.id);
+          if (!current) throw new Error("The query was removed.");
+          const plan = await prepareCanvasSQL(editor, current.props.text);
+          return {
+            sourceName: plan.executionState.sourceName ?? "uploaded_files",
+            sourceType: plan.executionState.sourceNativePreview ? plan.executionState.sourceType : "duckdb",
+            fullTableRef: `query:${query.id}:${plan.sql}`,
+            tableSql: plan.sql,
+            runRemoteQuery: (payload) =>
+              runRemoteQuery({ ...payload, sourceNative: plan.executionState.sourceNativePreview }),
             cancelRemoteQuery,
-          }
-        : null;
-    }
-    if (shape?.type !== "sql-text-area") return null;
-    const query = shape as SQLTextAreaShape;
-    const dag = walkSQLDag(editor, query.props.text);
-    if (!dag.ok) return null;
-    const { executionState, orderedDependencies } = dag.plan;
-    const tableSql = buildRemoteSQLFromDag(query.props.text, orderedDependencies, editor);
-    return {
-      sourceName: executionState.sourceName ?? "uploaded_files",
-      sourceType: executionState.sourceNativePreview ? executionState.sourceType : "duckdb",
-      fullTableRef: `query:${query.id}:${tableSql}`,
-      tableSql,
-      runRemoteQuery,
-      cancelRemoteQuery,
-    };
-  }, [editor, tableId, runRemoteQuery, cancelRemoteQuery]);
+          };
+        },
+        runRemoteQuery,
+        cancelRemoteQuery,
+      };
+    },
+    [editor, tableId, runRemoteQuery, cancelRemoteQuery]
+  );
 
   return (
     <ColumnHoverTooltip

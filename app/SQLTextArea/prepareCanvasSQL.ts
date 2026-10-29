@@ -1,15 +1,20 @@
-import { canvasSQLSignature, rememberCompiledDbtModels } from "../Dbt/dbtCompilation";
+import {
+  canvasSQLSignature,
+  getCompiledDbtModels,
+  getCompiledDbtQuery,
+  rememberCompiledDbtModels,
+} from "../Dbt/dbtCompilation";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import type { Editor, TLShapeId } from "tldraw";
 import { sessionFetch } from "../client/backendCompute";
 import { dbtContextShape, hasDbtTemplate } from "../Dbt/dbtSQL";
-import { dbtState } from "../Dbt/dbtRuntime";
+import { dbtState } from "../Dbt/dbtState";
 import { dbtFileView, dbtRelation } from "../Dbt/dbtCanvas";
 import { getOrderedDependenciesForSQL } from "./sqlDependencies";
-import { walkSQLDag, buildRemoteSQLFromDag, describeQueryExecution, getMissingSourceMessage } from "./walkSQLDag";
+import { buildRemoteSQLFromDag, describeQueryExecution, getMissingSourceMessage } from "./walkSQLDag";
 import { getSQLKnobs } from "../Knob/knobSQL";
 
-export async function prepareCanvasSQL(editor: Editor, sql: string, signal?: AbortSignal) {
+export async function compileCanvasSQL(editor: Editor, sql: string, signal?: AbortSignal) {
   const initial = getOrderedDependenciesForSQL(editor, sql);
   const truncated = initial.orderedDependencies.find(
     (shape) => shape.type === "sql-text-area" && shape.props.dbt?.readOnly
@@ -18,11 +23,9 @@ export async function prepareCanvasSQL(editor: Editor, sql: string, signal?: Abo
   const usesDbt =
     hasDbtTemplate(sql) ||
     initial.orderedDependencies.some((shape) => shape.type === "sql-text-area" && hasDbtTemplate(shape.props.text));
-  if (!usesDbt) {
-    const plan = walkSQLDag(editor, sql);
-    if (!plan.ok) throw new Error(plan.error.message);
-    return { ...plan.plan, sql: buildRemoteSQLFromDag(sql, plan.plan.orderedDependencies, editor) };
-  }
+  if (!usesDbt) return { sql, models: getCompiledDbtModels(editor) };
+  const cached = getCompiledDbtQuery(editor, sql);
+  if (cached !== undefined) return { sql: cached, models: getCompiledDbtModels(editor) };
   const signature = canvasSQLSignature(editor);
   const shapes = editor.getCurrentPageShapes();
   const files = shapes.flatMap((shape) => {
@@ -88,7 +91,13 @@ export async function prepareCanvasSQL(editor: Editor, sql: string, signal?: Abo
   signal?.throwIfAborted();
   if (canvasSQLSignature(editor) !== signature)
     throw new Error("Canvas inputs changed while compiling dbt SQL. Run it again.");
-  rememberCompiledDbtModels(editor, compiled.models);
+  rememberCompiledDbtModels(editor, compiled.models, { source: sql, sql: compiled.sql });
+  return compiled;
+}
+
+export async function prepareCanvasSQL(editor: Editor, sql: string, signal?: AbortSignal) {
+  const compiled = await compileCanvasSQL(editor, sql, signal);
+  signal?.throwIfAborted();
   const plan = getOrderedDependenciesForSQL(editor, compiled.sql, compiled.models);
   if (plan.cycle) throw new Error(plan.cycle);
   const missing = getMissingSourceMessage(plan.orderedDependencies);

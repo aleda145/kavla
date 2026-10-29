@@ -47,6 +47,7 @@ import { SQLBizOperationStats } from "./SQLBizOperationStats";
 import { SQLBizAnalysisControls } from "./SQLBizAnalysisControls";
 import { useTldrawScrollArea } from "../DataSource/useTldrawScrollArea";
 import { TldrawScrollAreaIndicator } from "../DataSource/TldrawScrollAreaIndicator";
+import { useSQLBizQuery } from "./useSQLBizQuery";
 
 const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
   CTE: { Icon: Layers, color: "#bfdbfe" },
@@ -97,6 +98,36 @@ function OperationBadge({ operation }: { operation: BizOperation }) {
 }
 
 export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaShape }) {
+  const query = useSQLBizQuery(text);
+  if (query.sql === undefined) {
+    return (
+      <div style={{ padding: 12, fontSize: 12, overflow: "auto", minHeight: 0 }}>
+        {query.error ? (
+          <>
+            <pre role="alert" className="text-red-700 whitespace-pre-wrap">
+              {query.error}
+            </pre>
+            <button
+              className="mt-2 px-2 py-1 border-2 border-black rounded bg-white text-black font-bold cursor-pointer"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                query.retry();
+              }}
+            >
+              Retry
+            </button>
+          </>
+        ) : (
+          "Compiling dbt SQL…"
+        )}
+      </div>
+    );
+  }
+  return <SQLBizPipeline text={query.sql} shape={shape} />;
+}
+
+function SQLBizPipeline({ text, shape }: { text: string; shape: SQLTextAreaShape }) {
   const registry = useSchemaRegistry();
   const schema = useMemo(() => buildSqlSchemaIndex(registry), [registry]);
   const upstreamTableNames = (shape.props.upstreamShapeIds ?? []).flatMap((id) => {
@@ -471,7 +502,6 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
           step={pinnedStep}
           pinned
           shape={shape}
-          text={text}
           highlight={highlight}
           onClose={() => setPinned(null)}
           onPointerEnter={cancelHoverTimer}
@@ -484,7 +514,6 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
           step={activeStep}
           pinned={false}
           shape={shape}
-          text={text}
           highlight={highlight}
           onClose={() => setDetail(null)}
           onPointerEnter={cancelHoverTimer}
@@ -620,7 +649,6 @@ function OperationPopup({
   step,
   pinned,
   shape,
-  text,
   highlight,
   onClose,
   onPointerEnter,
@@ -630,7 +658,6 @@ function OperationPopup({
   step: BizStep;
   pinned: boolean;
   shape: SQLTextAreaShape;
-  text: string;
   highlight: (sql: string) => ReactNode;
   onClose: () => void;
   onPointerEnter: () => void;
@@ -746,7 +773,13 @@ function OperationPopup({
                   event.stopPropagation();
                   if (!extraction?.enabled || extracting) return;
                   try {
-                    const extracted = await extractSQLBizOperation(editor, shape.id, detail.path, text, data);
+                    const extracted = await extractSQLBizOperation(
+                      editor,
+                      shape.id,
+                      detail.path,
+                      shape.props.text,
+                      data
+                    );
                     addToast({
                       title: `Extracted to ${extracted.name}`,
                       severity: "success",

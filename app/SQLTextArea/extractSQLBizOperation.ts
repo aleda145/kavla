@@ -12,6 +12,7 @@ import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
 import { quoteIdentifier } from "../src/duckdb/sql";
 import type { LocalServerContextType } from "../client/localServer/types";
+import { hasDbtTemplate } from "../Dbt/dbtSQL";
 
 type CanvasExtractionPlan =
   | { enabled: false; reason: string }
@@ -54,6 +55,10 @@ export function getSQLBizExtractionPlan(
   if (editor.getInstanceState().isReadonly || shape.isLocked)
     return disabled("Unlock this query to extract an operation.");
   if (shape.props.isRunning) return disabled("Wait for this query to finish running.");
+  if (shape.props.dbt?.readOnly) return disabled("This dbt model is a read-only file preview.");
+  if (hasDbtTemplate(shape.props.text)) {
+    return disabled("This operation is rendered from Jinja. Extraction cannot rewrite the original template yet.");
+  }
   const summary = getSQLBizSummary(shape.props.text);
   const step = getSQLBizStep(summary, stepPath);
   if (summary.error || !step) return disabled(summary.error ?? "This operation is no longer available.");

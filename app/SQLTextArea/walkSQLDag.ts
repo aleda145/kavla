@@ -1,4 +1,5 @@
 import { dbtRelation } from "../Dbt/dbtCanvas";
+import { getCompiledDbtModels, getCompiledDbtQuery } from "../Dbt/dbtCompilation";
 import { resolveDbtReferences } from "../Dbt/dbtSQL";
 import type { Editor } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
@@ -208,7 +209,7 @@ export function buildRemoteSQLFromDag(
   sqlText: string,
   orderedDependencies: SQLDependencyShape[],
   editor: Editor,
-  compiled: Record<string, string> = {}
+  compiled: Record<string, string> = getCompiledDbtModels(editor)
 ): string {
   const ctes = orderedDependencies.map((dependency) => {
     if (dependency.type === "sql-text-area")
@@ -217,6 +218,8 @@ export function buildRemoteSQLFromDag(
     if (!source) throw new Error(`Source "${dependency.props.name}" is unavailable.`);
     return `${quoteIdentifier(dependency.props.name)} AS (SELECT * FROM ${quoteDottedIdentifier(source.remoteTableRef)})`;
   });
-  const query = stripTrailingSemicolons(resolveKnobSQL(editor, resolveDbtReferences(editor, sqlText, true)));
+  const query = stripTrailingSemicolons(
+    resolveKnobSQL(editor, resolveDbtReferences(editor, getCompiledDbtQuery(editor, sqlText) ?? sqlText, true))
+  );
   return ctes.length ? `WITH ${ctes.join(",\n")} SELECT * FROM (${query}) AS kavla_query` : query;
 }
