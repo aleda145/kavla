@@ -3,11 +3,12 @@ import { parseRecoverableCanvas } from "./parseRecoverableCanvas";
 import { canvasApiURL, disconnectCanvas } from "../canvasConnection";
 import { sessionFetch, setBackendDocument, resetBackendCaches } from "../backendCompute";
 import type { LensShape } from "../../Lens/lens-shape-types";
-import type { Editor, TLAssetPartial, TLCamera } from "tldraw";
+import type { Editor, TLAsset, TLAssetPartial, TLCamera } from "tldraw";
 import { CameraRecordType } from "tldraw";
 import type { DataSourceShape } from "../../DataSource/data-source-types";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { getAgentChat, updateAgentChat } from "../../AgentBlob/agent-chat-store";
+import { restoreCanvasUndo, serializeCanvasUndo } from "./canvasUndo";
 
 export type KavlaBlobKind = "source" | "asset";
 
@@ -27,6 +28,7 @@ export interface KavlaLocalSession {
   documentName: string;
   fileSize: number;
   canvasJson: string | null;
+  undoJson?: string | null;
   blobs: KavlaBlobDescriptor[];
 }
 
@@ -197,6 +199,18 @@ function acceptLocalSession(session: KavlaLocalSession): KavlaLocalSession {
 export function loadCanvasJson(editor: Editor, canvasJson: string, onWarning?: (message: string) => void): void {
   const recovered = parseRecoverableCanvas(editor, canvasJson);
   editor.loadSnapshot(recovered.snapshot);
+  // tldraw's file parser drops assets that have no currently visible shape.
+  // An undo may still restore a deleted shape that references one of them.
+  const savedRecords = (JSON.parse(canvasJson) as { records: unknown[] }).records;
+  const savedAssets = savedRecords.flatMap((record) => {
+    if (!record || typeof record !== "object" || !("typeName" in record) || record.typeName !== "asset") return [];
+    try {
+      return [editor.store.schema.types.asset.validate(record) as TLAsset];
+    } catch {
+      return [];
+    }
+  });
+  editor.store.put(savedAssets.filter((asset) => !editor.store.has(asset.id)));
   applyCanvasPreferences(editor);
   const cameraRecords = readCameraRecords(canvasJson);
   if (cameraRecords.length > 0) {
@@ -256,6 +270,13 @@ export function loadCanvasJson(editor: Editor, canvasJson: string, onWarning?: (
     updateAgentChat(editor, { isRunning: false, streamingText: "", activity: null });
   }
   editor.clearHistory();
+  if (recovered.warnings.length === 0) {
+    try {
+      restoreCanvasUndo(editor, activeSession?.undoJson ?? canvasJson);
+    } catch (error) {
+      onWarning?.(error instanceof Error ? error.message : String(error));
+    }
+  }
   if (recovered.warnings.length)
     onWarning?.(
       `${recovered.warnings.slice(0, 8).join("\n") + (recovered.warnings.length > 8 ? `\n…and ${recovered.warnings.length - 8} more recovery notes.` : "")}\nOriginal incompatible records are kept in document metadata.`
@@ -279,17 +300,45 @@ export function stageCanvas(editor: Editor, includeCurrentCamera = false): Promi
     if (!session || activeSession !== session) return;
 
     const canvasJson = serializeLocalCanvasJson(editor, includeCurrentCamera);
-    if (canvasJson === activeSession.canvasJson) return;
-    const response = await sessionFetch("/api/session/document", {
-      method: "PUT",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: canvasJson,
-    });
-    if (!response.ok) {
-      throw new Error(`Could not stage canvas (status ${response.status})`);
+    if (canvasJson !== session.canvasJson) {
+      const response = await sessionFetch("/api/session/document", {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: canvasJson,
+      });
+      if (!response.ok) throw new Error(`Could not stage canvas (status ${response.status})`);
+      if (activeSession === session) session.canvasJson = canvasJson;
     }
-    if (activeSession === session) session.canvasJson = canvasJson;
+    const records = Object.values(editor.store.serialize("document"));
+    const currentShapeIds = new Set<string>(
+      records.filter((record) => record.typeName === "shape").map((record) => record.id)
+    );
+    const currentAssetIds = new Set<string>(
+      records.flatMap((record) =>
+        record.typeName === "shape" && "assetId" in record.props && typeof record.props.assetId === "string"
+          ? [record.props.assetId]
+          : []
+      )
+    );
+    const largeOrphanShapeIds = new Set<string>();
+    const largeOrphanAssetIds = new Set<string>();
+    for (const blob of session.blobs) {
+      if (blob.tableName || blob.size <= 16 * 1024 * 1024 || !blob.shapeId) continue;
+      if (blob.kind === "source" && !currentShapeIds.has(blob.shapeId)) largeOrphanShapeIds.add(blob.shapeId);
+      if (blob.kind === "asset" && !currentAssetIds.has(blob.shapeId)) largeOrphanAssetIds.add(blob.shapeId);
+    }
+    const undoJson = JSON.stringify(serializeCanvasUndo(editor, largeOrphanShapeIds, largeOrphanAssetIds));
+    if (undoJson !== session.undoJson) {
+      const response = await sessionFetch("/api/session/undo", {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: undoJson,
+      });
+      if (!response.ok) throw new Error(`Could not stage undo (status ${response.status})`);
+      if (activeSession === session) session.undoJson = undoJson;
+    }
   });
   canvasStageQueue = operation.catch(() => undefined);
   return operation;

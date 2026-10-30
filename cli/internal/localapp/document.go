@@ -59,6 +59,7 @@ type Document struct {
 	workingDir string
 	manifest   Manifest
 	canvasJSON []byte
+	undoJSON   []byte
 	blobs      map[string]BlobDescriptor
 }
 
@@ -152,6 +153,22 @@ func (d *Document) CanvasJSON() []byte {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return append([]byte(nil), d.canvasJSON...)
+}
+
+func (d *Document) UndoJSON() []byte {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return append([]byte(nil), d.undoJSON...)
+}
+
+func (d *Document) StageUndo(undoJSON []byte) error {
+	if !json.Valid(undoJSON) || len(undoJSON) > 4<<20 {
+		return fmt.Errorf("canvas undo history must be valid JSON under 4 MiB")
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.undoJSON = append(d.undoJSON[:0], undoJSON...)
+	return atomicWriteFile(filepath.Join(d.workingDir, "undo.json"), d.undoJSON, 0600)
 }
 
 func (d *Document) StageCanvas(canvasJSON []byte) error {
@@ -426,6 +443,7 @@ func (d *Document) NewAtPath(path string, canvasJSON []byte, overwrite bool) err
 	d.workingDir = newWorkingDir
 	d.manifest = stagedDocument.manifest
 	d.canvasJSON = append([]byte(nil), canvasJSON...)
+	d.undoJSON = nil
 	d.blobs = make(map[string]BlobDescriptor)
 	d.mu.Unlock()
 	if oldWorkingDir != newWorkingDir {
@@ -478,6 +496,9 @@ func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reas
 	}
 	if err == nil {
 		err = writeZipBytes(zipWriter, "canvas.json", d.canvasJSON, zip.Deflate)
+	}
+	if err == nil && len(d.undoJSON) > 0 {
+		err = writeZipBytes(zipWriter, "undo.json", d.undoJSON, zip.Deflate)
 	}
 	if err == nil {
 		for _, descriptor := range d.manifest.Blobs {
@@ -536,6 +557,7 @@ func (d *Document) ReplaceFromArchive(archivePath string) error {
 
 	manifest := imported.Manifest()
 	canvasJSON := imported.CanvasJSON()
+	undoJSON := imported.UndoJSON()
 	if len(canvasJSON) == 0 {
 		return fmt.Errorf("loaded Kavla document has no canvas state")
 	}
@@ -555,6 +577,11 @@ func (d *Document) ReplaceFromArchive(archivePath string) error {
 	}
 	if err := atomicWriteFile(filepath.Join(stagedWorkingDir, "canvas.json"), canvasJSON, 0600); err != nil {
 		return fmt.Errorf("stage loaded canvas: %w", err)
+	}
+	if len(undoJSON) > 0 {
+		if err := atomicWriteFile(filepath.Join(stagedWorkingDir, "undo.json"), undoJSON, 0600); err != nil {
+			return fmt.Errorf("stage loaded undo history: %w", err)
+		}
 	}
 	manifestJSON, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -582,6 +609,7 @@ func (d *Document) ReplaceFromArchive(archivePath string) error {
 	d.workingDir = stagedWorkingDir
 	d.manifest = manifest
 	d.canvasJSON = append(d.canvasJSON[:0], canvasJSON...)
+	d.undoJSON = append(d.undoJSON[:0], undoJSON...)
 	d.blobs = nextBlobs
 	stagedWorkingDir = ""
 	_ = os.RemoveAll(oldWorkingDir)
@@ -632,6 +660,16 @@ func (d *Document) loadArchive() error {
 		return fmt.Errorf("canvas.json is not valid JSON")
 	}
 	d.canvasJSON = canvasJSON
+	if entries["undo.json"] != nil {
+		undoJSON, err := readZipEntry(entries["undo.json"], 4<<20)
+		if err != nil {
+			return fmt.Errorf("read undo history: %w", err)
+		}
+		if !json.Valid(undoJSON) {
+			return fmt.Errorf("undo.json is not valid JSON")
+		}
+		d.undoJSON = undoJSON
+	}
 	seenTables := make(map[string]bool)
 	seenBlobIDs := make(map[string]struct{}, len(d.manifest.Blobs))
 	for _, descriptor := range d.manifest.Blobs {
@@ -678,6 +716,11 @@ func (d *Document) initializeWorkingCopy() error {
 			return err
 		}
 	}
+	if len(d.undoJSON) > 0 {
+		if err := atomicWriteFile(filepath.Join(d.workingDir, "undo.json"), d.undoJSON, 0600); err != nil {
+			return err
+		}
+	}
 	return d.writeManifestLocked()
 }
 
@@ -702,6 +745,17 @@ func (d *Document) pruneUnreferencedBlobsLocked() error {
 	if err != nil {
 		return err
 	}
+	currentShapeIDs := make(map[string]struct{}, len(shapeIDs))
+	currentAssetIDs := make(map[string]struct{}, len(assetIDs))
+	for id := range shapeIDs {
+		currentShapeIDs[id] = struct{}{}
+	}
+	for id := range assetIDs {
+		currentAssetIDs[id] = struct{}{}
+	}
+	if err := undoBlobOwners(d.undoJSON, shapeIDs, assetIDs); err != nil {
+		return err
+	}
 
 	removed := make(map[string]BlobDescriptor)
 	for id, descriptor := range d.blobs {
@@ -718,7 +772,13 @@ func (d *Document) pruneUnreferencedBlobsLocked() error {
 			owners = assetIDs
 		}
 		if _, live := owners[descriptor.ShapeID]; live {
-			continue
+			currentOwners := currentShapeIDs
+			if descriptor.Kind == BlobKindAsset {
+				currentOwners = currentAssetIDs
+			}
+			if _, current := currentOwners[descriptor.ShapeID]; current || descriptor.Size <= 16<<20 {
+				continue
+			}
 		}
 		removed[id] = descriptor
 		delete(d.blobs, id)
@@ -745,7 +805,8 @@ func (d *Document) pruneUnreferencedBlobsLocked() error {
 
 func canvasBlobOwners(canvasJSON []byte) (map[string]struct{}, map[string]struct{}, error) {
 	var canvas struct {
-		Records json.RawMessage `json:"records"`
+		Records   json.RawMessage `json:"records"`
+		KavlaUndo json.RawMessage `json:"kavlaUndo"`
 	}
 	if err := json.Unmarshal(canvasJSON, &canvas); err != nil {
 		return nil, nil, fmt.Errorf("parse canvas for blob pruning: %w", err)
@@ -757,6 +818,9 @@ func canvasBlobOwners(canvasJSON []byte) (map[string]struct{}, map[string]struct
 	var records []struct {
 		ID       string `json:"id"`
 		TypeName string `json:"typeName"`
+		Props    struct {
+			AssetID string `json:"assetId"`
+		} `json:"props"`
 	}
 	if err := json.Unmarshal(canvas.Records, &records); err != nil {
 		return nil, nil, fmt.Errorf("parse canvas records for blob pruning: %w", err)
@@ -768,12 +832,90 @@ func canvasBlobOwners(canvasJSON []byte) (map[string]struct{}, map[string]struct
 		switch record.TypeName {
 		case "shape":
 			shapeIDs[record.ID] = struct{}{}
-		case "asset":
-			assetIDs[record.ID] = struct{}{}
+			if record.Props.AssetID != "" {
+				assetIDs[record.Props.AssetID] = struct{}{}
+			}
 		}
+	}
+	if err := undoBlobOwners(canvas.KavlaUndo, shapeIDs, assetIDs); err != nil {
+		return nil, nil, err
 	}
 
 	return shapeIDs, assetIDs, nil
+}
+
+func undoBlobOwners(undoJSON []byte, shapeIDs, assetIDs map[string]struct{}) error {
+	if len(undoJSON) == 0 {
+		return nil
+	}
+	var undo struct {
+		Undos []struct {
+			Diff struct {
+				Added   map[string]json.RawMessage   `json:"added"`
+				Updated map[string][]json.RawMessage `json:"updated"`
+				Removed map[string]json.RawMessage   `json:"removed"`
+			} `json:"diff"`
+		} `json:"undos"`
+		Redos []struct {
+			Diff struct {
+				Added   map[string]json.RawMessage   `json:"added"`
+				Updated map[string][]json.RawMessage `json:"updated"`
+				Removed map[string]json.RawMessage   `json:"removed"`
+			} `json:"diff"`
+		} `json:"redos"`
+	}
+	if err := json.Unmarshal(undoJSON, &undo); err != nil {
+		return fmt.Errorf("parse undo history for blob pruning: %w", err)
+	}
+	// An undo may recreate a deleted source or asset.
+	rememberUndoRecord := func(raw json.RawMessage) error {
+		var record struct {
+			ID       string `json:"id"`
+			TypeName string `json:"typeName"`
+			Props    struct {
+				AssetID string `json:"assetId"`
+			} `json:"props"`
+		}
+		if err := json.Unmarshal(raw, &record); err != nil {
+			return fmt.Errorf("parse undo record for blob pruning: %w", err)
+		}
+		switch record.TypeName {
+		case "shape":
+			shapeIDs[record.ID] = struct{}{}
+			if record.Props.AssetID != "" {
+				assetIDs[record.Props.AssetID] = struct{}{}
+			}
+		case "asset":
+			assetIDs[record.ID] = struct{}{}
+		}
+		return nil
+	}
+	for _, entries := range [][]struct {
+		Diff struct {
+			Added   map[string]json.RawMessage   `json:"added"`
+			Updated map[string][]json.RawMessage `json:"updated"`
+			Removed map[string]json.RawMessage   `json:"removed"`
+		} `json:"diff"`
+	}{undo.Undos, undo.Redos} {
+		for _, entry := range entries {
+			for _, group := range []map[string]json.RawMessage{entry.Diff.Added, entry.Diff.Removed} {
+				for _, raw := range group {
+					if err := rememberUndoRecord(raw); err != nil {
+						return err
+					}
+				}
+			}
+			for _, pair := range entry.Diff.Updated {
+				for _, raw := range pair {
+					if err := rememberUndoRecord(raw); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
