@@ -356,6 +356,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("GET /api/runtime/events", s.sameOriginMutation(s.handleRuntimeEvents))
 	mux.HandleFunc("PUT /api/session/document", s.sameOriginMutation(s.handleDocument))
+	mux.HandleFunc("PUT /api/session/undo", s.sameOriginMutation(s.handleUndo))
 	mux.HandleFunc("GET /api/session/snapshots", s.handleListSnapshots)
 	mux.HandleFunc("GET /api/session/snapshots/{id}", s.handleReadSnapshot)
 	mux.HandleFunc("GET /api/session/snapshots/{id}/download", s.handleDownloadSnapshot)
@@ -444,6 +445,7 @@ func hasSameRequestOrigin(r *http.Request) bool {
 func (s *Server) handleSession(w http.ResponseWriter, _ *http.Request) {
 	manifest := s.document.Manifest()
 	canvas := s.document.CanvasJSON()
+	undo := s.document.UndoJSON()
 	fileSize, err := currentDocumentFileSize(s.document.Path())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -454,6 +456,7 @@ func (s *Server) handleSession(w http.ResponseWriter, _ *http.Request) {
 		DocumentName string           `json:"documentName"`
 		FileSize     int64            `json:"fileSize"`
 		CanvasJSON   *string          `json:"canvasJson"`
+		UndoJSON     *string          `json:"undoJson"`
 		Blobs        []BlobDescriptor `json:"blobs"`
 	}{
 		DocumentID:   manifest.DocumentID,
@@ -464,6 +467,10 @@ func (s *Server) handleSession(w http.ResponseWriter, _ *http.Request) {
 	if len(canvas) > 0 {
 		value := string(canvas)
 		response.CanvasJSON = &value
+	}
+	if len(undo) > 0 {
+		value := string(undo)
+		response.UndoJSON = &value
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -479,6 +486,20 @@ func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.document.StageCanvas(data); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleUndo(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.document.StageUndo(data); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

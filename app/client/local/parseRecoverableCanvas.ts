@@ -8,7 +8,10 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 // Try the normal migration path first. Recovery is deliberately per record:
 // one unknown widget must not prevent opening the rest of a document.
 export function parseRecoverableCanvas(editor: Editor, json: string): CanvasRecovery {
-  const strict = parseTldrawJsonFile({ json, schema: editor.store.schema });
+  // The Kavla archive also carries undo history, which tldraw's file
+  // validator does not accept as a top-level field.
+  const { kavlaUndo: _undo, ...canvasFile } = JSON.parse(json) as Record<string, unknown>;
+  const strict = parseTldrawJsonFile({ json: JSON.stringify(canvasFile), schema: editor.store.schema });
   if (strict.ok) return { snapshot: strict.value.getStoreSnapshot(), warnings: [] };
   const input = JSON.parse(json) as { tldrawFileFormatVersion: number; schema: SerializedSchema; records: unknown[] };
   if (input.tldrawFileFormatVersion !== 1 || !Array.isArray(input.records) || input.schema?.schemaVersion !== 2) {
