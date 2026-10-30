@@ -11,10 +11,19 @@ import {
   TldrawUiMenuGroup,
   ToggleDebugModeItem,
   ViewSubmenu,
+  useEditor,
+  useValue,
 } from "tldraw";
 import { JustIconsMenuItem } from "./justIcons";
+import { getLayoutInProgress } from "./canvas/layoutActions";
 
 export function CanvasSettingsMenu() {
+  const editor = useEditor();
+  const layoutDisabled = useValue(
+    "Layout actions disabled",
+    () => editor.getIsReadonly() || getLayoutInProgress(editor).get(),
+    [editor]
+  );
   return (
     <TldrawUiDropdownMenuRoot id="main menu">
       <TldrawUiDropdownMenuTrigger>
@@ -45,6 +54,8 @@ export function CanvasSettingsMenu() {
           </TldrawUiMenuGroup>
           <TldrawUiMenuGroup id="settings">
             <JustIconsMenuItem />
+            <TldrawUiMenuActionItem actionId="layout-kavla-nodes" disabled={layoutDisabled} />
+            <TldrawUiMenuActionItem actionId="fit-query-nodes" disabled={layoutDisabled} />
             <ToggleDebugModeItem />
           </TldrawUiMenuGroup>
         </TldrawUiMenuContextProvider>

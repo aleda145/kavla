@@ -17,7 +17,7 @@ export const layoutActions: NonNullable<TLUiOverrides["actions"]> = (editor, act
   actions["flatten-to-image"] = { ...actions["flatten-to-image"], kbd: "!?f" };
   actions["layout-kavla-nodes"] = {
     id: "layout-kavla-nodes",
-    label: "Arrange nodes",
+    label: "Auto layout",
     kbd: "!a",
     onSelect: async () => {
       if (editor.getIsReadonly() || busy.get()) return;
@@ -38,7 +38,7 @@ export const layoutActions: NonNullable<TLUiOverrides["actions"]> = (editor, act
   };
   actions["fit-query-nodes"] = {
     id: "fit-query-nodes",
-    label: "Resize queries to fit",
+    label: "Fit",
     kbd: "!f",
     onSelect: () => {
       if (editor.getIsReadonly() || busy.get()) return;
