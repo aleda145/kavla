@@ -33,10 +33,14 @@ export function CanvasFileTable({
   entries,
   onOpen,
   selectedPath,
+  showPath = true,
+  emptyMessage = "No canvases are registered.",
 }: {
   entries: CanvasFileEntry[];
   onOpen?: (entry: CanvasFileEntry) => void;
   selectedPath?: string | null;
+  showPath?: boolean;
+  emptyMessage?: string;
 }) {
   const [sortColumn, setSortColumn] = useState<SortColumn | null>("modified");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -106,28 +110,40 @@ export function CanvasFileTable({
 
   return (
     <div className="kavla-canvas-file-table-scroll">
-      <table className="kavla-canvas-file-table">
+      <table className={`kavla-canvas-file-table${showPath ? " kavla-canvas-file-table--with-path" : ""}`}>
         <thead>
           <tr>
             {column("name", "Name")}
             {column("modified", "Modified")}
             {column("size", "Size")}
-            {column("path", "Path")}
+            {showPath && column("path", "Path")}
           </tr>
         </thead>
         <tbody>
           {sortedEntries.length === 0 ? (
             <tr>
-              <td colSpan={4}>No canvases are registered.</td>
+              <td colSpan={showPath ? 4 : 3}>{emptyMessage}</td>
             </tr>
           ) : (
             sortedEntries.map((entry) => (
-              <tr key={entry.path} aria-selected={selectedPath === entry.path}>
+              <tr
+                key={entry.path}
+                aria-selected={selectedPath === entry.path}
+                className={onOpen && !entry.status ? "kavla-canvas-file-table-selectable" : undefined}
+                onClick={onOpen && !entry.status ? () => onOpen(entry) : undefined}
+              >
                 <td>
                   {entry.status ? (
                     <strong>{entry.name}</strong>
                   ) : onOpen ? (
-                    <button type="button" className="kavla-canvas-file-table-open" onClick={() => onOpen(entry)}>
+                    <button
+                      type="button"
+                      className="kavla-canvas-file-table-open"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onOpen(entry);
+                      }}
+                    >
                       {entry.name}
                     </button>
                   ) : entry.url ? (
@@ -141,9 +157,11 @@ export function CanvasFileTable({
                 </td>
                 <td>{formatModified(entry.modifiedAt)}</td>
                 <td>{formatSize(entry.size)}</td>
-                <td>
-                  <code>{entry.path}</code>
-                </td>
+                {showPath && (
+                  <td>
+                    <code>{entry.path}</code>
+                  </td>
+                )}
               </tr>
             ))
           )}
