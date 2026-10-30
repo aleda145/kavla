@@ -43,7 +43,7 @@ import { extractSQLBizOperation, getSQLBizExtractionPlan, isSQLBizExtracting } f
 import { useData } from "../client/useLocalServer";
 import { useSQLBizFilterStats } from "./useSQLBizStats";
 import { formatBizFilterCount, formatBizPercentage, type BizFilterPlan } from "./sqlBizFilterStats";
-import { SQLBizOperationStats } from "./SQLBizOperationStats";
+import { SQLBizOperationStats } from "./SQLBizOperationStatsView";
 import { SQLBizAnalysisControls } from "./SQLBizAnalysisControls";
 import { useTldrawScrollArea } from "../DataSource/useTldrawScrollArea";
 import { TldrawScrollAreaIndicator } from "../DataSource/TldrawScrollAreaIndicator";
