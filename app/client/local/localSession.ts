@@ -29,6 +29,7 @@ export interface KavlaLocalSession {
   fileSize: number;
   canvasJson: string | null;
   undoJson?: string | null;
+  beforeRestoreSnapshotId?: string;
   blobs: KavlaBlobDescriptor[];
 }
 

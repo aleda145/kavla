@@ -443,6 +443,10 @@ func hasSameRequestOrigin(r *http.Request) bool {
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, _ *http.Request) {
+	s.writeSession(w, "")
+}
+
+func (s *Server) writeSession(w http.ResponseWriter, beforeRestoreID string) {
 	manifest := s.document.Manifest()
 	canvas := s.document.CanvasJSON()
 	undo := s.document.UndoJSON()
@@ -452,17 +456,19 @@ func (s *Server) handleSession(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	response := struct {
-		DocumentID   string           `json:"documentId"`
-		DocumentName string           `json:"documentName"`
-		FileSize     int64            `json:"fileSize"`
-		CanvasJSON   *string          `json:"canvasJson"`
-		UndoJSON     *string          `json:"undoJson"`
-		Blobs        []BlobDescriptor `json:"blobs"`
+		DocumentID              string           `json:"documentId"`
+		DocumentName            string           `json:"documentName"`
+		FileSize                int64            `json:"fileSize"`
+		CanvasJSON              *string          `json:"canvasJson"`
+		UndoJSON                *string          `json:"undoJson"`
+		BeforeRestoreSnapshotID string           `json:"beforeRestoreSnapshotId,omitempty"`
+		Blobs                   []BlobDescriptor `json:"blobs"`
 	}{
-		DocumentID:   manifest.DocumentID,
-		DocumentName: manifest.DocumentName,
-		FileSize:     fileSize,
-		Blobs:        manifest.Blobs,
+		DocumentID:              manifest.DocumentID,
+		DocumentName:            manifest.DocumentName,
+		FileSize:                fileSize,
+		Blobs:                   manifest.Blobs,
+		BeforeRestoreSnapshotID: beforeRestoreID,
 	}
 	if len(canvas) > 0 {
 		value := string(canvas)

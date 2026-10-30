@@ -266,9 +266,33 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         // fresh query session, and saves before publishing the restored state.
         loadedRef.current = false;
         restoreRequested = true;
-        loadRestoredSession(await restoreLocalSnapshot(snapshotId));
+        const restored = await restoreLocalSnapshot(snapshotId);
+        loadRestoredSession(restored);
         setShowHistory(false);
-        addToast({ title: "Save restored", severity: "success" });
+        const beforeRestoreSnapshotId = restored.beforeRestoreSnapshotId;
+        addToast({
+          id: "kavla-restore",
+          title: "Save restored",
+          severity: "success",
+          keepOpen: Boolean(beforeRestoreSnapshotId),
+          actions: beforeRestoreSnapshotId
+            ? [
+                {
+                  label: "Go back",
+                  type: "primary",
+                  onClick: () => {
+                    void restoreSnapshot(beforeRestoreSnapshotId).catch((error: unknown) => {
+                      addToast({
+                        title: "Could not go back",
+                        description: error instanceof Error ? error.message : String(error),
+                        severity: "error",
+                      });
+                    });
+                  },
+                },
+              ]
+            : undefined,
+        });
       } catch (error) {
         if (restoreRequested) {
           // A lost response may follow a committed restore. Always reload the
