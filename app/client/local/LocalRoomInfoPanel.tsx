@@ -2,10 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { BriefcaseBusiness, Code2, LayoutDashboard, Loader2, Pin, Scan, Terminal } from "lucide-react";
 import { siDuckdb, siGithub } from "simple-icons";
-import { createShapeId, useEditor, useToasts, useValue } from "tldraw";
+import { createShapeId, useActions, useEditor, useValue } from "tldraw";
 import { isBackendComputing } from "../backendCompute";
 import { setBizMode, useBizMode } from "../canvas/bizMode";
-import { fitQueryNodes } from "../canvas/fitQueryNodes";
+import { getLayoutInProgress } from "../canvas/layoutActions";
 import { getCliTerminalDisplay } from "../cliTerminalDisplay";
 import { useCliOutput, useCliStatus } from "../localServer/runtimeStore";
 
@@ -34,9 +34,8 @@ const lightStyle = {
 export function LocalRoomInfoPanel() {
   const editor = useEditor();
   const bizMode = useBizMode(editor);
-  const [layingOut, setLayingOut] = useState(false);
-  const layoutInProgress = useRef(false);
-  const { addToast } = useToasts();
+  const actions = useActions();
+  const layingOut = useValue("Layout in progress", () => getLayoutInProgress(editor).get(), [editor]);
   const isReadonly = useValue("Layout readonly", () => editor.getIsReadonly(), [editor]);
   const cliConnected = useCliStatus();
   const cliOutput = useCliOutput();
@@ -49,37 +48,6 @@ export function LocalRoomInfoPanel() {
   const terminalPopoverRef = useRef<HTMLDivElement>(null);
   const terminalOutputRef = useRef<HTMLDivElement>(null);
   const terminalCloseTimerRef = useRef<number | null>(null);
-
-  const layout = async () => {
-    if (layoutInProgress.current) return;
-    layoutInProgress.current = true;
-    setLayingOut(true);
-    try {
-      const { layoutKavlaNodes } = await import("../canvas/layoutKavlaNodes");
-      await layoutKavlaNodes(editor);
-    } catch (error) {
-      addToast({
-        title: "Could not arrange nodes",
-        description: error instanceof Error ? error.message : String(error),
-        severity: "error",
-      });
-    } finally {
-      layoutInProgress.current = false;
-      setLayingOut(false);
-    }
-  };
-
-  const resizeQueries = () => {
-    try {
-      fitQueryNodes(editor);
-    } catch (error) {
-      addToast({
-        title: "Could not resize queries",
-        description: error instanceof Error ? error.message : String(error),
-        severity: "error",
-      });
-    }
-  };
 
   useEffect(() => {
     const timer = window.setTimeout(() => setIsComputing(isComputingRaw), isComputingRaw ? 50 : 500);
@@ -435,12 +403,13 @@ export function LocalRoomInfoPanel() {
         <div className="flex items-center gap-2">
           <button
             aria-label="Auto layout nodes"
+            aria-keyshortcuts="Shift+A"
             aria-busy={layingOut}
             disabled={isReadonly || layingOut}
-            onClick={() => void layout()}
+            onClick={() => void actions["layout-kavla-nodes"].onSelect("actions-menu")}
             onPointerDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
-            title="Auto layout nodes"
+            title="Auto layout nodes (Shift+A)"
             type="button"
             className="kavla-icon-control bg-white hover:bg-gray-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
             style={{
@@ -462,11 +431,12 @@ export function LocalRoomInfoPanel() {
           </button>
           <button
             aria-label="Fit query nodes to their content"
+            aria-keyshortcuts="Shift+F"
             disabled={isReadonly || layingOut}
-            onClick={resizeQueries}
+            onClick={() => void actions["fit-query-nodes"].onSelect("actions-menu")}
             onPointerDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
-            title="Fit query nodes to their content"
+            title="Fit query nodes to their content (Shift+F)"
             type="button"
             className="kavla-icon-control bg-white hover:bg-gray-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
             style={{
