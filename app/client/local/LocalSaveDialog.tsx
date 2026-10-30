@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronUp, FilePlus2, FileText, Folder, FolderOpen, Home, Loader2, Save, X } from "lucide-react";
 import { useToasts } from "tldraw";
 import {
@@ -54,6 +54,7 @@ export function LocalSaveDialog({
   const [selectedDocumentPath, setSelectedDocumentPath] = useState<string | null>(null);
   const [registeredCanvases, setRegisteredCanvases] = useState<CanvasFileEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const { addToast } = useToasts();
 
   const entries = useMemo(
@@ -146,6 +147,27 @@ export function LocalSaveDialog({
       } else {
         setError(nextError instanceof Error ? nextError.message : String(nextError));
       }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const importCanvas = async (file: File) => {
+    if (!onLoad) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const query = new URLSearchParams({ name: file.name });
+      const response = await fetch(`/api/canvases/import?${query}`, {
+        method: "POST",
+        credentials: "same-origin",
+        body: file,
+      });
+      if (!response.ok) throw new Error((await response.text()) || `Could not import canvas (${response.status})`);
+      const imported = (await response.json()) as { path: string };
+      await onLoad(imported.path);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setSaving(false);
     }
@@ -410,6 +432,29 @@ export function LocalSaveDialog({
           ) : null}
 
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", padding: mode === "load" ? 14 : 0 }}>
+            {mode === "load" && (
+              <>
+                <input
+                  ref={importInputRef}
+                  accept=".kavla"
+                  type="file"
+                  style={{ display: "none" }}
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    event.currentTarget.value = "";
+                    if (file) void importCanvas(file);
+                  }}
+                />
+                <button
+                  disabled={saving}
+                  onClick={() => importInputRef.current?.click()}
+                  style={{ ...secondaryButtonStyle, marginRight: "auto" }}
+                  type="button"
+                >
+                  Import .kavla
+                </button>
+              </>
+            )}
             {mode !== "load" && (
               <button disabled={saving} onClick={onClose} style={secondaryButtonStyle} type="button">
                 Cancel
