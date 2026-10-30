@@ -8,7 +8,7 @@ import { CameraRecordType } from "tldraw";
 import type { DataSourceShape } from "../../DataSource/data-source-types";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { getAgentChat, updateAgentChat } from "../../AgentBlob/agent-chat-store";
-import { restoreCanvasUndo, serializeCanvasUndo } from "./canvasUndo";
+import { getUndoAssetIds, restoreCanvasUndo, serializeCanvasUndo } from "./canvasUndo";
 
 export type KavlaBlobKind = "source" | "asset";
 
@@ -201,10 +201,13 @@ export function loadCanvasJson(editor: Editor, canvasJson: string, onWarning?: (
   const recovered = parseRecoverableCanvas(editor, canvasJson);
   editor.loadSnapshot(recovered.snapshot);
   // tldraw's file parser drops assets that have no currently visible shape.
-  // An undo may still restore a deleted shape that references one of them.
+  // Keep only the extras needed by a saved undo or redo.
+  const savedUndoJson = activeSession?.undoJson ?? canvasJson;
+  const undoAssetIds = recovered.warnings.length === 0 ? getUndoAssetIds(editor, savedUndoJson) : new Set<string>();
   const savedRecords = (JSON.parse(canvasJson) as { records: unknown[] }).records;
   const savedAssets = savedRecords.flatMap((record) => {
     if (!record || typeof record !== "object" || !("typeName" in record) || record.typeName !== "asset") return [];
+    if (!("id" in record) || typeof record.id !== "string" || !undoAssetIds.has(record.id)) return [];
     try {
       return [editor.store.schema.types.asset.validate(record) as TLAsset];
     } catch {
@@ -230,7 +233,7 @@ export function loadCanvasJson(editor: Editor, canvasJson: string, onWarning?: (
     bundledAssets.push({
       id: asset.id,
       type: asset.type,
-      props: { src: getSessionBlobUrl(descriptor.id) },
+      props: { ...asset.props, src: getSessionBlobUrl(descriptor.id) },
     });
   }
   editor.updateAssets(bundledAssets);
@@ -273,7 +276,7 @@ export function loadCanvasJson(editor: Editor, canvasJson: string, onWarning?: (
   editor.clearHistory();
   if (recovered.warnings.length === 0) {
     try {
-      restoreCanvasUndo(editor, activeSession?.undoJson ?? canvasJson);
+      restoreCanvasUndo(editor, savedUndoJson);
     } catch (error) {
       onWarning?.(error instanceof Error ? error.message : String(error));
     }

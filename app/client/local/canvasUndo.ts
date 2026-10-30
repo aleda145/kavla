@@ -145,6 +145,35 @@ function validEntries(editor: Editor, value: unknown): value is HistoryEntry[] {
   );
 }
 
+export function getUndoAssetIds(editor: Editor, undoJson: string | null): Set<string> {
+  const ids = new Set<string>();
+  if (!undoJson) return ids;
+  let parsed: { kavlaUndo?: unknown; tldrawFileFormatVersion?: number };
+  try {
+    parsed = JSON.parse(undoJson) as typeof parsed;
+  } catch {
+    return ids;
+  }
+  const saved = parsed.kavlaUndo ?? parsed;
+  if (!saved || typeof saved !== "object") return ids;
+  const undo = saved as Record<string, unknown>;
+  if (undo.version !== 1 || !validEntries(editor, undo.undos) || !validEntries(editor, undo.redos)) return ids;
+  for (const entry of [...undo.undos, ...undo.redos]) {
+    if (entry.type !== "diff") continue;
+    const records = [
+      ...Object.values(entry.diff.added),
+      ...Object.values(entry.diff.removed),
+      ...Object.values(entry.diff.updated).flat(),
+    ];
+    for (const record of records) {
+      if (record.typeName === "shape" && "assetId" in record.props && typeof record.props.assetId === "string") {
+        ids.add(record.props.assetId);
+      }
+    }
+  }
+  return ids;
+}
+
 export function restoreCanvasUndo(editor: Editor, undoJson: string | null): void {
   if (!undoJson) return;
   const parsed = JSON.parse(undoJson) as { kavlaUndo?: unknown };

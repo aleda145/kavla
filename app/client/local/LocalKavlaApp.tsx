@@ -14,6 +14,7 @@ import { waitForBackendOperations, hasPendingBackendOperations } from "../backen
 import { LocalSaveDialog } from "./LocalSaveDialog";
 import { LocalHistoryDialog } from "./LocalHistoryDialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { getAssetUrlsByImport } from "@tldraw/assets/imports.vite";
 import {
   defaultShapeUtils,
@@ -120,6 +121,9 @@ type PendingEditorTransfer = { id: string; cancelled: boolean };
 function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const connection = useCanvasConnection();
   const [isNavigating, setIsNavigating] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const restoringRef = useRef(false);
+  const restoringOverlayRef = useRef<HTMLDivElement>(null);
   const [isTransferring, setIsTransferring] = useState(false);
   const transferRef = useRef<PendingEditorTransfer | null>(null);
   const [isDocumentDirty, setIsDocumentDirty] = useState(false);
@@ -199,20 +203,23 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
     }
   }, [addToast, session, stageCurrentCanvas]);
 
-  const prepareCanvasForSave = useCallback(async () => {
-    if (loadingDocumentRef.current) throw new Error("A canvas is already being opened.");
-    loadingDocumentRef.current = true;
-    setIsNavigating(true);
-    editorRef.current?.updateInstanceState({ isReadonly: true });
-    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
-    await Promise.all(
-      getAgentRuns()
-        .filter(isAgentRunActive)
-        .map((run) => cancelAgentRun(run.id))
-    );
-    await waitForBackendOperations();
-    await stageCurrentCanvas(true);
-  }, [stageCurrentCanvas]);
+  const prepareCanvasForSave = useCallback(
+    async (freezeEditor = true) => {
+      if (loadingDocumentRef.current) throw new Error("A canvas is already being opened.");
+      loadingDocumentRef.current = true;
+      setIsNavigating(true);
+      if (freezeEditor) editorRef.current?.updateInstanceState({ isReadonly: true });
+      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+      await Promise.all(
+        getAgentRuns()
+          .filter(isAgentRunActive)
+          .map((run) => cancelAgentRun(run.id))
+      );
+      await waitForBackendOperations();
+      await stageCurrentCanvas(true);
+    },
+    [stageCurrentCanvas]
+  );
 
   const prepareNavigation = useCallback(async () => {
     await prepareCanvasForSave();
@@ -224,11 +231,20 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const restoreSnapshot = useCallback(
     async (snapshotId: string) => {
       const editor = editorRef.current;
-      if (!editor || loadingDocumentRef.current || getCanvasConnection().status !== "ready") {
+      if (!editor || loadingDocumentRef.current || restoringRef.current || getCanvasConnection().status !== "ready") {
         throw new Error("Wait for the canvas to reconnect or finish saving before restoring.");
       }
-      const canvasJson = await readCanvasSnapshot(snapshotId);
-      parseRecoverableCanvas(editor, canvasJson);
+      restoringRef.current = true;
+      setIsRestoring(true);
+      try {
+        const canvasJson = await readCanvasSnapshot(snapshotId);
+        parseRecoverableCanvas(editor, canvasJson);
+      } catch (error) {
+        restoringRef.current = false;
+        setIsRestoring(false);
+        throw error;
+      }
+      setShowHistory(false);
       let restoreRequested = false;
       setIsDocumentSaving(true);
       const loadRestoredSession = (restored: KavlaLocalSession) => {
@@ -237,7 +253,6 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         loadCanvasJson(editor, restored.canvasJson, (description) =>
           addToast({ title: "Document opened with recovery", description, severity: "warning", keepOpen: true })
         );
-        editor.updateInstanceState({ isReadonly: true });
         loadedStoreRef.current = editor.store;
         loadedRef.current = true;
         setLoadError(null);
@@ -248,13 +263,12 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
       };
       try {
         if (loadedRef.current) {
-          await prepareCanvasForSave();
+          await prepareCanvasForSave(false);
         } else {
           // A failed initial load must never replace the backend's original
           // canvas with the empty editor while trying to recover it.
           loadingDocumentRef.current = true;
           setIsNavigating(true);
-          editor.updateInstanceState({ isReadonly: true });
           await Promise.all(
             getAgentRuns()
               .filter(isAgentRunActive)
@@ -268,7 +282,6 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         restoreRequested = true;
         const restored = await restoreLocalSnapshot(snapshotId);
         loadRestoredSession(restored);
-        setShowHistory(false);
         const beforeRestoreSnapshotId = restored.beforeRestoreSnapshotId;
         addToast({
           id: "kavla-restore",
@@ -281,13 +294,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
                   label: "Go back",
                   type: "primary",
                   onClick: () => {
-                    void restoreSnapshot(beforeRestoreSnapshotId).catch((error: unknown) => {
-                      addToast({
-                        title: "Could not go back",
-                        description: error instanceof Error ? error.message : String(error),
-                        severity: "error",
-                      });
-                    });
+                    void restoreSnapshot(beforeRestoreSnapshotId).catch(() => undefined);
                   },
                 },
               ]
@@ -306,11 +313,15 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
             setLoadError(reloadError instanceof Error ? reloadError.message : String(reloadError));
           }
         }
+        addToast({
+          title: "Restore failed",
+          description: error instanceof Error ? error.message : String(error),
+          severity: "error",
+        });
         throw error;
       } finally {
         if (restoreRequested && loadedRef.current) {
-          // Let shapes finish their initial render while the canvas remains
-          // read-only, so restore-time updates do not appear as user edits.
+          // Let shapes finish their initial render while the overlay blocks input.
           await new Promise<void>((resolve) => {
             const timeout = window.setTimeout(resolve, 100);
             window.requestAnimationFrame(() =>
@@ -326,6 +337,8 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         loadingDocumentRef.current = false;
         setIsNavigating(false);
         setIsDocumentSaving(false);
+        restoringRef.current = false;
+        setIsRestoring(false);
         editor.updateInstanceState({ isReadonly: !loadedRef.current || getCanvasConnection().status !== "ready" });
       }
     },
@@ -337,6 +350,25 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
     window.addEventListener("kavla:open-history", openHistory);
     return () => window.removeEventListener("kavla:open-history", openHistory);
   }, []);
+
+  useEffect(() => {
+    if (!isRestoring) return;
+    const previouslyFocused = document.activeElement;
+    const canvasContainer = editorRef.current?.getContainer();
+    const wasInert = canvasContainer?.inert ?? false;
+    if (canvasContainer) canvasContainer.inert = true;
+    restoringOverlayRef.current?.focus();
+    const blockKeyboard = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    window.addEventListener("keydown", blockKeyboard, true);
+    return () => {
+      window.removeEventListener("keydown", blockKeyboard, true);
+      if (canvasContainer) canvasContainer.inert = wasInert;
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) previouslyFocused.focus();
+    };
+  }, [isRestoring]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -489,7 +521,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
 
   useEffect(() => {
     editorRef.current?.updateInstanceState({
-      isReadonly: !loadedRef.current || isNavigating || connection.status !== "ready",
+      isReadonly: !loadedRef.current || (isNavigating && !isRestoring) || connection.status !== "ready",
     });
     if (connection.status === "ready" && loadedRef.current && !isNavigating) {
       void stageCurrentCanvas().catch((error: unknown) => {
@@ -500,7 +532,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         });
       });
     }
-  }, [isNavigating, connection.status, stageCurrentCanvas, addToast]);
+  }, [isNavigating, isRestoring, connection.status, stageCurrentCanvas, addToast]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -671,6 +703,35 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         onSaveDocument={saveCurrentSession}
         session={session}
       />
+      {isRestoring && (
+        <div
+          ref={restoringOverlayRef}
+          tabIndex={-1}
+          className="fixed inset-0 z-[900000] flex items-center justify-center bg-[#f8f7f4]/10 outline-none"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onWheel={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        >
+          <div
+            role="status"
+            className="flex items-center gap-2 rounded-lg border-2 border-black bg-yellow-100 px-4 py-3 text-sm font-bold text-black shadow-[4px_4px_0_0_#000]"
+          >
+            <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+            Restoring canvas…
+          </div>
+        </div>
+      )}
       {loadError && !showHistory && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#f8f7f4]/95 p-8">
           <div className="max-w-xl rounded-xl border-4 border-black bg-yellow-100 p-6">
