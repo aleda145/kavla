@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -83,6 +84,92 @@ func (c *canvasRegistry) registeredCanvasEntries() []canvasNotFoundEntry {
 		entry.ModifiedAt, entry.Size = &modifiedAt, &size
 	}
 	return entries
+}
+
+func (c *canvasRegistry) importArchive(sourcePath, filename string) (string, string, error) {
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+	importsDir := filepath.Join(filepath.Dir(c.path), "imports")
+	for suffix := 1; suffix <= 10000; suffix++ {
+		name := base
+		if suffix > 1 {
+			name = fmt.Sprintf("%s_%d", base, suffix)
+		}
+		path := filepath.Join(importsDir, name+".kavla")
+		c.mu.Lock()
+		registeredName, canonicalPath, err := c.checkPath(path)
+		c.mu.Unlock()
+		if err != nil || registeredName != name {
+			continue
+		}
+		if err := copyPrivateFile(sourcePath, canonicalPath); errors.Is(err, os.ErrExist) {
+			continue
+		} else if err != nil {
+			_ = os.Remove(canonicalPath)
+			return "", "", fmt.Errorf("copy imported canvas: %w", err)
+		}
+		c.mu.Lock()
+		registeredName, _, err = c.checkPath(canonicalPath)
+		if err != nil || registeredName != name {
+			c.mu.Unlock()
+			_ = os.Remove(canonicalPath)
+			continue
+		}
+		c.files[name] = canonicalPath
+		err = c.save()
+		if err != nil {
+			delete(c.files, name)
+		}
+		c.mu.Unlock()
+		if err != nil {
+			return "", "", errors.Join(err, os.Remove(canonicalPath))
+		}
+		return canonicalPath, "/" + url.PathEscape(name), nil
+	}
+	return "", "", fmt.Errorf("could not find an available name for %q", filename)
+}
+
+func (c *canvasRegistry) handleImport(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Query().Get("name")
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+	if base == "" || base == "." || base == ".." || filepath.Base(filename) != filename || strings.ContainsAny(filename, "/\\\r\n\x00") || !strings.EqualFold(filepath.Ext(filename), ".kavla") {
+		http.Error(w, "select a .kavla file", http.StatusBadRequest)
+		return
+	}
+	importsDir := filepath.Join(filepath.Dir(c.path), "imports")
+	if err := os.MkdirAll(importsDir, 0700); err != nil {
+		http.Error(w, "could not prepare imports directory: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tempFile, err := os.CreateTemp(importsDir, ".kavla-import-*.kavla")
+	if err != nil {
+		http.Error(w, "could not prepare import: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.Remove(tempFile.Name())
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<30)
+	_, copyErr := io.Copy(tempFile, r.Body)
+	if copyErr == nil {
+		copyErr = tempFile.Sync()
+	}
+	if err := tempFile.Close(); copyErr == nil {
+		copyErr = err
+	}
+	if copyErr != nil {
+		http.Error(w, "could not import canvas: "+copyErr.Error(), http.StatusBadRequest)
+		return
+	}
+	document, err := openDocument(tempFile.Name(), false)
+	if err != nil {
+		http.Error(w, "invalid Kavla document: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer document.CleanupWorkingCopy()
+	path, canvasURL, err := c.importArchive(tempFile.Name(), filename)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"path": path, "canvasUrl": canvasURL})
 }
 
 func (c *canvasRegistry) serveCanvasNotFound(w http.ResponseWriter, name string) {
@@ -274,6 +361,10 @@ func (c *canvasRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if name == "api" {
+		if r.URL.Path == "/api/canvases/import" && r.Method == http.MethodPost {
+			c.root.sameOriginMutation(c.handleImport)(w, r)
+			return
+		}
 		if r.URL.Path == "/api/canvases" && r.Method == http.MethodGet {
 			writeJSON(w, http.StatusOK, c.registeredCanvasEntries())
 			return
