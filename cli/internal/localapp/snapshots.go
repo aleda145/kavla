@@ -194,6 +194,32 @@ func (d *Document) Snapshot(reason string) error {
 	return d.writeArchiveWithHistoryLocked(d.path, true, reason)
 }
 
+func (d *Document) SnapshotBeforeRestore() (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.canvasJSON) == 0 {
+		return "", fmt.Errorf("cannot restore without canvas state")
+	}
+	if err := d.writeArchiveWithHistoryLocked(d.path, true, "restore"); err != nil {
+		return "", err
+	}
+	directory, err := d.snapshotDirectoryLocked()
+	if err != nil {
+		return "", err
+	}
+	if _, err := d.historyLimitLocked(); err != nil {
+		return "", err
+	}
+	id := time.Now().UTC().Format(snapshotTimeFormat) + "_before-restore_" + uuid.NewString()
+	if err := atomicCopyArchive(d.path, filepath.Join(directory, id+".kavla")); err != nil {
+		return "", err
+	}
+	if err := d.pruneSnapshotsLocked(); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
 func (d *Document) keepArchiveSnapshotLocked(archivePath, reason string) error {
 	directory, err := d.snapshotDirectoryLocked()
 	if err != nil {
@@ -447,7 +473,8 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := d.Snapshot("before-restore"); err != nil {
+	beforeRestoreID, err := d.SnapshotBeforeRestore()
+	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -457,7 +484,7 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	next.manifest.DocumentName = current.DocumentName
 	s.closeAgent()
 	defer s.startAgentDetection()
-	if err := s.switchDocumentBeforePublish(r.Context(), next, next.Save); err != nil {
+	if err := s.switchDocumentBeforePublish(r.Context(), next, next.SaveRestored); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -465,5 +492,5 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Load agent runs after history restore: %v", err)
 	}
 	s.publishAgentRuns(false)
-	s.handleSession(w, r)
+	s.writeSession(w, beforeRestoreID)
 }

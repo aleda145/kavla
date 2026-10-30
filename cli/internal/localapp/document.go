@@ -331,6 +331,14 @@ func (d *Document) Save() error {
 	return d.saveLocked(d.path)
 }
 
+// A history restore already has a before-restore snapshot. Saving its target
+// without another snapshot keeps that return point available at limit one.
+func (d *Document) SaveRestored() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.writeArchiveWithHistoryLocked(d.path, true, "restore")
+}
+
 func (d *Document) SaveAs(path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("save path must be absolute")
@@ -525,10 +533,12 @@ func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reas
 	if err := os.Chmod(tempName, 0600); err != nil {
 		return fmt.Errorf("secure Kavla archive: %w", err)
 	}
-	// Keep the complete archive recoverable before replacing the live file.
-	// Snapshot failures stop the save so we never silently discard history.
-	if err := d.keepArchiveSnapshotLocked(tempName, reason); err != nil {
-		return fmt.Errorf("save document history: %w", err)
+	// Keep normal saves recoverable before replacing the live file. Restore
+	// writes already have a dedicated before-restore snapshot.
+	if reason != "restore" {
+		if err := d.keepArchiveSnapshotLocked(tempName, reason); err != nil {
+			return fmt.Errorf("save document history: %w", err)
+		}
 	}
 	if replace {
 		if err := os.Rename(tempName, path); err != nil {
@@ -539,8 +549,10 @@ func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reas
 	}
 	// The save has committed. A cleanup failure must not report a failed save
 	// or leave a restore's live session behind the archive on disk.
-	if err := d.pruneSnapshotsLocked(); err != nil {
-		log.Printf("Kavla saved %s but could not trim history: %v", path, err)
+	if reason != "restore" {
+		if err := d.pruneSnapshotsLocked(); err != nil {
+			log.Printf("Kavla saved %s but could not trim history: %v", path, err)
+		}
 	}
 	return nil
 }
