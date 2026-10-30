@@ -9,6 +9,7 @@ import {
   type SaveLocalSessionOptions,
   type SaveLocalSessionResult,
 } from "./localSession";
+import { CanvasFileTable, type CanvasFileEntry } from "./CanvasFileTable";
 
 type LocalSaveDialogProps = {
   documentName: string;
@@ -51,6 +52,7 @@ export function LocalSaveDialog({
   const [loadingDirectory, setLoadingDirectory] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedDocumentPath, setSelectedDocumentPath] = useState<string | null>(null);
+  const [registeredCanvases, setRegisteredCanvases] = useState<CanvasFileEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const { addToast } = useToasts();
 
@@ -69,6 +71,7 @@ export function LocalSaveDialog({
     try {
       const nextListing = await onListDirectory(path);
       setListing(nextListing);
+      setSelectedDocumentPath(null);
       if (mode === "new") {
         setFileName(suggestedFileName ?? nextNewCanvasFileName(nextListing));
       }
@@ -82,7 +85,18 @@ export function LocalSaveDialog({
   };
 
   useEffect(() => {
-    void openDirectory();
+    if (mode === "load") {
+      setLoadingDirectory(true);
+      void fetch("/api/canvases", { credentials: "same-origin" })
+        .then(async (response) => {
+          if (!response.ok) throw new Error((await response.text()) || `Could not load canvases (${response.status})`);
+          setRegisteredCanvases((await response.json()) as CanvasFileEntry[]);
+        })
+        .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
+        .finally(() => setLoadingDirectory(false));
+    } else {
+      void openDirectory();
+    }
   }, []);
 
   useEffect(() => {
@@ -139,7 +153,7 @@ export function LocalSaveDialog({
 
   const title =
     mode === "save" ? "Save Kavla document" : mode === "load" ? "Load Kavla document" : "New Kavla document";
-  const actionLabel = mode === "save" ? "Save here" : mode === "load" ? "Load selected" : "Create here";
+  const actionLabel = mode === "save" ? "Save here" : mode === "load" ? "Load" : "Create here";
   const actionIcon =
     mode === "save" ? <Save size={15} /> : mode === "load" ? <FolderOpen size={15} /> : <FilePlus2 size={15} />;
   const actionDisabled =
@@ -176,6 +190,7 @@ export function LocalSaveDialog({
           display: "flex",
           flexDirection: "column",
           fontFamily: "Inter, sans-serif",
+          height: mode === "load" ? "min(480px, calc(100vh - 40px))" : undefined,
           maxHeight: "min(680px, calc(100vh - 40px))",
           overflow: "hidden",
           width: "min(620px, calc(100vw - 40px))",
@@ -212,120 +227,148 @@ export function LocalSaveDialog({
           </button>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0, padding: 14 }}>
-          <div style={{ alignItems: "center", display: "flex", gap: 7 }}>
-            <button
-              aria-label="Home directory"
-              disabled={!listing?.homePath || loadingDirectory}
-              onClick={() => void openDirectory(listing?.homePath)}
-              style={navigationButtonStyle}
-              title="Home directory"
-              type="button"
-            >
-              <Home size={15} />
-            </button>
-            <button
-              aria-label="Parent directory"
-              disabled={!listing?.parentPath || loadingDirectory}
-              onClick={() => void openDirectory(listing?.parentPath)}
-              style={navigationButtonStyle}
-              title="Parent directory"
-              type="button"
-            >
-              <ChevronUp size={17} />
-            </button>
+        <div
+          style={{
+            display: "flex",
+            flex: mode === "load" ? 1 : undefined,
+            flexDirection: "column",
+            gap: mode === "load" ? 0 : 10,
+            minHeight: 0,
+            padding: mode === "load" ? 0 : 14,
+          }}
+        >
+          {mode === "load" ? (
             <div
-              title={listing?.path}
+              className="kavla-load-canvas-table"
               style={{
-                backgroundColor: "#f8fafc",
-                border: "2px solid #000",
-                borderRadius: 7,
+                backgroundColor: "#fff",
+                display: "flex",
                 flex: 1,
-                fontFamily: "monospace",
-                fontSize: 11,
-                fontWeight: 700,
+                flexDirection: "column",
+                minHeight: 0,
                 overflow: "hidden",
-                padding: "7px 9px",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
               }}
             >
-              {listing?.path ?? "Opening directory…"}
-            </div>
-          </div>
-
-          <div
-            style={{
-              backgroundColor: "#f8fafc",
-              border: "2px solid #000",
-              borderRadius: 8,
-              flex: "1 1 300px",
-              minHeight: 220,
-              overflowY: "auto",
-            }}
-          >
-            {loadingDirectory ? (
-              <div style={emptyStateStyle}>
-                <Loader2 className="animate-spin" size={22} /> Opening directory…
-              </div>
-            ) : entries.length === 0 ? (
-              <div style={emptyStateStyle}>This directory has no folders or Kavla documents.</div>
-            ) : (
-              entries.map((entry) => (
-                <button
-                  key={entry.path}
-                  onClick={() => {
-                    if (entry.type === "directory") {
-                      setSelectedDocumentPath(null);
-                      void openDirectory(entry.path);
-                    } else if (mode === "load") {
-                      setSelectedDocumentPath(entry.path);
-                    } else {
-                      setFileName(entry.name);
-                    }
-                  }}
-                  style={{
-                    alignItems: "center",
-                    backgroundColor:
-                      entry.type !== "document"
-                        ? "transparent"
-                        : mode === "load" && entry.path === selectedDocumentPath
-                          ? "#dcfce7"
-                          : mode === "load" && entry.path === listing?.currentDocumentPath
-                            ? "#fce7f3"
-                            : mode !== "load" && entry.name === fileName
-                              ? "#dbeafe"
-                              : "transparent",
-                    border: 0,
-                    borderBottom: "1px solid #cbd5e1",
-                    color: "#000",
-                    cursor: "pointer",
-                    display: "flex",
-                    fontFamily: "Inter, sans-serif",
-                    fontSize: 12,
-                    fontWeight: 750,
-                    gap: 9,
-                    padding: "9px 11px",
-                    textAlign: "left",
-                    width: "100%",
-                  }}
-                  title={entry.path}
-                  type="button"
-                >
-                  {entry.type === "directory" ? <Folder fill="#fde68a" size={17} /> : <FileText size={17} />}
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {entry.name}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-
-          {mode === "load" ? (
-            <div style={{ fontSize: 11, fontWeight: 800 }}>
-              {selectedDocumentPath ? `Selected: ${selectedDocumentPath}` : "Select a .kavla document from the list."}
+              {loadingDirectory ? (
+                <div style={emptyStateStyle}>
+                  <Loader2 className="animate-spin" size={22} /> Loading canvases…
+                </div>
+              ) : (
+                <CanvasFileTable
+                  entries={registeredCanvases}
+                  onOpen={(entry) => setSelectedDocumentPath(entry.path)}
+                  selectedPath={selectedDocumentPath}
+                  showPath={false}
+                />
+              )}
             </div>
           ) : (
+            <>
+              <div style={{ alignItems: "center", display: "flex", gap: 7 }}>
+                <button
+                  aria-label="Home directory"
+                  disabled={!listing?.homePath || loadingDirectory}
+                  onClick={() => void openDirectory(listing?.homePath)}
+                  style={navigationButtonStyle}
+                  title="Home directory"
+                  type="button"
+                >
+                  <Home size={15} />
+                </button>
+                <button
+                  aria-label="Parent directory"
+                  disabled={!listing?.parentPath || loadingDirectory}
+                  onClick={() => void openDirectory(listing?.parentPath)}
+                  style={navigationButtonStyle}
+                  title="Parent directory"
+                  type="button"
+                >
+                  <ChevronUp size={17} />
+                </button>
+                <div
+                  title={listing?.path}
+                  style={{
+                    backgroundColor: "#f8fafc",
+                    border: "2px solid #000",
+                    borderRadius: 7,
+                    flex: 1,
+                    fontFamily: "monospace",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    overflow: "hidden",
+                    padding: "7px 9px",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {listing?.path ?? "Opening directory…"}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  backgroundColor: "#f8fafc",
+                  border: "2px solid #000",
+                  borderRadius: 8,
+                  flex: "1 1 300px",
+                  minHeight: 220,
+                  overflowY: "auto",
+                }}
+              >
+                {loadingDirectory ? (
+                  <div style={emptyStateStyle}>
+                    <Loader2 className="animate-spin" size={22} /> Opening directory…
+                  </div>
+                ) : entries.length === 0 ? (
+                  <div style={emptyStateStyle}>This directory has no folders or Kavla documents.</div>
+                ) : (
+                  entries.map((entry) => (
+                    <button
+                      key={entry.path}
+                      onClick={() => {
+                        if (entry.type === "directory") {
+                          setSelectedDocumentPath(null);
+                          void openDirectory(entry.path);
+                        } else {
+                          setFileName(entry.name);
+                        }
+                      }}
+                      style={{
+                        alignItems: "center",
+                        backgroundColor:
+                          entry.type !== "document"
+                            ? "transparent"
+                            : entry.name === fileName
+                              ? "#dbeafe"
+                              : "transparent",
+                        border: 0,
+                        borderBottom: "1px solid #cbd5e1",
+                        color: "#000",
+                        cursor: "pointer",
+                        display: "flex",
+                        fontFamily: "Inter, sans-serif",
+                        fontSize: 12,
+                        fontWeight: 750,
+                        gap: 9,
+                        padding: "9px 11px",
+                        textAlign: "left",
+                        width: "100%",
+                      }}
+                      title={entry.path}
+                      type="button"
+                    >
+                      {entry.type === "directory" ? <Folder fill="#fde68a" size={17} /> : <FileText size={17} />}
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {entry.name}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </>
+          )}
+
+          {mode !== "load" && (
             <label style={{ display: "flex", flexDirection: "column", fontSize: 11, fontWeight: 900, gap: 5 }}>
               FILE NAME
               <input
@@ -366,16 +409,19 @@ export function LocalSaveDialog({
             </div>
           ) : null}
 
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button disabled={saving} onClick={onClose} style={secondaryButtonStyle} type="button">
-              Cancel
-            </button>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", padding: mode === "load" ? 14 : 0 }}>
+            {mode !== "load" && (
+              <button disabled={saving} onClick={onClose} style={secondaryButtonStyle} type="button">
+                Cancel
+              </button>
+            )}
             <button
               disabled={actionDisabled}
               onClick={() => void confirmSelection(false)}
               style={{
                 ...primaryButtonStyle,
-                backgroundColor: mode === "load" ? "#dcfce7" : mode === "new" ? "#fef3c7" : "#dcfce7",
+                backgroundColor: mode === "new" ? "#fef3c7" : "#dcfce7",
+                cursor: actionDisabled ? "not-allowed" : "pointer",
                 opacity: actionDisabled ? 0.5 : 1,
               }}
               type="button"

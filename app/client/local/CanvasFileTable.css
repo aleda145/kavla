@@ -2,6 +2,13 @@
   overflow: auto;
 }
 
+.kavla-load-canvas-table .kavla-canvas-file-table-scroll {
+  flex: 1;
+  min-height: 0;
+  background: #fff;
+  border-bottom: 3px solid #000;
+}
+
 .kavla-canvas-file-table {
   width: 100%;
   border-collapse: collapse;
@@ -21,6 +28,7 @@
 .kavla-canvas-file-table th {
   position: sticky;
   top: 0;
+  padding: 0;
   background: #f3f4f6;
   font-weight: 800;
   white-space: nowrap;
@@ -31,7 +39,8 @@
   align-items: center;
   gap: 5px;
   width: 100%;
-  padding: 0;
+  min-height: 38px;
+  padding: 10px 12px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -49,13 +58,25 @@
   min-width: 170px;
 }
 
-.kavla-canvas-file-table td:last-child {
+.kavla-canvas-file-table--with-path td:last-child {
   min-width: 220px;
   max-width: 360px;
   overflow-wrap: anywhere;
 }
 
 .kavla-canvas-file-table tr[aria-selected="true"] {
+  background: #dcfce7;
+}
+
+.kavla-canvas-file-table-selectable {
+  cursor: pointer;
+}
+
+.kavla-canvas-file-table-selectable:hover {
+  background: #f0fdf4;
+}
+
+.kavla-canvas-file-table-selectable[aria-selected="true"]:hover {
   background: #dcfce7;
 }
 

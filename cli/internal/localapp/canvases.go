@@ -50,22 +50,22 @@ type canvasNotFoundPage struct {
 	Entries []canvasNotFoundEntry `json:"entries"`
 }
 
-func (c *canvasRegistry) serveCanvasNotFound(w http.ResponseWriter, name string) {
+func (c *canvasRegistry) registeredCanvasEntries() []canvasNotFoundEntry {
 	c.mu.Lock()
-	page := canvasNotFoundPage{Name: name, Entries: make([]canvasNotFoundEntry, 0, len(c.files))}
+	entries := make([]canvasNotFoundEntry, 0, len(c.files))
 	for name, path := range c.files {
-		page.Entries = append(page.Entries, canvasNotFoundEntry{Name: name, URL: "/" + url.PathEscape(name), Path: path})
+		entries = append(entries, canvasNotFoundEntry{Name: name, URL: "/" + url.PathEscape(name), Path: path})
 	}
 	c.mu.Unlock()
-	sort.Slice(page.Entries, func(i, j int) bool {
-		left, right := page.Entries[i], page.Entries[j]
+	sort.Slice(entries, func(i, j int) bool {
+		left, right := entries[i], entries[j]
 		if nameOrder := strings.Compare(strings.ToLower(left.Name), strings.ToLower(right.Name)); nameOrder != 0 {
 			return nameOrder < 0
 		}
 		return left.Name < right.Name
 	})
-	for i := range page.Entries {
-		entry := &page.Entries[i]
+	for i := range entries {
+		entry := &entries[i]
 		info, err := os.Stat(entry.Path)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -82,6 +82,11 @@ func (c *canvasRegistry) serveCanvasNotFound(w http.ResponseWriter, name string)
 		modifiedAt, size := info.ModTime(), info.Size()
 		entry.ModifiedAt, entry.Size = &modifiedAt, &size
 	}
+	return entries
+}
+
+func (c *canvasRegistry) serveCanvasNotFound(w http.ResponseWriter, name string) {
+	page := canvasNotFoundPage{Name: name, Entries: c.registeredCanvasEntries()}
 	data, err := json.Marshal(page)
 	if err != nil {
 		http.Error(w, "Could not encode canvas list", http.StatusInternalServerError)
@@ -269,6 +274,10 @@ func (c *canvasRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if name == "api" {
+		if r.URL.Path == "/api/canvases" && r.Method == http.MethodGet {
+			writeJSON(w, http.StatusOK, c.registeredCanvasEntries())
+			return
+		}
 		if r.URL.Path == "/api/canvases/directories" && r.Method == http.MethodGet {
 			c.root.handleDirectories(w, r)
 			return
