@@ -680,14 +680,6 @@ function SourceTablesBrowser({
     );
     return namespaces.size;
   }, [tables]);
-  const typeCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const column of details.columns ?? []) {
-      const normalizedType = column.type.split("(")[0].trim().toUpperCase();
-      counts.set(normalizedType, (counts.get(normalizedType) ?? 0) + 1);
-    }
-    return [...counts.entries()].sort((left, right) => right[1] - left[1]);
-  }, [details.columns]);
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div style={subheaderStyle}>
@@ -839,21 +831,8 @@ function SourceTablesBrowser({
                 }}
               >
                 {detailsError ? <div style={errorStyle}>{detailsError}</div> : null}
-                {typeCounts.length ? (
-                  <div>
-                    <div style={sectionLabelStyle}>COLUMN TYPES</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                      {typeCounts.map(([type, count]) => (
-                        <span className={getColumnTypeColor(type)} key={type} style={typeBadgeStyle}>
-                          {count} {type}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
                 {details.columns?.length ? (
                   <div>
-                    <div style={sectionLabelStyle}>SCHEMA</div>
                     <div style={{ border: "2px solid #000", borderRadius: 7, overflow: "hidden" }}>
                       {details.columns.map((column) => {
                         const typeColor = getColumnTypeColor(column.type);
@@ -1159,15 +1138,6 @@ const tableListRowStyle = {
   padding: "8px 9px",
   textAlign: "left" as const,
   width: "100%",
-};
-const sectionLabelStyle = { fontSize: 10, fontWeight: 900, letterSpacing: "0.06em", marginBottom: 6 };
-const typeBadgeStyle = {
-  border: "1.5px solid #000",
-  borderRadius: 0,
-  fontFamily: "monospace",
-  fontSize: 9,
-  fontWeight: 800,
-  padding: "3px 6px",
 };
 const schemaRowStyle = {
   alignItems: "center",
