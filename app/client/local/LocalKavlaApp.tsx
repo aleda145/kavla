@@ -122,8 +122,9 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const connection = useCanvasConnection();
   const [isNavigating, setIsNavigating] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [isCanvasReady, setIsCanvasReady] = useState(false);
   const restoringRef = useRef(false);
-  const restoringOverlayRef = useRef<HTMLDivElement>(null);
+  const loadingOverlayRef = useRef<HTMLDivElement>(null);
   const [isTransferring, setIsTransferring] = useState(false);
   const transferRef = useRef<PendingEditorTransfer | null>(null);
   const [isDocumentDirty, setIsDocumentDirty] = useState(false);
@@ -155,6 +156,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const documentRevisionRef = useRef(0);
   const { addToast } = useToasts();
   const { deleteShapes } = useData();
+  const showLoadingOverlay = !loadError && (isRestoring || isNavigating || !isCanvasReady);
 
   useCanvasFileDrop(editorRef, addToast);
 
@@ -352,12 +354,12 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   }, []);
 
   useEffect(() => {
-    if (!isRestoring) return;
+    if (!showLoadingOverlay) return;
     const previouslyFocused = document.activeElement;
     const canvasContainer = editorRef.current?.getContainer();
     const wasInert = canvasContainer?.inert ?? false;
     if (canvasContainer) canvasContainer.inert = true;
-    restoringOverlayRef.current?.focus();
+    loadingOverlayRef.current?.focus();
     const blockKeyboard = (event: KeyboardEvent) => {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -368,7 +370,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
       if (canvasContainer) canvasContainer.inert = wasInert;
       if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) previouslyFocused.focus();
     };
-  }, [isRestoring]);
+  }, [showLoadingOverlay]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -677,6 +679,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         scope: "document",
       });
       storeCleanupRef.current = cleanupDocumentListener;
+      setIsCanvasReady(true);
     },
     [addToast, deleteShapes, session, stageCurrentCanvas]
   );
@@ -703,9 +706,9 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         onSaveDocument={saveCurrentSession}
         session={session}
       />
-      {isRestoring && (
+      {showLoadingOverlay && (
         <div
-          ref={restoringOverlayRef}
+          ref={loadingOverlayRef}
           tabIndex={-1}
           className="fixed inset-0 z-[900000] flex items-center justify-center bg-[#f8f7f4]/10 outline-none"
           onPointerDown={(event) => {
@@ -725,10 +728,10 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         >
           <div
             role="status"
-            className="flex items-center gap-2 rounded-lg border-2 border-black bg-yellow-100 px-4 py-3 text-sm font-bold text-black shadow-[4px_4px_0_0_#000]"
+            className="flex items-center gap-2 rounded-lg border-2 border-black bg-violet-300 px-4 py-3 text-sm font-bold text-black shadow-[4px_4px_0_0_#000]"
           >
             <Loader2 size={18} className="animate-spin" aria-hidden="true" />
-            Restoring canvas…
+            {isRestoring ? "Restoring canvas…" : "Loading canvas…"}
           </div>
         </div>
       )}
@@ -929,8 +932,14 @@ export default function LocalKavlaApp() {
     if (connection.status === "blocked" || connection.status === "transferred")
       return <CanvasUnavailable message={connection.message} canChoose canTransfer={connection.status === "blocked"} />;
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[#f8f7f4] font-bold">
-        {connection.message || "Opening canvas…"}
+      <div className="fixed inset-0 flex items-center justify-center bg-[#f8f7f4]">
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-lg border-2 border-black bg-violet-300 px-4 py-3 text-sm font-bold text-black shadow-[4px_4px_0_0_#000]"
+        >
+          <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+          Loading canvas…
+        </div>
       </div>
     );
   }
