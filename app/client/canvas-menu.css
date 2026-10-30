@@ -52,6 +52,10 @@
   font-weight: 850;
 }
 
+html:not([data-kavla-just-icons]) .kavla-canvas-menu .tlui-button.kavla-settings-trigger {
+  border-bottom-right-radius: 10px !important;
+}
+
 html[data-kavla-just-icons] .kavla-canvas-menu .tlui-button.kavla-settings-trigger {
   width: 34px;
   padding: 0;
