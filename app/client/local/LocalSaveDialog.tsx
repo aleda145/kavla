@@ -55,6 +55,7 @@ export function LocalSaveDialog({
   const [registeredCanvases, setRegisteredCanvases] = useState<CanvasFileEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const newNameInputRef = useRef<HTMLInputElement>(null);
   const { addToast } = useToasts();
 
   const entries = useMemo(
@@ -101,6 +102,10 @@ export function LocalSaveDialog({
   }, []);
 
   useEffect(() => {
+    if (mode === "new" && !loadingDirectory) newNameInputRef.current?.select();
+  }, [loadingDirectory, mode]);
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || saving) return;
       event.preventDefault();
@@ -123,7 +128,8 @@ export function LocalSaveDialog({
       }
       return;
     }
-    if (!listing || !fileName.trim() || !onSave) return;
+    if (!listing || !fileName.trim() || (mode === "new" && !fileName.replace(/\.kavla$/i, "").trim()) || !onSave)
+      return;
     const normalizedFileName = fileName.trim().toLowerCase().endsWith(".kavla")
       ? fileName.trim()
       : `${fileName.trim()}.kavla`;
@@ -178,7 +184,11 @@ export function LocalSaveDialog({
   const actionIcon =
     mode === "save" ? <Save size={15} /> : mode === "load" ? <FolderOpen size={15} /> : <FilePlus2 size={15} />;
   const actionDisabled =
-    loadingDirectory || saving || (mode === "load" ? !selectedDocumentPath : !listing || !fileName.trim());
+    loadingDirectory ||
+    saving ||
+    (mode === "load"
+      ? !selectedDocumentPath
+      : !listing || !fileName.trim() || (mode === "new" && !fileName.replace(/\.kavla$/i, "").trim()));
 
   return createPortal(
     <div
@@ -392,26 +402,63 @@ export function LocalSaveDialog({
           {mode !== "load" && (
             <label style={{ display: "flex", flexDirection: "column", fontSize: 11, fontWeight: 900, gap: 5 }}>
               FILE NAME
-              <input
-                autoFocus
-                disabled={saving}
-                onChange={(event) => setFileName(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !saving) void confirmSelection(false);
-                }}
-                spellCheck={false}
-                style={{
-                  border: "2px solid #000",
-                  borderRadius: 7,
-                  color: "#000",
-                  fontFamily: "Inter, sans-serif",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  outline: "none",
-                  padding: "8px 10px",
-                }}
-                value={fileName}
-              />
+              {mode === "new" ? (
+                <div
+                  style={{
+                    alignItems: "center",
+                    border: "2px solid #000",
+                    borderRadius: 7,
+                    display: "flex",
+                    padding: "0 10px",
+                  }}
+                >
+                  <input
+                    ref={newNameInputRef}
+                    autoFocus
+                    disabled={saving}
+                    onChange={(event) => setFileName(`${event.currentTarget.value}.kavla`)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !saving) void confirmSelection(false);
+                    }}
+                    spellCheck={false}
+                    style={{
+                      border: 0,
+                      color: "#000",
+                      flex: 1,
+                      fontFamily: "Inter, sans-serif",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      minWidth: 0,
+                      outline: "none",
+                      padding: "8px 0",
+                    }}
+                    value={fileName.replace(/\.kavla$/i, "")}
+                  />
+                  <span style={{ color: "#777", fontSize: 13, fontWeight: 700, userSelect: "none" }}>.kavla</span>
+                </div>
+              ) : (
+                <input
+                  autoFocus
+                  disabled={saving}
+                  onChange={(event) => setFileName(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !saving) void confirmSelection(false);
+                  }}
+                  spellCheck={false}
+                  style={{
+                    border: "2px solid #000",
+                    borderRadius: 7,
+                    color: "#000",
+                    fontFamily: "Inter, sans-serif",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    outline: "none",
+                    padding: "8px 10px",
+                  }}
+                  value={fileName}
+                />
+              )}
             </label>
           )}
 
