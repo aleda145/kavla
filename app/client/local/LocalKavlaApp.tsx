@@ -121,6 +121,7 @@ type PendingEditorTransfer = { id: string; cancelled: boolean };
 function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const connection = useCanvasConnection();
   const [isNavigating, setIsNavigating] = useState(false);
+  const [isLoadingCanvas, setIsLoadingCanvas] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [isCanvasReady, setIsCanvasReady] = useState(false);
   const restoringRef = useRef(false);
@@ -156,7 +157,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   const documentRevisionRef = useRef(0);
   const { addToast } = useToasts();
   const { deleteShapes } = useData();
-  const showLoadingOverlay = !loadError && (isRestoring || isNavigating || !isCanvasReady);
+  const showLoadingOverlay = !loadError && (isRestoring || isLoadingCanvas || !isCanvasReady);
 
   useCanvasFileDrop(editorRef, addToast);
 
@@ -224,7 +225,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   );
 
   const prepareNavigation = useCallback(async () => {
-    await prepareCanvasForSave();
+    await prepareCanvasForSave(false);
     await saveLocalSession();
     documentDirtyRef.current = false;
     setIsDocumentDirty(false);
@@ -478,6 +479,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
 
   const loadDocument = useCallback(
     async (path: string) => {
+      setIsLoadingCanvas(true);
       try {
         await prepareNavigation();
         const result = await loadLocalSessionPath(path);
@@ -487,6 +489,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
       } catch (error) {
         loadingDocumentRef.current = false;
         setIsNavigating(false);
+        setIsLoadingCanvas(false);
         throw error;
       }
     },
@@ -495,6 +498,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
 
   const newDocument = useCallback(
     async (options: SaveLocalSessionOptions) => {
+      setIsLoadingCanvas(true);
       try {
         await prepareNavigation();
         const result = await newLocalSession(options, createEmptyCanvasJson());
@@ -505,6 +509,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
       } catch (error) {
         loadingDocumentRef.current = false;
         setIsNavigating(false);
+        setIsLoadingCanvas(false);
         throw error;
       }
     },
@@ -523,7 +528,10 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
 
   useEffect(() => {
     editorRef.current?.updateInstanceState({
-      isReadonly: !loadedRef.current || (isNavigating && !isRestoring) || connection.status !== "ready",
+      isReadonly:
+        (!loadedRef.current && !showLoadingOverlay) ||
+        (isNavigating && !isRestoring && !isLoadingCanvas) ||
+        (connection.status !== "ready" && !isLoadingCanvas && !isRestoring),
     });
     if (connection.status === "ready" && loadedRef.current && !isNavigating) {
       void stageCurrentCanvas().catch((error: unknown) => {
@@ -534,7 +542,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         });
       });
     }
-  }, [isNavigating, isRestoring, connection.status, stageCurrentCanvas, addToast]);
+  }, [isNavigating, isRestoring, isLoadingCanvas, showLoadingOverlay, connection.status, stageCurrentCanvas, addToast]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -573,9 +581,6 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
     async (editor: Editor) => {
       editorRef.current = editor;
       applyCanvasPreferences(editor);
-      editor.updateInstanceState({
-        isReadonly: true,
-      });
       rightDragCleanupRef.current?.();
       rightDragCleanupRef.current = enableRightClickDragPan(editor);
       editor.registerExternalAssetHandler("url", getBookmarkAsset);
