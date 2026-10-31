@@ -16,6 +16,8 @@ type LocalSaveDialogProps = {
   onClose: () => void;
   onLoad?: (path: string) => Promise<void>;
   onSave?: (options: SaveLocalSessionOptions) => Promise<SaveLocalSessionResult>;
+  onListDirectory?: (path?: string) => Promise<KavlaDirectoryListing>;
+  suggestedNewName?: string;
 };
 
 function kavlaFileName(documentName: string): string {
@@ -32,9 +34,20 @@ function nextNewCanvasFileName(listing: KavlaDirectoryListing): string {
   }
 }
 
-export function LocalSaveDialog({ documentName, mode, onClose, onLoad, onSave }: LocalSaveDialogProps) {
+export function LocalSaveDialog({
+  documentName,
+  mode,
+  onClose,
+  onLoad,
+  onSave,
+  onListDirectory = listLocalSessionDirectory,
+  suggestedNewName,
+}: LocalSaveDialogProps) {
   const [listing, setListing] = useState<KavlaDirectoryListing | null>(null);
-  const [fileName, setFileName] = useState(() => (mode === "new" ? "new_canvas.kavla" : kavlaFileName(documentName)));
+  const suggestedFileName = suggestedNewName ? kavlaFileName(suggestedNewName.replace(/\.kavla$/i, "")) : null;
+  const [fileName, setFileName] = useState(() =>
+    mode === "new" ? (suggestedFileName ?? "new_canvas.kavla") : kavlaFileName(documentName)
+  );
   const [loadingDirectory, setLoadingDirectory] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedDocumentPath, setSelectedDocumentPath] = useState<string | null>(null);
@@ -54,10 +67,10 @@ export function LocalSaveDialog({ documentName, mode, onClose, onLoad, onSave }:
     setLoadingDirectory(true);
     setError(null);
     try {
-      const nextListing = await listLocalSessionDirectory(path);
+      const nextListing = await onListDirectory(path);
       setListing(nextListing);
       if (mode === "new") {
-        setFileName(nextNewCanvasFileName(nextListing));
+        setFileName(suggestedFileName ?? nextNewCanvasFileName(nextListing));
       }
       return nextListing;
     } catch (nextError) {

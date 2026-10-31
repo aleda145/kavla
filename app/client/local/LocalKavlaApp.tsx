@@ -102,7 +102,7 @@ const customAssetUrls: TLUiAssetUrlOverrides = {
   },
 };
 
-function createEmptyCanvasJson(): string {
+export function createEmptyCanvasJson(): string {
   const store = createTLStore({ shapeUtils: localShapeUtils, bindingUtils: [KavlaArrowBindingUtil] });
   store.put([
     DocumentRecordType.create({ id: TLDOCUMENT_ID }),

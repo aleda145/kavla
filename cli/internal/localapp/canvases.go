@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 )
@@ -31,6 +34,73 @@ type canvasRegistry struct {
 type savedCanvasRegistry struct {
 	Files map[string]string `json:"files"`
 	Last  string            `json:"last"`
+}
+
+type canvasNotFoundEntry struct {
+	Name       string     `json:"name"`
+	URL        string     `json:"url"`
+	Path       string     `json:"path"`
+	Status     string     `json:"status,omitempty"`
+	ModifiedAt *time.Time `json:"modifiedAt,omitempty"`
+	Size       *int64     `json:"size,omitempty"`
+}
+
+type canvasNotFoundPage struct {
+	Name    string                `json:"name"`
+	Entries []canvasNotFoundEntry `json:"entries"`
+}
+
+func (c *canvasRegistry) serveCanvasNotFound(w http.ResponseWriter, name string) {
+	c.mu.Lock()
+	page := canvasNotFoundPage{Name: name, Entries: make([]canvasNotFoundEntry, 0, len(c.files))}
+	for name, path := range c.files {
+		page.Entries = append(page.Entries, canvasNotFoundEntry{Name: name, URL: "/" + url.PathEscape(name), Path: path})
+	}
+	c.mu.Unlock()
+	sort.Slice(page.Entries, func(i, j int) bool {
+		left, right := page.Entries[i], page.Entries[j]
+		if nameOrder := strings.Compare(strings.ToLower(left.Name), strings.ToLower(right.Name)); nameOrder != 0 {
+			return nameOrder < 0
+		}
+		return left.Name < right.Name
+	})
+	for i := range page.Entries {
+		entry := &page.Entries[i]
+		info, err := os.Stat(entry.Path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				entry.Status = "File missing"
+			} else {
+				entry.Status = "File unavailable"
+			}
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			entry.Status = "Not a regular file"
+			continue
+		}
+		modifiedAt, size := info.ModTime(), info.Size()
+		entry.ModifiedAt, entry.Size = &modifiedAt, &size
+	}
+	data, err := json.Marshal(page)
+	if err != nil {
+		http.Error(w, "Could not encode canvas list", http.StatusInternalServerError)
+		return
+	}
+	index, err := fs.ReadFile(c.root.assets, "index.html")
+	if err != nil {
+		http.Error(w, "Could not load Kavla", http.StatusInternalServerError)
+		return
+	}
+	html := strings.Replace(string(index), "</body>", `<script id="kavla-canvas-not-found" type="application/json">`+string(data)+`</script></body>`, 1)
+	if html == string(index) {
+		http.Error(w, "Kavla page is missing its closing body tag", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNotFound)
+	_, _ = w.Write([]byte(html))
 }
 
 func canonicalDocumentPath(path string) (string, error) {
@@ -199,6 +269,14 @@ func (c *canvasRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if name == "api" {
+		if r.URL.Path == "/api/canvases/directories" && r.Method == http.MethodGet {
+			c.root.handleDirectories(w, r)
+			return
+		}
+		if r.URL.Path == "/api/canvases/new" && r.Method == http.MethodPost {
+			c.root.sameOriginMutation(c.root.handleNew)(w, r)
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -209,6 +287,8 @@ func (c *canvasRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if file, err := c.root.assets.Open(strings.TrimPrefix(r.URL.Path, "/")); err == nil {
 			file.Close()
 			c.root.handleStatic(w, r)
+		} else if r.Method == http.MethodGet && (len(parts) == 1 || parts[1] == "") {
+			c.serveCanvasNotFound(w, name)
 		} else {
 			http.Error(w, "This canvas is not registered. Open its .kavla file from Kavla.", http.StatusNotFound)
 		}
@@ -242,7 +322,11 @@ func (c *canvasRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.settings.RUnlock()
 	}
 	if err != nil {
-		http.Error(w, "Could not open canvas: "+err.Error(), http.StatusNotFound)
+		if r.Method == http.MethodGet && (apiPath == "" || apiPath == "/") {
+			c.serveCanvasNotFound(w, name)
+		} else {
+			http.Error(w, "Could not open canvas: "+err.Error(), http.StatusNotFound)
+		}
 		return
 	}
 	if apiPath == "" || apiPath == "/" {

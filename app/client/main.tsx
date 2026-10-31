@@ -5,6 +5,7 @@ import { initializeJustIcons } from "./justIcons";
 
 import { TldrawUiToastsProvider } from "tldraw";
 import LocalKavlaApp from "./local/LocalKavlaApp";
+import { CanvasNotFoundPage, type CanvasNotFoundData } from "./local/CanvasNotFoundPage";
 
 initializeJustIcons();
 
@@ -46,10 +47,13 @@ document.addEventListener(
 );
 
 async function main() {
+  const notFoundData = document.getElementById("kavla-canvas-not-found")?.textContent;
+  const notFoundPage = notFoundData ? (JSON.parse(notFoundData) as CanvasNotFoundData) : null;
+  if (notFoundPage) document.title = `${notFoundPage.name} not found · Kavla`;
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
       <TldrawUiToastsProvider>
-        <LocalKavlaApp />
+        {notFoundPage ? <CanvasNotFoundPage data={notFoundPage} /> : <LocalKavlaApp />}
       </TldrawUiToastsProvider>
     </React.StrictMode>
   );
