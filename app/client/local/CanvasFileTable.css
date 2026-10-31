@@ -1,0 +1,87 @@
+.kavla-canvas-file-table-scroll {
+  overflow: auto;
+}
+
+.kavla-canvas-file-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+
+.kavla-canvas-file-table th,
+.kavla-canvas-file-table td {
+  min-width: 105px;
+  padding: 10px 12px;
+  border-right: 1px solid #d1d5db;
+  border-bottom: 1px solid #d1d5db;
+  vertical-align: top;
+}
+
+.kavla-canvas-file-table th {
+  position: sticky;
+  top: 0;
+  background: #f3f4f6;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.kavla-canvas-file-table th button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.kavla-canvas-file-table th button:focus-visible {
+  outline: 2px solid #111;
+  outline-offset: 3px;
+}
+
+.kavla-canvas-file-table td:first-child {
+  min-width: 170px;
+}
+
+.kavla-canvas-file-table td:last-child {
+  min-width: 220px;
+  max-width: 360px;
+  overflow-wrap: anywhere;
+}
+
+.kavla-canvas-file-table tr[aria-selected="true"] {
+  background: #dcfce7;
+}
+
+.kavla-canvas-file-table-open {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #111;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+.kavla-canvas-file-table-status {
+  display: block;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 2px 5px;
+  border: 1px solid #111;
+  border-radius: 4px;
+  background: #fecaca;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.kavla-canvas-file-table code {
+  font-size: 11px;
+}
