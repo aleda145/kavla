@@ -364,6 +364,35 @@ func (d *Document) SaveAs(path string) error {
 	return nil
 }
 
+// Rename moves the current archive and keeps its manifest name in sync with the filename.
+func (d *Document) Rename(path string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if path == d.path {
+		return nil
+	}
+	if _, err := os.Stat(path); err == nil {
+		return os.ErrExist
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	oldPath, oldName := d.path, d.manifest.DocumentName
+	if err := os.Rename(oldPath, path); err != nil {
+		return err
+	}
+	d.path = path
+	d.manifest.DocumentName = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	if err := d.saveLocked(path); err != nil {
+		rollbackErr := os.Rename(path, oldPath)
+		if rollbackErr == nil {
+			d.path, d.manifest.DocumentName = oldPath, oldName
+			rollbackErr = d.writeManifestLocked()
+		}
+		return errors.Join(err, rollbackErr)
+	}
+	return nil
+}
+
 func (d *Document) OpenFromPath(path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("document path must be absolute")

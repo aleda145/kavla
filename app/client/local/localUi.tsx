@@ -69,13 +69,41 @@ export const localUiOverrides: TLUiOverrides = {
 
 function CanvasHeader({
   documentName,
+  documentsAvailable,
   isDocumentDirty,
   isDocumentSaving,
+  onRenameDocument,
 }: {
   documentName: string;
+  documentsAvailable: boolean;
   isDocumentDirty: boolean;
   isDocumentSaving: boolean;
+  onRenameDocument: (name: string) => Promise<void>;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(documentName);
+  const [error, setError] = useState<string | null>(null);
+  const cancelEdit = useRef(false);
+
+  const finishEditing = async () => {
+    setEditing(false);
+    if (cancelEdit.current) {
+      cancelEdit.current = false;
+      return;
+    }
+    const nextName = name.trim();
+    if (!nextName) {
+      setError("Enter a canvas name.");
+      return;
+    }
+    if (nextName === documentName) return;
+    try {
+      await onRenameDocument(nextName);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
   return (
     <div className="pointer-events-none">
       <div
@@ -86,7 +114,38 @@ function CanvasHeader({
         <span className="font-bold">Kavla</span>
         <span className="font-bold opacity-50">/</span>
         <span className="flex items-center font-bold">
-          {documentName}
+          {editing ? (
+            <input
+              autoFocus
+              aria-label="Canvas name"
+              className="pointer-events-auto min-w-20 max-w-60 border-b-2 border-black bg-transparent outline-none"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onBlur={() => void finishEditing()}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") {
+                  cancelEdit.current = true;
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              className="pointer-events-auto cursor-text text-left hover:underline disabled:cursor-default"
+              disabled={!documentsAvailable || isDocumentSaving}
+              title="Rename canvas"
+              onClick={() => {
+                setName(documentName);
+                setError(null);
+                setEditing(true);
+              }}
+            >
+              {documentName}
+            </button>
+          )}
           {isDocumentSaving ? (
             <Loader2 aria-label="Saving document" className="ml-1 animate-spin" size={12} strokeWidth={3} />
           ) : isDocumentDirty ? (
@@ -94,6 +153,11 @@ function CanvasHeader({
           ) : null}
         </span>
       </div>
+      {error && (
+        <div role="alert" className="pointer-events-auto max-w-80 border-2 border-black bg-red-100 p-2 text-xs">
+          {error}
+        </div>
+      )}
     </div>
   );
 }
@@ -299,8 +363,14 @@ const LocalMenuPanel = memo(function LocalMenuPanel({
   isDocumentSaving,
   onLoadDocument,
   onNewDocument,
+  onRenameDocument,
   onSaveDocument,
-}: { documentName: string; isDocumentDirty: boolean; isDocumentSaving: boolean } & LocalDocumentControlsProps) {
+}: {
+  documentName: string;
+  isDocumentDirty: boolean;
+  isDocumentSaving: boolean;
+  onRenameDocument: (name: string) => Promise<void>;
+} & LocalDocumentControlsProps) {
   const breakpoint = useBreakpoint();
   const msg = useTranslation();
   const editor = useEditor();
@@ -318,7 +388,13 @@ const LocalMenuPanel = memo(function LocalMenuPanel({
 
   return (
     <div>
-      <CanvasHeader documentName={documentName} isDocumentDirty={isDocumentDirty} isDocumentSaving={isDocumentSaving} />
+      <CanvasHeader
+        documentName={documentName}
+        documentsAvailable={documentsAvailable}
+        isDocumentDirty={isDocumentDirty}
+        isDocumentSaving={isDocumentSaving}
+        onRenameDocument={onRenameDocument}
+      />
       <LocalDocumentControls
         documentName={documentName}
         documentsAvailable={documentsAvailable}
@@ -446,12 +522,14 @@ export function useLocalComponents({
   isDocumentSaving,
   onLoadDocument,
   onNewDocument,
+  onRenameDocument,
   onSaveDocument,
 }: {
   documentName: string;
   isDocumentDirty: boolean;
   isDocumentSaving: boolean;
   fileSize: number | null;
+  onRenameDocument: (name: string) => Promise<void>;
 } & LocalDocumentControlsProps): TLComponents {
   return useMemo(
     () => ({
@@ -477,6 +555,7 @@ export function useLocalComponents({
           isDocumentSaving={isDocumentSaving}
           onLoadDocument={onLoadDocument}
           onNewDocument={onNewDocument}
+          onRenameDocument={onRenameDocument}
           onSaveDocument={onSaveDocument}
         />
       ),
@@ -500,6 +579,7 @@ export function useLocalComponents({
       isDocumentSaving,
       onLoadDocument,
       onNewDocument,
+      onRenameDocument,
       onSaveDocument,
     ]
   );

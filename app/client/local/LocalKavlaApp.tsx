@@ -64,6 +64,7 @@ import {
   loadCanvasJson,
   loadLocalSessionPath,
   newLocalSession,
+  renameLocalSession,
   saveLocalSession,
   type SaveLocalSessionOptions,
   type SaveLocalSessionResult,
@@ -205,6 +206,35 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
       setIsDocumentSaving(false);
     }
   }, [addToast, session, stageCurrentCanvas]);
+
+  const renameCurrentSession = useCallback(
+    async (name: string) => {
+      if (!session || loadingDocumentRef.current) return;
+      const revisionBeingSaved = documentRevisionRef.current;
+      setIsDocumentSaving(true);
+      try {
+        await waitForBackendOperations();
+        await stageCurrentCanvas(true);
+        await saveLocalSession();
+        const renamed = await renameLocalSession(name);
+        setDocumentFileSize(renamed.fileSize);
+        if (documentRevisionRef.current === revisionBeingSaved) {
+          documentDirtyRef.current = false;
+          setIsDocumentDirty(false);
+        }
+      } catch (error) {
+        addToast({
+          title: "Could not rename canvas",
+          description: error instanceof Error ? error.message : String(error),
+          severity: "error",
+        });
+        throw error;
+      } finally {
+        setIsDocumentSaving(false);
+      }
+    },
+    [addToast, session, stageCurrentCanvas]
+  );
 
   const prepareCanvasForSave = useCallback(
     async (freezeEditor = true) => {
@@ -708,6 +738,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
         onLoadDocument={loadDocument}
         onMount={onMount}
         onNewDocument={newDocument}
+        onRenameDocument={renameCurrentSession}
         onSaveDocument={saveCurrentSession}
         session={session}
       />
@@ -779,6 +810,7 @@ function LocalCanvasMount({
   onLoadDocument,
   onMount,
   onNewDocument,
+  onRenameDocument,
   onSaveDocument,
   session,
 }: {
@@ -788,6 +820,7 @@ function LocalCanvasMount({
   onLoadDocument: (path: string) => Promise<void>;
   onMount: (editor: Editor) => void | Promise<void>;
   onNewDocument: (options: SaveLocalSessionOptions) => Promise<SaveLocalSessionResult>;
+  onRenameDocument: (name: string) => Promise<void>;
   onSaveDocument: () => Promise<void>;
   session: KavlaLocalSession | null;
 }) {
@@ -799,6 +832,7 @@ function LocalCanvasMount({
     isDocumentSaving,
     onLoadDocument,
     onNewDocument,
+    onRenameDocument,
     onSaveDocument,
   });
   const bindingUtils = useMemo(() => [KavlaArrowBindingUtil], []);

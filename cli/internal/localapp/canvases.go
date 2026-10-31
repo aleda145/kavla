@@ -114,7 +114,7 @@ func (c *canvasRegistry) checkPath(path string) (string, string, error) {
 			return existingName, path, nil
 		}
 		if strings.EqualFold(existingName, name) {
-			return "", "", fmt.Errorf("a canvas named %q is already registered; choose a unique filename", name)
+			return "", "", fmt.Errorf("%w: a canvas named %q is already registered; choose a unique filename", os.ErrExist, name)
 		}
 	}
 	return name, path, nil
@@ -426,6 +426,38 @@ func (c *canvasRegistry) saveAs(runtime *Server, path string, overwrite bool) er
 	if oldPath != path {
 		delete(c.runtimes, oldName)
 	}
+	runtime.canvasName = name
+	c.runtimes[name] = runtime
+	return nil
+}
+
+func (c *canvasRegistry) rename(runtime *Server, path string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	oldName, oldPath, oldLast := runtime.canvasName, runtime.document.Path(), c.last
+	delete(c.files, oldName)
+	name, path, err := c.checkPath(path)
+	c.files[oldName] = oldPath
+	if err != nil {
+		return err
+	}
+	if path == oldPath {
+		return nil
+	}
+	if err := runtime.document.Rename(path); err != nil {
+		return err
+	}
+	delete(c.files, oldName)
+	c.files[name] = path
+	if c.last == oldName {
+		c.last = name
+	}
+	if err := c.save(); err != nil {
+		delete(c.files, name)
+		c.files[oldName], c.last = oldPath, oldLast
+		return errors.Join(err, runtime.document.Rename(oldPath))
+	}
+	delete(c.runtimes, oldName)
 	runtime.canvasName = name
 	c.runtimes[name] = runtime
 	return nil
