@@ -54,9 +54,16 @@ export function LocalSaveDialog({
   const [selectedDocumentPath, setSelectedDocumentPath] = useState<string | null>(null);
   const [registeredCanvases, setRegisteredCanvases] = useState<CanvasFileEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
+  const mountedRef = useRef(true);
   const newNameInputRef = useRef<HTMLInputElement>(null);
   const { addToast } = useToasts();
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const entries = useMemo(
     () =>
@@ -160,8 +167,10 @@ export function LocalSaveDialog({
 
   const importCanvas = async (file: File) => {
     if (!onLoad) return;
-    setSaving(true);
-    setError(null);
+    if (mountedRef.current) {
+      setSaving(true);
+      setError(null);
+    }
     try {
       const query = new URLSearchParams({ name: file.name });
       const response = await fetch(`/api/canvases/import?${query}`, {
@@ -173,10 +182,32 @@ export function LocalSaveDialog({
       const imported = (await response.json()) as { path: string };
       await onLoad(imported.path);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (mountedRef.current) setError(message);
+      else addToast({ title: "Import failed", description: message, severity: "error" });
     } finally {
-      setSaving(false);
+      if (mountedRef.current) setSaving(false);
     }
+  };
+
+  const openImportPicker = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".kavla";
+    input.style.display = "none";
+    document.body.appendChild(input);
+    const removeInput = () => input.remove();
+    input.addEventListener("cancel", removeInput, { once: true });
+    input.addEventListener(
+      "change",
+      () => {
+        const file = input.files?.[0];
+        removeInput();
+        if (file) void importCanvas(file);
+      },
+      { once: true }
+    );
+    input.click();
   };
 
   const title = mode === "save" ? "Save Canvas" : mode === "load" ? "Load Canvas" : "New Canvas";
@@ -488,20 +519,9 @@ export function LocalSaveDialog({
           >
             {mode === "load" && (
               <>
-                <input
-                  ref={importInputRef}
-                  accept=".kavla"
-                  type="file"
-                  style={{ display: "none" }}
-                  onChange={(event) => {
-                    const file = event.currentTarget.files?.[0];
-                    event.currentTarget.value = "";
-                    if (file) void importCanvas(file);
-                  }}
-                />
                 <button
                   disabled={saving}
-                  onClick={() => importInputRef.current?.click()}
+                  onClick={openImportPicker}
                   style={{ ...secondaryButtonStyle, justifySelf: "start" }}
                   type="button"
                 >
