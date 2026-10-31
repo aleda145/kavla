@@ -255,39 +255,39 @@ function LocalDocumentControls({
         `}
       </style>
       <button
-        aria-label="New Kavla document"
+        aria-label="New Canvas"
         className="kavla-document-control"
         data-action="new"
         disabled={!documentsAvailable}
         onClick={() => setDialogMode("new")}
         onPointerDown={(event) => event.stopPropagation()}
-        title={documentsAvailable ? "Create a new .kavla document" : "Run Kavla through the CLI to create documents"}
+        title={documentsAvailable ? "Create a new Canvas" : "Run Kavla through the CLI to create documents"}
         type="button"
       >
         <FilePlus2 size={14} />
         <span className="kavla-control-label">New</span>
       </button>
       <button
-        aria-label="Save Kavla document"
+        aria-label="Save Canvas"
         className="kavla-document-control"
         data-action="save"
         disabled={!documentsAvailable || saving}
         onClick={() => void save()}
         onPointerDown={(event) => event.stopPropagation()}
-        title={documentsAvailable ? "Save this .kavla document (Ctrl/⌘+S)" : "Run Kavla through the CLI to save"}
+        title={documentsAvailable ? "Save this Canvas (Ctrl/⌘+S)" : "Run Kavla through the CLI to save"}
         type="button"
       >
         {saving ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
         <span className="kavla-control-label">Save</span>
       </button>
       <button
-        aria-label="Load Kavla document"
+        aria-label="Load Canvas"
         className="kavla-document-control"
         data-action="load"
         disabled={!documentsAvailable}
         onClick={() => setDialogMode("load")}
         onPointerDown={(event) => event.stopPropagation()}
-        title={documentsAvailable ? "Load a .kavla document" : "Run Kavla through the CLI to load"}
+        title={documentsAvailable ? "Load a Canvas" : "Run Kavla through the CLI to load"}
         type="button"
       >
         <FolderOpen size={14} />

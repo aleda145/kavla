@@ -173,8 +173,7 @@ export function LocalSaveDialog({
     }
   };
 
-  const title =
-    mode === "save" ? "Save Kavla document" : mode === "load" ? "Load Kavla document" : "New Kavla document";
+  const title = mode === "save" ? "Save Canvas" : mode === "load" ? "Load Canvas" : "New Canvas";
   const actionLabel = mode === "save" ? "Save here" : mode === "load" ? "Load" : "Create here";
   const actionIcon =
     mode === "save" ? <Save size={15} /> : mode === "load" ? <FolderOpen size={15} /> : <FilePlus2 size={15} />;
@@ -342,7 +341,7 @@ export function LocalSaveDialog({
                     <Loader2 className="animate-spin" size={22} /> Opening directory…
                   </div>
                 ) : entries.length === 0 ? (
-                  <div style={emptyStateStyle}>This directory has no folders or Kavla documents.</div>
+                  <div style={emptyStateStyle}>This directory has no folders or .kavla files.</div>
                 ) : (
                   entries.map((entry) => (
                     <button
