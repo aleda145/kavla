@@ -410,6 +410,33 @@ export async function saveLocalSessionAs(options: SaveLocalSessionOptions): Prom
   return result;
 }
 
+export async function renameLocalSession(name: string): Promise<SaveLocalSessionResult> {
+  if (!activeSession) throw new Error("Open Kavla through the CLI to rename canvases");
+  await canvasStageQueue;
+  const response = await sessionFetch("/api/session/rename", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (response.status === 409) {
+    throw new KavlaSaveConflictError(`A canvas named "${name}" already exists. Choose another name.`);
+  }
+  if (!response.ok) {
+    const message = await sessionErrorMessage(response);
+    throw new Error(message || `Could not rename canvas (status ${response.status})`);
+  }
+  const result = (await response.json()) as SaveLocalSessionResult;
+  activeSession.documentName = result.documentName;
+  activeSession.fileSize = result.fileSize;
+  updateDocumentTitle(result.documentName);
+  if (result.canvasUrl !== window.location.pathname.replace(/\/$/, "")) {
+    disconnectCanvas();
+    window.location.assign(result.canvasUrl);
+  }
+  return result;
+}
+
 export async function loadLocalSessionPath(path: string): Promise<{ canvasUrl: string }> {
   const response = await sessionFetch("/api/session/load-path", {
     method: "POST",

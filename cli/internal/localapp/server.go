@@ -366,6 +366,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/session/transfer", s.sameOriginMutation(s.handleEditorTransferResult))
 	mux.HandleFunc("POST /api/session/save", s.sameOriginMutation(s.handleSave))
 	mux.HandleFunc("POST /api/session/save-as", s.sameOriginMutation(s.handleSaveAs))
+	mux.HandleFunc("POST /api/session/rename", s.sameOriginMutation(s.handleRename))
 	mux.HandleFunc("GET /api/session/directories", s.handleDirectories)
 	mux.HandleFunc("POST /api/session/load-path", s.sameOriginMutation(s.handleLoadPath))
 	mux.HandleFunc("POST /api/session/new", s.sameOriginMutation(s.handleNew))
@@ -665,6 +666,42 @@ func (s *Server) handleSaveAs(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.document.SaveAs(targetPath); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.notifyDocumentChanged()
+	s.writeSavedDocumentResponse(w)
+}
+
+func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	var request struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid rename request", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(request.Name)
+	if name == "" || strings.EqualFold(filepath.Ext(name), ".kavla") {
+		http.Error(w, "enter a canvas name without the .kavla extension", http.StatusBadRequest)
+		return
+	}
+	path, err := resolveSelectedDocumentPath(filepath.Dir(s.document.Path()), name+".kavla")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if s.canvases != nil {
+		err = s.canvases.rename(s, path)
+	} else {
+		err = s.document.Rename(path)
+	}
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, os.ErrExist) {
+			status = http.StatusConflict
+		}
+		writeAPIError(w, status, err)
 		return
 	}
 	s.notifyDocumentChanged()
