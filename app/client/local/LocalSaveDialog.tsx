@@ -431,7 +431,15 @@ export function LocalSaveDialog({
             </div>
           ) : null}
 
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", padding: mode === "load" ? 14 : 0 }}>
+          <div
+            style={{
+              display: mode === "load" ? "grid" : "flex",
+              gap: 8,
+              gridTemplateColumns: mode === "load" ? "1fr auto 1fr" : undefined,
+              justifyContent: "flex-end",
+              padding: mode === "load" ? 14 : 0,
+            }}
+          >
             {mode === "load" && (
               <>
                 <input
@@ -448,12 +456,26 @@ export function LocalSaveDialog({
                 <button
                   disabled={saving}
                   onClick={() => importInputRef.current?.click()}
-                  style={{ ...secondaryButtonStyle, marginRight: "auto" }}
+                  style={{ ...secondaryButtonStyle, justifySelf: "start" }}
                   type="button"
                 >
                   Import .kavla
                 </button>
               </>
+            )}
+            {mode === "load" && (
+              <span
+                style={{
+                  alignSelf: "center",
+                  color: "#666",
+                  fontSize: 12,
+                  fontWeight: "bold",
+                  textAlign: "center",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {registeredCanvases.length.toLocaleString()} {registeredCanvases.length === 1 ? "row" : "rows"}
+              </span>
             )}
             {mode !== "load" && (
               <button disabled={saving} onClick={onClose} style={secondaryButtonStyle} type="button">
@@ -467,6 +489,7 @@ export function LocalSaveDialog({
                 ...primaryButtonStyle,
                 backgroundColor: mode === "new" ? "#fef3c7" : "#dcfce7",
                 cursor: actionDisabled ? "not-allowed" : "pointer",
+                justifySelf: mode === "load" ? "end" : undefined,
                 opacity: actionDisabled ? 0.5 : 1,
               }}
               type="button"
