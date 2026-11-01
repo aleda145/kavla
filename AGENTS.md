@@ -52,6 +52,7 @@ Never use any git features. Ask the user if you really need to, but do so rarely
 You cant view the results of the `app`. If it's really needed, ask the user
 Don't run anything related to linting or formatting. The user will handle that via pre-commits.
 Never remove commented out code. It's there for a reason.
+Never run `npm build`
 
 ## style
 
