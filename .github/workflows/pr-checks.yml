@@ -1,0 +1,47 @@
+name: PR checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Test CLI
+        working-directory: cli
+        run: go test ./...
+      - name: Test CEF backend
+        working-directory: cli
+        run: go test -tags cef ./cmd ./internal/localapp
+
+  pre-commit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: app/yarn.lock
+      - name: Install app dependencies
+        working-directory: app
+        run: yarn install --frozen-lockfile
+      - name: Install pre-commit
+        run: python -m pip install pre-commit
+      - name: Run pre-commit
+        run: pre-commit run --all-files
