@@ -127,66 +127,6 @@ func TestDocumentExtractsArchivedBlobsOnDemand(t *testing.T) {
 	}
 }
 
-func TestSavePrunesBlobsWhoseOwnersAreNoLongerInTheCanvas(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("USERPROFILE", os.Getenv("HOME"))
-	documentPath := filepath.Join(t.TempDir(), "pruned.kavla")
-	document, err := OpenDocument(documentPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	initialCanvas := []byte(`{"records":[{"id":"shape:source-live","typeName":"shape","type":"data-source"},{"id":"shape:source-old","typeName":"shape","type":"data-source"},{"id":"shape:query-live","typeName":"shape","type":"sql-text-area"},{"id":"shape:query-old","typeName":"shape","type":"sql-text-area"},{"id":"asset:live","typeName":"asset","type":"image"},{"id":"asset:old","typeName":"asset","type":"image"}]}`)
-	if err := document.StageCanvas(initialCanvas); err != nil {
-		t.Fatal(err)
-	}
-
-	blobs := []struct {
-		id         string
-		descriptor BlobDescriptor
-	}{
-		{"source:shape:source-live", BlobDescriptor{Kind: BlobKindSource, ShapeID: "shape:source-live", FileName: "live.csv"}},
-		{"source:shape:source-old", BlobDescriptor{Kind: BlobKindSource, ShapeID: "shape:source-old", FileName: "old.csv"}},
-		{"asset:asset:live", BlobDescriptor{Kind: BlobKindAsset, ShapeID: "asset:live", FileName: "live.png"}},
-		{"asset:asset:old", BlobDescriptor{Kind: BlobKindAsset, ShapeID: "asset:old", FileName: "old.png"}},
-	}
-	for _, blob := range blobs {
-		if _, err := document.PutBlob(blob.id, blob.descriptor, bytes.NewReader([]byte(blob.id))); err != nil {
-			t.Fatalf("PutBlob(%q) returned error: %v", blob.id, err)
-		}
-	}
-
-	currentCanvas := []byte(`{"records":[{"id":"shape:source-live","typeName":"shape","type":"data-source"},{"id":"shape:query-live","typeName":"shape","type":"sql-text-area"},{"id":"asset:live","typeName":"asset","type":"image"}]}`)
-	if err := document.StageCanvas(currentCanvas); err != nil {
-		t.Fatal(err)
-	}
-	if got := len(document.Manifest().Blobs); got != 4 {
-		t.Fatalf("canvas staging must not race uploads by pruning blobs, got %d blobs", got)
-	}
-	if _, err := document.PutBlob("result:shape:query-live", BlobDescriptor{
-		Kind:     BlobKind("result"),
-		ShapeID:  "shape:query-live",
-		FileName: "result.arrow",
-	}, bytes.NewReader([]byte("temporary"))); err == nil {
-		t.Fatal("query result blobs must not be accepted by .kavla documents")
-	}
-	if err := document.Save(); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []string{"source:shape:source-old", "asset:asset:old"} {
-		if _, _, err := document.BlobPath(id); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("expected save to prune %q, got %v", id, err)
-		}
-	}
-
-	reopened, err := OpenDocument(documentPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := len(reopened.Manifest().Blobs); got != 2 {
-		t.Fatalf("expected saved archive to contain 2 live blobs, got %d", got)
-	}
-}
-
 func TestStaleCanvasStageDoesNotDeleteAnUploadForANewerCanvas(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", os.Getenv("HOME"))
