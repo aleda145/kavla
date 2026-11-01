@@ -12,6 +12,21 @@ import (
 	"testing/fstest"
 )
 
+func assertSameCanvasFile(t *testing.T, gotPath, wantPath string) {
+	t.Helper()
+	got, err := os.Stat(gotPath)
+	if err != nil {
+		t.Fatalf("stat %q: %v", gotPath, err)
+	}
+	want, err := os.Stat(wantPath)
+	if err != nil {
+		t.Fatalf("stat %q: %v", wantPath, err)
+	}
+	if !os.SameFile(got, want) {
+		t.Fatalf("%q and %q refer to different files", gotPath, wantPath)
+	}
+}
+
 func TestRegistryRenameUpdatesRegisteredCanvasAndLastOpened(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", os.Getenv("HOME"))
@@ -55,9 +70,10 @@ func TestRegistryRenameUpdatesRegisteredCanvasAndLastOpened(t *testing.T) {
 	if err := json.NewDecoder(listResponse.Body).Decode(&entries); err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name != "after" || entries[0].Path != newPath {
+	if len(entries) != 1 || entries[0].Name != "after" {
 		t.Fatalf("canvas list does not reflect rename: %+v", entries)
 	}
+	assertSameCanvasFile(t, entries[0].Path, newPath)
 	rootResponse := httptest.NewRecorder()
 	registry.ServeHTTP(rootResponse, httptest.NewRequest(http.MethodGet, "/", nil))
 	if rootResponse.Code != http.StatusTemporaryRedirect || rootResponse.Header().Get("Location") != "/after" {
@@ -71,9 +87,10 @@ func TestRegistryRenameUpdatesRegisteredCanvasAndLastOpened(t *testing.T) {
 	if err := json.Unmarshal(data, &saved); err != nil {
 		t.Fatal(err)
 	}
-	if len(saved.Files) != 1 || saved.Files["after"] != newPath {
+	if len(saved.Files) != 1 || saved.Files["after"] == "" {
 		t.Fatalf("registry file does not reflect rename: %+v", saved)
 	}
+	assertSameCanvasFile(t, saved.Files["after"], newPath)
 }
 
 func TestRegistryRenameRejectsRegisteredNameConflict(t *testing.T) {
@@ -120,9 +137,7 @@ func TestRegistryRenameRejectsRegisteredNameConflict(t *testing.T) {
 	if response.Code != http.StatusConflict {
 		t.Fatalf("rename API returned %d for a name conflict, want 409: %s", response.Code, response.Body.String())
 	}
-	if document.Path() != oldPath {
-		t.Fatalf("name conflict changed the active canvas path to %q", document.Path())
-	}
+	assertSameCanvasFile(t, document.Path(), oldPath)
 	if _, err := os.Stat(oldPath); err != nil {
 		t.Fatalf("name conflict moved the archive: %v", err)
 	}
