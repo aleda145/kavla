@@ -1,5 +1,6 @@
 import { CanvasSettingsMenu } from "../CanvasSettingsMenu";
 import { canvasPreferenceActions } from "../canvasPreferences";
+import { layoutActions } from "../canvas/layoutActions";
 import { memo, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import "../canvas-menu.css";
 import {
@@ -47,7 +48,8 @@ import { LocalSourcesDialog } from "./LocalSourcesDialog";
 import type { SaveLocalSessionOptions, SaveLocalSessionResult } from "./localSession";
 
 export const localUiOverrides: TLUiOverrides = {
-  actions: canvasPreferenceActions,
+  actions: (editor, actions, helpers) =>
+    layoutActions(editor, canvasPreferenceActions(editor, actions, helpers), helpers),
   tools(editor, tools) {
     tools["sql-text-area"] = {
       id: "sql-text-area",
@@ -543,6 +545,8 @@ export function useLocalComponents({
             <TldrawUiMenuItem {...tools["sql-text-area"]} />
             <TldrawUiMenuItem {...actions["toggle-biz-mode"]} icon="sql" />
             <TldrawUiMenuItem {...actions["toggle-just-icons"]} icon={undefined} />
+            <TldrawUiMenuItem {...actions["layout-kavla-nodes"]} icon={undefined} />
+            <TldrawUiMenuItem {...actions["fit-query-nodes"]} icon={undefined} />
             <DefaultKeyboardShortcutsDialogContent />
           </DefaultKeyboardShortcutsDialog>
         );

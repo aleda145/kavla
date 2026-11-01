@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BriefcaseBusiness, Code2, Pin, Terminal } from "lucide-react";
+import { BriefcaseBusiness, Code2, LayoutDashboard, Loader2, Pin, Scan, Terminal } from "lucide-react";
 import { siDuckdb, siGithub } from "simple-icons";
-import { createShapeId, useEditor, useValue } from "tldraw";
+import { createShapeId, useActions, useEditor, useValue } from "tldraw";
 import { isBackendComputing } from "../backendCompute";
 import { setBizMode, useBizMode } from "../canvas/bizMode";
+import { getLayoutInProgress } from "../canvas/layoutActions";
 import { getCliTerminalDisplay } from "../cliTerminalDisplay";
 import { useCliOutput, useCliStatus } from "../localServer/runtimeStore";
 import { LocalAssetsDialog } from "./LocalAssetsDialog";
@@ -44,6 +45,9 @@ function formatCompactFileSize(fileSize: number): string {
 export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
   const editor = useEditor();
   const bizMode = useBizMode(editor);
+  const actions = useActions();
+  const layingOut = useValue("Layout in progress", () => getLayoutInProgress(editor).get(), [editor]);
+  const isReadonly = useValue("Layout readonly", () => editor.getIsReadonly(), [editor]);
   const cliConnected = useCliStatus();
   const cliOutput = useCliOutput();
   const cliTerminalDisplay = getCliTerminalDisplay(cliConnected, cliOutput);
@@ -407,6 +411,59 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
               </button>
             );
           })}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            aria-label="Auto layout nodes"
+            aria-keyshortcuts="Shift+A"
+            aria-busy={layingOut}
+            disabled={isReadonly || layingOut}
+            onClick={() => void actions["layout-kavla-nodes"].onSelect("actions-menu")}
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            title="Auto layout nodes (Shift+A)"
+            type="button"
+            className="kavla-icon-control bg-white hover:bg-gray-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
+            style={{
+              ...lightStyle,
+              color: "#000",
+              cursor: isReadonly || layingOut ? "default" : "pointer",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 11,
+              fontWeight: 850,
+              gap: 5,
+            }}
+          >
+            {layingOut ? (
+              <Loader2 className="animate-spin" size={14} aria-hidden />
+            ) : (
+              <LayoutDashboard size={14} aria-hidden />
+            )}
+            <span className="kavla-control-label">Layout</span>
+          </button>
+          <button
+            aria-label="Fit query nodes to their content"
+            aria-keyshortcuts="Shift+F"
+            disabled={isReadonly || layingOut}
+            onClick={() => void actions["fit-query-nodes"].onSelect("actions-menu")}
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            title="Fit query nodes to their content (Shift+F)"
+            type="button"
+            className="kavla-icon-control bg-white hover:bg-gray-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
+            style={{
+              ...lightStyle,
+              color: "#000",
+              cursor: isReadonly || layingOut ? "default" : "pointer",
+              fontFamily: "Inter, sans-serif",
+              fontSize: 11,
+              fontWeight: 850,
+              gap: 5,
+            }}
+          >
+            <Scan size={14} aria-hidden />
+            <span className="kavla-control-label">Fit</span>
+          </button>
         </div>
       </div>
       {fileSize !== null ? (

@@ -35,6 +35,9 @@ export default function createArrowBetweenShapes(
 ) {
   const { start = {}, end = {}, parentId } = options;
 
+  const startShape = editor.getShape(startShapeId);
+  const endShape = editor.getShape(endShapeId);
+  if (!startShape || !endShape || startShapeId === endShapeId) return;
   const {
     normalizedAnchor: startNormalizedAnchor = { x: 0.5, y: 0.5 },
     isExact: startIsExact = false,
@@ -74,12 +77,6 @@ export default function createArrowBetweenShapes(
   }
 
   const arrowId = createShapeId();
-
-  const startShape = editor.getShape(startShapeId);
-  const endShape = editor.getShape(endShapeId);
-  if (!startShape || !endShape) return;
-
-  if (startShapeId === endShapeId) return;
 
   editor.run(() => {
     const arrowParentId = parentId ?? editor.getCurrentPageId();
