@@ -1,4 +1,5 @@
 import { Arc2d, Vec, getArrowInfo, type Editor, type TLArrowShape, type TLShapeId } from "tldraw";
+import type { LayoutDirection } from "./layoutQueryBranches";
 
 type Point = { x: number; y: number };
 type Bounds = Point & { w: number; h: number };
@@ -63,113 +64,172 @@ function crosses(route: Route, id: TLShapeId, box: Bounds): boolean {
 export function avoidLayoutArrows(
   editor: Editor,
   queryByView: Map<TLShapeId, TLShapeId>,
-  nodeIds: Set<TLShapeId>
+  nodeIds: Set<TLShapeId>,
+  groups: Map<TLShapeId, { direction: LayoutDirection; members: TLShapeId[] }>
 ): void {
   const shapes = editor.getCurrentPageShapes();
   const arrowIds = shapes.filter((shape) => shape.type === "arrow").map((shape) => shape.id);
   if (!arrowIds.length) return;
-
-  // Two bounded passes let a view use space freed by a preceding move.
-  for (let pass = 0; pass < 2; pass++) {
+  const readRoutes = () =>
+    arrowIds.flatMap((id) => {
+      const route = readRoute(editor, id);
+      return route ? [route] : [];
+    });
+  // Try the views individually first, then complete query groups. Shared inputs
+  // stay put; moving query groups across their flow preserves downstream order.
+  const units = [
+    ...[...queryByView].map(([id, queryId]) => ({
+      id,
+      members: [id],
+      queryId,
+      direction: groups.get(queryId)!.direction,
+    })),
+    ...[...groups]
+      .filter(([id]) => !["data-source", "knob"].includes(editor.getShape(id)!.type))
+      .map(([id, group]) => ({ id, ...group, queryId: undefined })),
+  ];
+  const startingBounds = new Map([...nodeIds].map((id) => [id, editor.getShapePageBounds(id)]));
+  // A small, bounded relaxation pass. Always reduce the number of obstructed
+  // arrow/node pairs, including connectors rerouted by a candidate move.
+  for (let pass = 0; pass < 4; pass++) {
     let moved = false;
-    for (const [viewId, queryId] of queryByView) {
-      const view = editor.getShape(viewId);
-      const box = editor.getShapePageBounds(viewId);
-      const query = editor.getShapePageBounds(queryId);
-      if (!view || !box || !query || editor.isShapeOrAncestorLocked(view)) continue;
-      const routes = arrowIds.flatMap((id) => {
-        const route = readRoute(editor, id);
-        return route ? [route] : [];
+    for (const unit of units) {
+      if (unit.members.some((id) => editor.isShapeOrAncestorLocked(id))) continue;
+      const movingIds = new Set(unit.members);
+      const boxes = [...nodeIds].flatMap((id) => {
+        const box = editor.getShapePageBounds(id);
+        return box ? [{ id, box }] : [];
       });
-      const blocking = routes.filter((route) => crosses(route, viewId, box));
-      if (!blocking.length) continue;
-
-      const obstacles = shapes.flatMap((shape) => {
-        // Annotations follow afterward and mustn't constrain node placement.
-        if (!nodeIds.has(shape.id) || shape.id === viewId || editor.hasAncestor(view, shape.id)) return [];
-        const bounds = editor.getShapePageBounds(shape.id);
-        return bounds ? [{ id: shape.id, box: bounds }] : [];
-      });
-      const overlapsNode = (candidate: Bounds) =>
-        obstacles.some(
-          ({ box: other }) =>
-            candidate.x < other.x + other.w + nodeGap &&
-            candidate.x + candidate.w + nodeGap > other.x &&
-            candidate.y < other.y + other.h + nodeGap &&
-            candidate.y + candidate.h + nodeGap > other.y
+      const moving = boxes.filter(({ id }) => movingIds.has(id));
+      const fixed = boxes.filter(({ id }) => !movingIds.has(id));
+      const anchor = editor.getShapePageBounds(unit.queryId ?? unit.id);
+      const current = editor.getShapePageBounds(unit.id);
+      const original = startingBounds.get(unit.id);
+      if (!moving.length || !anchor || !current || !original) continue;
+      const routes = readRoutes();
+      const attachedIds = new Set(
+        routes.filter((route) => [...route.ends].some((id) => movingIds.has(id))).map((route) => route.id)
+      );
+      const unchangedRoutes = routes.filter((route) => !attachedIds.has(route.id));
+      const unchangedCrossings = (delta: Point) =>
+        moving.reduce(
+          (count, { id, box }) =>
+            count +
+            unchangedRoutes.filter((route) =>
+              crosses(route, id, {
+                x: box.x + delta.x,
+                y: box.y + delta.y,
+                w: box.w,
+                h: box.h,
+              })
+            ).length,
+          0
         );
-      const attached = routes.filter((route) => route.ends.has(viewId));
-      const crossings = (candidate: Bounds, connected: Route[]) => {
-        const result = new Set<string>();
-        for (const route of routes) {
-          if (crosses(route, viewId, candidate)) result.add(JSON.stringify([route.id, viewId]));
-        }
-        for (const route of connected) {
-          for (const obstacle of obstacles) {
-            if (crosses(route, obstacle.id, obstacle.box)) result.add(JSON.stringify([route.id, obstacle.id]));
+      const countCrossings = (delta: Point, paths: Route[]) => {
+        let count = 0;
+        for (const route of paths) {
+          for (const { id, box } of moving) {
+            if (crosses(route, id, { ...box, x: box.x + delta.x, y: box.y + delta.y })) count++;
+          }
+          if (attachedIds.has(route.id)) {
+            for (const { id, box } of fixed) {
+              if (crosses(route, id, box)) count++;
+            }
           }
         }
-        return result;
+        return count;
       };
-      const baseline = crossings(box, attached);
-      const xs = new Set([query.x - box.w - 40, query.x + query.w + 40]);
-      for (const route of blocking) {
-        for (let i = 1; i < route.points.length; i++) {
-          const a = route.points[i - 1];
-          const b = route.points[i];
-          if (!hitsBox(a, b, box, arrowGap)) continue;
-          xs.add(Math.min(a.x, b.x) - box.w - arrowGap - 1);
-          xs.add(Math.max(a.x, b.x) + arrowGap + 1);
+      const baseline = countCrossings({ x: 0, y: 0 }, routes);
+      if (!baseline) continue;
+      const xs = new Set([0, -80, 80, -160, 160, -320, 320]);
+      const ys = new Set(xs);
+      for (const { id, box } of moving) {
+        for (const route of routes) {
+          if (route.ends.has(id)) continue;
+          for (let i = 1; i < route.points.length; i++) {
+            const a = route.points[i - 1];
+            const b = route.points[i];
+            if (!hitsBox(a, b, box, arrowGap)) continue;
+            xs.add(Math.min(a.x, b.x) - box.w - arrowGap - 1 - box.x);
+            xs.add(Math.max(a.x, b.x) + arrowGap + 1 - box.x);
+            ys.add(Math.min(a.y, b.y) - box.h - arrowGap - 1 - box.y);
+            ys.add(Math.max(a.y, b.y) + arrowGap + 1 - box.y);
+          }
+        }
+        for (const { box: other } of fixed) {
+          xs.add(other.x - box.w - nodeGap - box.x);
+          xs.add(other.x + other.w + nodeGap - box.x);
+          ys.add(other.y - box.h - nodeGap - box.y);
+          ys.add(other.y + other.h + nodeGap - box.y);
         }
       }
-      // First slide within the existing chart/table row. Fall back to beside
-      // the query, but keep the search local so views remain near their owner.
-      const candidates = [...xs]
-        .flatMap((x) => [
-          { x, y: box.y },
-          { x, y: query.y + (query.h - box.h) / 2 },
-        ])
-        .filter((point) => Math.abs(point.x - box.x) <= box.w + query.w + 80)
-        .sort(
-          (a, b) =>
-            Math.abs(a.x - box.x) + 2 * Math.abs(a.y - box.y) - (Math.abs(b.x - box.x) + 2 * Math.abs(b.y - box.y))
+      const vertical = unit.direction === "DOWN" || unit.direction === "UP";
+      const isQueryGroup = editor.getShape(unit.id)!.type === "sql-text-area";
+      const nearby = (values: Set<number>) => [...values].sort((a, b) => Math.abs(a) - Math.abs(b)).slice(0, 18);
+      const candidates = isQueryGroup
+        ? nearby(vertical ? xs : ys).map((value) => (vertical ? { x: value, y: 0 } : { x: 0, y: value }))
+        : nearby(xs).flatMap((x) => nearby(ys).map((y) => ({ x, y })));
+      const overlapsNode = (delta: Point) =>
+        moving.some(({ id, box }) =>
+          fixed.some(
+            ({ id: otherId, box: other }) =>
+              !editor.hasAncestor(id, otherId) &&
+              !editor.hasAncestor(otherId, id) &&
+              box.x + delta.x < other.x + other.w + nodeGap &&
+              box.x + delta.x + box.w + nodeGap > other.x &&
+              box.y + delta.y < other.y + other.h + nodeGap &&
+              box.y + delta.y + box.h + nodeGap > other.y
+          )
+        );
+      const nearbyCandidates = candidates
+        .filter(
+          (delta) =>
+            (delta.x !== 0 || delta.y !== 0) &&
+            Math.abs(current.x + delta.x - original.x) <= anchor.w + current.w + 320 &&
+            Math.abs(current.y + delta.y - original.y) <= anchor.h + current.h + 320 &&
+            !overlapsNode(delta) &&
+            unchangedCrossings(delta) < baseline
         )
-        .slice(0, 16);
+        .sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))
+        .slice(0, 64);
 
-      const origin = editor.getShapePageTransform(view).applyToPoint({ x: 0, y: 0 });
-      // Preserve annotations and other children at their existing page positions.
-      const children = editor.getSortedChildIdsForParent(view.id).map((id) => editor.getShape(id)!);
-      const originals = [view, ...children].map((shape) => ({
-        id: shape.id,
-        type: shape.type,
-        x: shape.x,
-        y: shape.y,
-      }));
-      for (const point of candidates) {
-        const candidate = { ...point, w: box.w, h: box.h };
-        if (overlapsNode(candidate)) continue;
-        if (crossings(candidate, attached).size >= baseline.size) continue;
-        const dx = point.x - box.x;
-        const dy = point.y - box.y;
-        const position = editor.getPointInParentSpace(view, { x: origin.x + dx, y: origin.y + dy });
-        const childUpdates = children.map((child) => {
-          const childOrigin = editor.getShapePageTransform(child).applyToPoint({ x: 0, y: 0 });
-          const local = editor.getPointInParentSpace(child, { x: childOrigin.x - dx, y: childOrigin.y - dy });
-          return { id: child.id, type: child.type, x: local.x, y: local.y };
+      // Countertranslate children outside this unit (including annotations),
+      // which follow their final anchor only after all node placement is done.
+      const updateIds = new Set(unit.members);
+      for (const id of unit.members) {
+        for (const child of editor.getSortedChildIdsForParent(id)) updateIds.add(child);
+      }
+      const originals = [...updateIds].map((id) => {
+        const shape = editor.getShape(id)!;
+        return { id, type: shape.type, x: shape.x, y: shape.y };
+      });
+      const updatesFor = (delta: Point) =>
+        [...updateIds].map((id) => {
+          const shape = editor.getShape(id)!;
+          const factor = Number(movingIds.has(id)) - Number(movingIds.has(shape.parentId as TLShapeId));
+          const origin = editor.getShapePageTransform(shape).applyToPoint({ x: 0, y: 0 });
+          const point = editor.getPointInParentSpace(shape, {
+            x: origin.x + factor * delta.x,
+            y: origin.y + factor * delta.y,
+          });
+          return { id, type: shape.type, x: point.x, y: point.y };
         });
-        editor.updateShapes([{ id: view.id, type: view.type, x: position.x, y: position.y }, ...childUpdates]);
-        // Moving a view also reroutes its own connectors. Reject a candidate if
-        // any of those now cross a previously unobstructed node.
-        const rerouted = attached.flatMap((route) => {
-          const next = readRoute(editor, route.id);
-          return next ? [next] : [];
-        });
-        const after = crossings(candidate, rerouted);
-        if (after.size < baseline.size && [...after].every((key) => baseline.has(key))) {
-          moved = true;
-          break;
+      let bestCount = baseline;
+      let bestUpdates: ReturnType<typeof updatesFor> | undefined;
+      for (const delta of nearbyCandidates) {
+        const updates = updatesFor(delta);
+        editor.updateShapes(updates);
+        const count = countCrossings(delta, readRoutes());
+        if (count < bestCount) {
+          bestCount = count;
+          bestUpdates = updates;
         }
         editor.updateShapes(originals);
+        if (bestCount === 0) break;
+      }
+      if (bestUpdates) {
+        editor.updateShapes(bestUpdates);
+        moved = true;
       }
     }
     if (!moved) break;
