@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/memoryguard"
 	"github.com/aleda145/kavla/cli/internal/sources"
+	"github.com/aleda145/kavla/cli/internal/spilldir"
 	"github.com/apache/arrow/go/v14/arrow"
 	"github.com/apache/arrow/go/v14/arrow/array"
 	"github.com/apache/arrow/go/v14/arrow/memory"
@@ -21,6 +23,7 @@ import (
 
 type Engine struct {
 	db              *sql.DB
+	spillDir        *spilldir.Directory
 	logf            func(string, ...interface{})
 	adapterRegistry map[string]sources.AdapterFactory
 	adapters        map[string]sources.Adapter
@@ -44,10 +47,19 @@ func New(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ..
 	return NewWithAllowedDirectories(sourceConfigs, logf, nil)
 }
 
-func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), additionalDirectories []string) (*Engine, error) {
+func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), additionalDirectories []string) (result *Engine, resultErr error) {
 	if logf == nil {
 		logf = log.Printf
 	}
+	spill, err := spilldir.New()
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if result == nil {
+			resultErr = errors.Join(resultErr, spill.Close())
+		}
+	}()
 
 	db, err := sql.Open("duckdb", ":memory:")
 	if err != nil {
@@ -56,6 +68,10 @@ func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to ping DuckDB: %w", err)
+	}
+	if err := spill.Configure(db); err != nil {
+		_ = db.Close()
+		return nil, err
 	}
 	if limit := memoryguard.DuckDBLimit(); limit > 0 {
 		if _, err := db.Exec(fmt.Sprintf("SET memory_limit = '%dB'", limit)); err != nil {
@@ -67,6 +83,7 @@ func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig
 
 	e := &Engine{
 		db:              db,
+		spillDir:        spill,
 		logf:            logf,
 		adapterRegistry: sources.BuiltIn(),
 		adapters:        make(map[string]sources.Adapter),
@@ -540,7 +557,13 @@ func (e *Engine) GetTables(sourceName string) ([]string, error) {
 }
 
 func (e *Engine) Close() error {
-	return e.db.Close()
+	if err := e.db.Close(); err != nil {
+		return err
+	}
+	if e.spillDir != nil {
+		return e.spillDir.Close()
+	}
+	return nil
 }
 
 func (e *Engine) ensureDeferredTables(ctx context.Context, query string) error {

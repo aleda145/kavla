@@ -59,7 +59,11 @@ func runWorker() error {
 	if err != nil {
 		return err
 	}
-	defer eng.Close()
+	defer func() {
+		if err := eng.Close(); err != nil {
+			log.Printf("Close DuckDB and clean up spill files: %v", err)
+		}
+	}()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
