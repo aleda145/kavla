@@ -45,7 +45,15 @@ rather than successful partial results. Individual result values/rows above
 and browser still allocate memory for results they consume: this change bounds
 compute memory, not all possible canvas or browser memory use.
 
-DuckDB's existing `.tmp` spill location and cleanup behavior are unchanged.
+DuckDB spills under `~/.kavla/duckdb-tmp/session-<unique-id>/data`, including the
+short-lived databases used to inspect configured sources. Each instance holds an
+OS lock for its directory. Startup removes abandoned directories while leaving
+live instances alone, including those belonging to other Kavla servers. Closing
+a database removes its directory; the parent also removes abandoned spill files
+after a worker exits or is killed. If the entire app is forcibly killed, the next
+startup performs the cleanup. The shared `.lock` file is retained for coordination.
+Old `.tmp` directories from previous versions in working directories are not
+automatically removed, as they may still be in use by an older running instance.
 
 The cap does not reserve the other half of RAM, and other applications can still
 exhaust the machine. Kernel accounting may briefly exceed the boundary. A cap

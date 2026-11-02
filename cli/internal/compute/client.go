@@ -20,6 +20,7 @@ import (
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/engine"
+	"github.com/aleda145/kavla/cli/internal/spilldir"
 	"github.com/apache/arrow/go/v14/arrow/array"
 	"github.com/apache/arrow/go/v14/arrow/ipc"
 )
@@ -127,6 +128,9 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 	}()
 	go func() {
 		_ = cmd.Wait()
+		if err := spilldir.Cleanup(); err != nil {
+			c.logf("Clean up DuckDB spill files after worker exit: %v\n", err)
+		}
 		close(p.done)
 	}()
 	startup := make(chan ready, 1)

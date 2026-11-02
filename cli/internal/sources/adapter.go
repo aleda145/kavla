@@ -3,11 +3,13 @@ package sources
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
+	"github.com/aleda145/kavla/cli/internal/spilldir"
 	_ "github.com/duckdb/duckdb-go/v2"
 )
 
@@ -104,12 +106,20 @@ func openIsolatedDuckDB() (*sql.DB, error) {
 	return db, nil
 }
 
-func withIsolatedCatalog(ctx context.Context, startupSQL []string, attachSQL string, fn func(*sql.DB) error) error {
+func withIsolatedCatalog(ctx context.Context, startupSQL []string, attachSQL string, fn func(*sql.DB) error) (resultErr error) {
+	spill, err := spilldir.New()
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, spill.Close()) }()
 	db, err := openIsolatedDuckDB()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { resultErr = errors.Join(resultErr, db.Close()) }()
+	if err := spill.Configure(db); err != nil {
+		return err
+	}
 
 	for _, sql := range startupSQL {
 		if _, err := db.ExecContext(ctx, sql); err != nil {
