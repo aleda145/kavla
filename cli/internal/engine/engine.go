@@ -11,6 +11,7 @@ import (
 	"time"
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
+	"github.com/aleda145/kavla/cli/internal/memoryguard"
 	"github.com/aleda145/kavla/cli/internal/sources"
 	"github.com/apache/arrow/go/v14/arrow"
 	"github.com/apache/arrow/go/v14/arrow/array"
@@ -53,7 +54,14 @@ func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig
 		return nil, fmt.Errorf("failed to open in-memory DuckDB: %w", err)
 	}
 	if err := db.Ping(); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to ping DuckDB: %w", err)
+	}
+	if limit := memoryguard.DuckDBLimit(); limit > 0 {
+		if _, err := db.Exec(fmt.Sprintf("SET memory_limit = '%dB'", limit)); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("set DuckDB memory budget: %w", err)
+		}
 	}
 	db.SetMaxOpenConns(5)
 
