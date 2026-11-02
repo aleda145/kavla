@@ -11,6 +11,7 @@ import type { SummaryShape } from "../../Summary/summary-shape-types";
 import { layoutQueryBranches, type LayoutConnection, type LayoutDirection } from "./layoutQueryBranches";
 import { avoidLayoutArrows } from "./avoidLayoutArrows";
 import { captureLayoutAnnotations } from "./layoutAnnotations";
+import { resetConnectorLanes, routeConnectorLanes } from "./connectorLanes";
 
 // Explicitly opt in: native tldraw shapes and the hidden agent-chat record aren't nodes.
 const nodeTypes = new Set([
@@ -274,6 +275,7 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
   editor.run(
     () => {
       editor.updateShapes(updates);
+      resetConnectorLanes(editor);
 
       // Clear endpoint pins and custom bends saved by earlier layout versions.
       // Generated query connectors return to automatic routing; native arrows
@@ -315,6 +317,7 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
         )
       );
       moveAnnotations();
+      routeConnectorLanes(editor);
     },
     { ignoreShapeLock: true }
   );
