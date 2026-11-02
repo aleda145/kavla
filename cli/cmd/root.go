@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aleda145/kavla/cli/internal/memoryguard"
 	"github.com/aleda145/kavla/cli/internal/updater"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -21,6 +22,21 @@ var rootCmd = &cobra.Command{
 to either the local canvas or a canvas on Kavla.dev. Database credentials are
 stored in the CLI config, not in .kavla documents or the hosted canvas.`,
 	SilenceUsage: true,
+	PersistentPreRunE: func(command *cobra.Command, _ []string) error {
+		switch command.Name() {
+		case "run", "open", "connect":
+			limit, err := memoryguard.Enable()
+			if err != nil {
+				return err
+			}
+			if limit == 0 {
+				fmt.Fprintln(os.Stderr, "Kavla's hard memory cap is currently available only on Linux.")
+			} else {
+				fmt.Fprintf(os.Stderr, "Kavla memory cap: %.2f GiB shared across Kavla servers and their child processes; swap disabled.\n", float64(limit)/(1<<30))
+			}
+		}
+		return nil
+	},
 }
 
 func Execute() {
