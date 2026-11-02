@@ -1470,16 +1470,15 @@ func writeArrowResult(w http.ResponseWriter, reader interface {
 	writer := ipc.NewWriter(w, ipc.WithSchema(reader.Schema()))
 	for reader.Next() {
 		if err := writer.Write(reader.Record()); err != nil {
-			_ = writer.Close()
-			return
+			panic(http.ErrAbortHandler)
 		}
 	}
 	if err := reader.Err(); err != nil {
-		_ = writer.Close()
-		return
+		panic(http.ErrAbortHandler)
 	}
 	if err := writer.Close(); err != nil {
 		log.Printf("write paginated Arrow result: %v", err)
+		panic(http.ErrAbortHandler)
 	}
 }
 

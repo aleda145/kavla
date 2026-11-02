@@ -291,6 +291,15 @@ func rowsToArrow(ctx context.Context, rows *sql.Rows) (array.RecordReader, error
 	mem := memory.NewGoAllocator()
 	b := array.NewRecordBuilder(mem, schema)
 	defer b.Release()
+	// Keep individual IPC batches bounded when results cross into the canvas
+	// server. The full result is still owned by the memory-limited worker.
+	var records []arrow.Record
+	defer func() {
+		for _, record := range records {
+			record.Release()
+		}
+	}()
+	batchRows, batchBytes := 0, 0
 
 	values := make([]interface{}, len(colTypes))
 	scanArgs := make([]interface{}, len(colTypes))
@@ -306,7 +315,9 @@ func rowsToArrow(ctx context.Context, rows *sql.Rows) (array.RecordReader, error
 			return nil, err
 		}
 
+		rowStartBytes := batchBytes
 		for i, val := range values {
+			batchBytes += 16
 			if val == nil {
 				b.Field(i).AppendNull()
 				continue
@@ -370,11 +381,23 @@ func rowsToArrow(ctx context.Context, rows *sql.Rows) (array.RecordReader, error
 				default:
 					s = fmt.Sprintf("%v", v)
 				}
+				if len(s) > 8<<20 {
+					return nil, fmt.Errorf("result value in %s exceeds the 8 MiB transfer limit; export the result to a file instead", fields[i].Name)
+				}
+				batchBytes += len(s)
 				b.Field(i).(*array.StringBuilder).Append(s)
 
 			default:
 				b.Field(i).(*array.StringBuilder).Append(fmt.Sprintf("%v", val))
 			}
+		}
+		batchRows++
+		if batchBytes-rowStartBytes > 8<<20 {
+			return nil, fmt.Errorf("result row exceeds the 8 MiB transfer limit; export the result to a file instead")
+		}
+		if batchRows >= 512 || batchBytes >= 1<<20 {
+			records = append(records, b.NewRecord())
+			batchRows, batchBytes = 0, 0
 		}
 	}
 
@@ -385,9 +408,10 @@ func rowsToArrow(ctx context.Context, rows *sql.Rows) (array.RecordReader, error
 		return nil, err
 	}
 
-	rec := b.NewRecord()
-	defer rec.Release()
-	return array.NewRecordReader(schema, []arrow.Record{rec})
+	if batchRows > 0 || len(records) == 0 {
+		records = append(records, b.NewRecord())
+	}
+	return array.NewRecordReader(schema, records)
 }
 
 func resultTableName(resultID string) string {

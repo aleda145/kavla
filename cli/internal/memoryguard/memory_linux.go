@@ -14,7 +14,7 @@ import (
 )
 
 const cgroupRoot = "/sys/fs/cgroup"
-const sliceName = "kavla.slice"
+const sliceName = "kavlacompute.slice"
 
 func enable() (uint64, error) {
 	limit, err := memoryBudget()
@@ -24,7 +24,7 @@ func enable() (uint64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// A shared user slice prevents several servers from each consuming 50%.
+	// A shared user slice prevents several compute workers each consuming 50%.
 	// These units are transient: no root access or persistent system changes.
 	properties := []string{
 		"2",
@@ -34,7 +34,7 @@ func enable() (uint64, error) {
 	args := append([]string{sliceName, "fail"}, properties...)
 	args = append(args, "0")
 	if err := systemdCall(ctx, "StartTransientUnit", "ssa(sv)a(sa(sv))", args...); err != nil {
-		// An existing Kavla server may already own the slice. Setting the same
+		// An existing compute worker may already own the slice. Setting the same
 		// properties also handles two processes starting at the same time.
 		args = append([]string{sliceName, "true"}, properties...)
 		if updateErr := systemdCall(ctx, "SetUnitProperties", "sba(sv)", args...); updateErr != nil {
@@ -42,7 +42,7 @@ func enable() (uint64, error) {
 		}
 	}
 
-	scope := fmt.Sprintf("kavla-%d-%d.scope", os.Getpid(), time.Now().UnixNano())
+	scope := fmt.Sprintf("kavla-duckdb-%d-%d.scope", os.Getpid(), time.Now().UnixNano())
 	if err := systemdCall(ctx, "StartTransientUnit", "ssa(sv)a(sa(sv))",
 		scope, "fail", "3",
 		"Slice", "s", sliceName,
@@ -150,9 +150,18 @@ func readLimit(path string) (uint64, error) {
 }
 
 func systemdCall(ctx context.Context, method, signature string, values ...string) error {
+	busctl, err := exec.LookPath("busctl")
+	if err != nil {
+		// Desktop launchers and agent environments may provide a restricted
+		// PATH. Still use the installed system utility when it is available.
+		busctl = "/usr/bin/busctl"
+		if _, statErr := os.Stat(busctl); statErr != nil {
+			return fmt.Errorf("locate systemd busctl: %w", err)
+		}
+	}
 	args := []string{"--user", "--timeout=5s", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", method, signature}
 	args = append(args, values...)
-	output, err := exec.CommandContext(ctx, "busctl", args...).CombinedOutput()
+	output, err := exec.CommandContext(ctx, busctl, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("systemd %s: %w: %s", method, err, strings.TrimSpace(string(output)))
 	}
