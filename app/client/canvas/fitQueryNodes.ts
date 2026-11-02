@@ -1,4 +1,5 @@
 import type { Editor } from "tldraw";
+import { format } from "sql-formatter";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { isBizMode } from "./bizMode";
 import {
@@ -24,7 +25,20 @@ export function fitQueryNodes(editor: Editor): void {
     return context.measureText(text).width;
   };
   const fitted = queries.map((shape) => {
-    const props = shape.props;
+    let text: string;
+    try {
+      text = format(shape.props.text, {
+        language: "duckdb",
+        paramTypes: { custom: [{ regex: "\\{[A-Za-z_][A-Za-z0-9_]*\\}" }] },
+        keywordCase: "upper",
+        tabWidth: 2,
+      });
+    } catch (error) {
+      throw new Error(
+        `Could not format query "${shape.props.name}": ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    const props = { ...shape.props, text };
     // Measure every line, including queries outside the viewport. Tabs use the
     // static SQL preview's eight-column stops; fitting must also work when culled.
     const lines = props.text.split(/\r?\n/).map((line) => {
@@ -122,7 +136,7 @@ export function fitQueryNodes(editor: Editor): void {
       fitted.map((shape) => ({
         id: shape.id,
         type: shape.type,
-        props: { w: shape.props.w, h: shape.props.h, isManuallyResized: true },
+        props: { text: shape.props.text, w: shape.props.w, h: shape.props.h, isManuallyResized: true },
       }))
     );
   });
