@@ -8,7 +8,7 @@ import type { ChartShape } from "../../Chart/chart-shape-types";
 import type { SQLResultTableShape } from "../../SQLResultArea/sql-result-table-types";
 import type { LensShape } from "../../Lens/lens-shape-types";
 import type { SummaryShape } from "../../Summary/summary-shape-types";
-import { layoutQueryBranches, type LayoutConnection } from "./layoutQueryBranches";
+import { layoutQueryBranches, type LayoutConnection, type LayoutDirection } from "./layoutQueryBranches";
 import { avoidLayoutArrows } from "./avoidLayoutArrows";
 import { captureLayoutAnnotations } from "./layoutAnnotations";
 
@@ -34,6 +34,7 @@ function isQueryView(shape: TLShape): shape is ChartShape | SQLResultTableShape 
 }
 
 type LayoutGroup = {
+  direction: LayoutDirection;
   width: number;
   height: number;
   offsets: Map<TLShapeId, { x: number; y: number }>;
@@ -97,15 +98,28 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
 
   const groups = new Map<TLShapeId, LayoutGroup>();
   const viewGap = 40;
-  for (const [groupId, members] of membersByGroup) {
-    const anchor = bounds.get(groupId)!;
+  const makeGroupNode = (id: string, direction: LayoutDirection): ElkNode => {
+    const groupId = id as TLShapeId;
+    const members = membersByGroup.get(groupId)!;
+    const vertical = direction === "DOWN" || direction === "UP";
+    const reverse = direction === "LEFT" || direction === "UP";
+    // Work in flow/cross-flow coordinates, then transpose back to page axes.
+    // Only positions change; charts and tables keep their original dimensions.
+    const size = (id: TLShapeId) => {
+      const box = bounds.get(id)!;
+      return vertical ? { w: box.h, h: box.w } : box;
+    };
+    const anchor = size(groupId);
     const charts = members.filter((shape) => shape.id !== groupId && shape.type !== "sql-result-table");
     const tables = members.filter((shape) => shape.id !== groupId && shape.type === "sql-result-table");
     const measureRow = (row: TLShape[]) => {
-      row.sort((a, b) => bounds.get(a.id)!.x - bounds.get(b.id)!.x || a.id.localeCompare(b.id));
+      const axis = vertical ? "y" : "x";
+      row.sort(
+        (a, b) => (bounds.get(a.id)![axis] - bounds.get(b.id)![axis]) * (reverse ? -1 : 1) || a.id.localeCompare(b.id)
+      );
       return {
-        width: row.reduce((width, shape) => width + bounds.get(shape.id)!.w, 0) + Math.max(0, row.length - 1) * viewGap,
-        height: Math.max(0, ...row.map((shape) => bounds.get(shape.id)!.h)),
+        width: row.reduce((width, shape) => width + size(shape.id).w, 0) + Math.max(0, row.length - 1) * viewGap,
+        height: Math.max(0, ...row.map((shape) => size(shape.id).h)),
       };
     };
     const above = measureRow(charts);
@@ -116,21 +130,30 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
     const offsets = new Map<TLShapeId, { x: number; y: number }>([[groupId, { x: (width - anchor.w) / 2, y: queryY }]]);
     let chartX = (width - above.width) / 2;
     for (const chart of charts) {
-      const box = bounds.get(chart.id)!;
+      const box = size(chart.id);
       offsets.set(chart.id, { x: chartX, y: above.height - box.h });
       chartX += box.w + viewGap;
     }
     let tableX = (width - below.width) / 2;
     for (const table of tables) {
       offsets.set(table.id, { x: tableX, y: tableY });
-      tableX += bounds.get(table.id)!.w + viewGap;
+      tableX += size(table.id).w + viewGap;
+    }
+    const height = tables.length ? tableY + below.height : queryY + anchor.h;
+    for (const [shapeId, offset] of offsets) {
+      const box = size(shapeId);
+      const x = reverse ? width - offset.x - box.w : offset.x;
+      const y = reverse ? height - offset.y - box.h : offset.y;
+      offsets.set(shapeId, vertical ? { x: y, y: x } : { x, y });
     }
     groups.set(groupId, {
-      width,
-      height: tables.length ? tableY + below.height : queryY + anchor.h,
+      direction,
+      width: vertical ? height : width,
+      height: vertical ? width : height,
       offsets,
     });
-  }
+    return { id, width: vertical ? height : width, height: vertical ? width : height };
+  };
 
   const edges = new Map<string, ElkExtendedEdge>();
   const connections = new Map<string, LayoutConnection>();
@@ -173,11 +196,7 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
       "elk.spacing.componentComponent": "120",
       "elk.padding": "[top=0,left=0,bottom=0,right=0]",
     },
-    children: [...groups].map(([id, group]) => ({
-      id,
-      width: group.width,
-      height: group.height,
-    })),
+    children: [...membersByGroup.keys()].map((id) => makeGroupNode(id, "RIGHT")),
     edges: [...edges.values()],
   };
 
@@ -191,7 +210,8 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
         elk,
         graph,
         [...connections.values()],
-        new Map(shapes.map((shape) => [shape.id, shape.type]))
+        new Map(shapes.map((shape) => [shape.id, shape.type])),
+        makeGroupNode
       ),
       new Promise<never>((_, reject) => {
         worker.addEventListener("error", (event) => reject(new Error(event.message || "Layout worker failed.")), {
@@ -289,7 +309,10 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
       avoidLayoutArrows(
         editor,
         new Map([...groupByShape].filter(([id, groupId]) => id !== groupId && isQueryView(shapesById.get(id)!))),
-        new Set(allNodes.map((shape) => shape.id))
+        new Set(allNodes.map((shape) => shape.id)),
+        new Map(
+          [...groups].map(([id, group]) => [id, { direction: group.direction, members: [...group.offsets.keys()] }])
+        )
       );
       moveAnnotations();
     },
