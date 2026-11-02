@@ -7,8 +7,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/aleda145/kavla/cli/internal/engine"
 	"github.com/apache/arrow/go/v14/arrow"
+	"github.com/apache/arrow/go/v14/arrow/array"
 	"github.com/apache/arrow/go/v14/arrow/ipc"
 	"github.com/apache/arrow/go/v14/arrow/memory"
 	"github.com/apache/arrow/go/v14/parquet"
@@ -32,6 +32,11 @@ type Transport interface {
 
 type resultSizeLimiter interface {
 	MaxResultDataBytes() int
+}
+
+type QueryEngine interface {
+	Query(context.Context, string) (array.RecordReader, error)
+	PreparePreviewSQL(string, string, string, int) (string, error)
 }
 
 type QueryRequest struct {
@@ -81,7 +86,7 @@ func formatBytes(b int) string {
 	return fmt.Sprintf("%.1f %s", val, units[i])
 }
 
-func Execute(ctx context.Context, req QueryRequest, t Transport, eng *engine.Engine) (*ExecuteResult, error) {
+func Execute(ctx context.Context, req QueryRequest, t Transport, eng QueryEngine) (*ExecuteResult, error) {
 	// 1. Query once at the default row limit
 	if req.PreviewRowLimit > 0 {
 		t.Log("Querying with LIMIT %d...\n", req.PreviewRowLimit)
@@ -117,6 +122,11 @@ func Execute(ctx context.Context, req QueryRequest, t Transport, eng *engine.Eng
 	// 2. Collect all Arrow record batches in memory
 	var records []arrow.Record
 	var totalRows int64
+	defer func() {
+		for _, rec := range records {
+			rec.Release()
+		}
+	}()
 	for reader.Next() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -126,11 +136,9 @@ func Execute(ctx context.Context, req QueryRequest, t Transport, eng *engine.Eng
 		records = append(records, rec)
 		totalRows += rec.NumRows()
 	}
-	defer func() {
-		for _, rec := range records {
-			rec.Release()
-		}
-	}()
+	if err := reader.Err(); err != nil {
+		return nil, err
+	}
 
 	t.Log("Got %d rows in %d Arrow batch(es), %d columns\n", totalRows, len(records), schema.NumFields())
 	if err := ctx.Err(); err != nil {
@@ -242,7 +250,7 @@ func truncateParquetToLimit(schema *arrow.Schema, records []arrow.Record, totalR
 	}
 }
 
-func PreparePreviewSQL(req QueryRequest, eng *engine.Engine, limit int) (string, error) {
+func PreparePreviewSQL(req QueryRequest, eng QueryEngine, limit int) (string, error) {
 	cleanSQL := strings.TrimSuffix(strings.TrimSpace(req.SQL), ";")
 	executionEngine := strings.TrimSpace(req.ExecutionEngine)
 	sourceName := strings.TrimSpace(req.SourceName)

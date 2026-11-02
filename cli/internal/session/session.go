@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/aleda145/kavla/cli/internal/compute"
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/engine"
 	"github.com/aleda145/kavla/cli/internal/runner"
@@ -21,7 +22,7 @@ type Client interface {
 type Session struct {
 	sources            map[string]kavlaconfig.SourceConfig
 	allowedDirectories []string
-	engine             *engine.Engine
+	engine             *compute.Client
 	logf               func(string, ...interface{})
 	verbosef           func(string, ...interface{})
 	ctx                context.Context
@@ -97,7 +98,7 @@ func (s *Session) verbose(format string, args ...interface{}) {
 
 func (s *Session) Start() error {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	eng, err := engine.NewWithAllowedDirectories(s.sources, s.logf, s.allowedDirectories)
+	eng, err := compute.New(s.ctx, s.sources, s.logf, s.allowedDirectories)
 	if err != nil {
 		s.cancel()
 		s.ctx = nil
@@ -517,8 +518,8 @@ func (s *Session) DropUploadedFile(ctx context.Context, name string) error {
 	return s.engine.DropUploadedFile(ctx, name)
 }
 func (s *Session) Compute(ctx context.Context, query string) (array.RecordReader, error) {
-	ctx, cancel := s.OperationContext(ctx)
-	defer cancel()
+	// The compute client keeps the session context attached until the streamed
+	// Arrow reader is released, rather than cancelling it when headers arrive.
 	return s.engine.Query(ctx, "SELECT * FROM ("+strings.TrimRight(strings.TrimSpace(query), ";")+")")
 }
 func (s *Session) ValidateQuery(ctx context.Context, query string) error {
@@ -527,8 +528,6 @@ func (s *Session) ValidateQuery(ctx context.Context, query string) error {
 	return s.engine.ValidateQuery(ctx, query)
 }
 func (s *Session) QueryWidget(ctx context.Context, query, name string, columns []engine.WidgetColumn, rows [][]interface{}) (array.RecordReader, error) {
-	ctx, cancel := s.OperationContext(ctx)
-	defer cancel()
 	return s.engine.QueryWidget(ctx, query, name, columns, rows)
 }
 func (s *Session) Sources() map[string]kavlaconfig.SourceConfig { return s.sources }

@@ -1,5 +1,5 @@
-// Package memoryguard installs the operating system's memory boundary before
-// Kavla opens documents or initializes native database libraries.
+// Package memoryguard installs the compute worker's operating system memory
+// boundary before it initializes native database libraries.
 package memoryguard
 
 import (
@@ -26,7 +26,7 @@ func Enable() (uint64, error) {
 }
 
 // DuckDBLimit leaves headroom inside the hard boundary for native allocations
-// outside DuckDB's buffer manager, Arrow results, Go, and child processes.
+// outside DuckDB's buffer manager, Arrow results, and the worker's Go runtime.
 // This is only a cooperative per-engine limit; the OS enforces the shared cap.
 func DuckDBLimit() uint64 {
 	return limitBytes.Load() / 2
