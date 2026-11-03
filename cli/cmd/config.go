@@ -72,7 +72,7 @@ var viewConfigCmd = &cobra.Command{
 	Use:   "view",
 	Short: "View current configuration",
 	Run: func(cmd *cobra.Command, args []string) {
-		config, err := kavlaconfig.LoadConfig()
+		config, err := kavlaconfig.LoadConfigAllowMissing()
 		if err != nil {
 			if kavlaconfig.IsConfigMissing(err) {
 				fmt.Println("No configuration found.")
@@ -81,6 +81,15 @@ var viewConfigCmd = &cobra.Command{
 			}
 			return
 		}
+		memory, err := config.Memory.Resolve()
+		if err != nil {
+			fmt.Printf("Error loading memory settings: %v\n", err)
+			return
+		}
+		fmt.Println("Memory settings (restart Kavla after changes; hard limits are Linux-only):")
+		fmt.Printf("  Shared compute limit: %d%% of physical RAM\n", memory.LimitPercent)
+		fmt.Printf("  DuckDB budget per worker: %d%% of the compute limit\n", memory.DuckDBPercentOfLimit)
+		fmt.Printf("  Shared swap limit: %d MiB\n", memory.SwapLimitMiB)
 		if len(config.Sources) == 0 {
 			fmt.Println("No data sources configured.")
 			return

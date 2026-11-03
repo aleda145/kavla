@@ -21,6 +21,7 @@ type Config struct {
 	AppURL       string                  `yaml:"app_url,omitempty"`
 	LastDocument string                  `yaml:"last_document,omitempty"`
 	Sources      map[string]SourceConfig `yaml:"sources,omitempty"`
+	Memory       MemoryConfig            `yaml:"memory,omitempty"`
 }
 
 func RememberDocumentPath(documentPath string) error {
@@ -52,6 +53,9 @@ func GetConfigPath() (string, error) {
 }
 
 func SaveConfig(config *Config) error {
+	if _, err := config.Memory.Resolve(); err != nil {
+		return err
+	}
 	path, err := GetConfigPath()
 	if err != nil {
 		return err
@@ -104,6 +108,9 @@ func LoadConfig() (*Config, error) {
 
 	var config Config
 	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, err
+	}
+	if _, err := config.Memory.Resolve(); err != nil {
 		return nil, err
 	}
 
