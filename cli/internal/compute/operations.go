@@ -2,6 +2,7 @@ package compute
 
 import (
 	"context"
+	"sort"
 
 	"github.com/aleda145/kavla/cli/internal/engine"
 	"github.com/apache/arrow/go/v14/arrow/array"
@@ -60,6 +61,21 @@ func (c *Client) DropResult(ctx context.Context, id string) error {
 }
 
 func (c *Client) GetTables(source string) ([]string, error) {
+	if source == engine.UploadedFilesSource {
+		_, done, err := c.operation(c.ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
+		tables := []string{}
+		for _, req := range c.journal {
+			if req.Op == "import" {
+				tables = append(tables, "uploaded_files.main."+req.ID)
+			}
+		}
+		sort.Strings(tables)
+		return tables, nil
+	}
 	result, err := c.call(c.ctx, request{Op: "tables", Source: source})
 	return result.Tables, err
 }
@@ -82,6 +98,24 @@ func (c *Client) ExportSourceTable(ctx context.Context, source, format, path str
 func (c *Client) ImportUploadedFile(ctx context.Context, name, fileName, path string) error {
 	_, err := c.call(ctx, request{Op: "import", ID: name, FileName: fileName, Path: path})
 	return err
+}
+
+func (c *Client) RegisterUploadedFile(ctx context.Context, name, fileName, path string) error {
+	ctx, done, err := c.operation(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
+	c.mu.Lock()
+	worker := c.worker
+	c.mu.Unlock()
+	if worker != nil {
+		if _, err := c.sendJSON(ctx, worker, request{Op: "register-upload", ID: name, FileName: fileName, Path: path}); err != nil {
+			return err
+		}
+	}
+	c.remember(request{Op: "import", ID: name, FileName: fileName, Path: path})
+	return nil
 }
 
 func (c *Client) DropUploadedFile(ctx context.Context, name string) error {

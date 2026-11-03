@@ -42,7 +42,8 @@ All SQL compute runs in the shipped CLI backend. The browser decodes Arrow resul
 
 - The CLI DuckDB session routes configured sources and supports federated joins.
 - Single-source Postgres and BigQuery queries can execute natively through the backend.
-- Each document has a built-in `uploaded_files` DuckDB catalog. Uploaded originals are bundled in the `.kavla` archive, extracted under `~/.kavla/working-copies`, and queried through file-backed views. Session catalogs are disk-backed and rebuilt on startup.
+- Each document has a built-in `uploaded_files` DuckDB catalog. Uploaded originals stay in the `.kavla` ZIP and are queried lazily through a private Go HTTP range server. Stored entries are read directly; compressed legacy entries are extracted on demand. Compute starts on the first query. Session catalogs are disk-backed and rebuilt on startup.
+- Saves append ZIP revisions, reusing unchanged upload entries. A recovery journal protects interrupted appends. History uses small `.revision` records referencing pinned archive prefixes; legacy full snapshots remain readable. `kavla compact` reclaims obsolete live entries, and `kavla verify` explicitly checks all blob checksums.
 - Upload tables belong to the document, independently of canvas source shapes.
 - Version 2 archives record upload table names; version 1 archives remain readable and migrate on save.
 

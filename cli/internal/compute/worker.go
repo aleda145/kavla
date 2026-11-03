@@ -138,6 +138,8 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 		err = eng.ExportSourceTable(ctx, req.Source, req.Format, req.Path)
 	case "import":
 		err = eng.ImportUploadedFile(ctx, req.ID, req.FileName, req.Path)
+	case "register-upload":
+		err = eng.RegisterUploadedFile(req.ID, req.FileName, req.Path)
 	case "drop-upload":
 		err = eng.DropUploadedFile(ctx, req.ID)
 	case "validate":

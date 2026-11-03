@@ -41,8 +41,8 @@ type CanvasHistory struct {
 	Limit     int              `json:"limit"`
 }
 
-// History is independent of the portable archive and its temporary working
-// copy. Each entry is a complete archive.
+// History stores small references to pinned, immutable archive revisions.
+// Legacy standalone snapshot archives remain readable and downloadable.
 func (d *Document) snapshotDirectoryLocked() (string, error) {
 	configPath, err := kavlaconfig.GetConfigPath()
 	if err != nil {
@@ -73,7 +73,7 @@ func (d *Document) ListSnapshots() (CanvasHistory, error) {
 	// Read shape counts from each archive's canvas records.
 	// Automatic snapshot deduplication only uses the cheaper directory listing.
 	for i := range snapshots {
-		_, canvas, err := snapshotArchiveState(filepath.Join(directory, snapshots[i].ID+".kavla"))
+		_, canvas, err := snapshotArchiveState(snapshotFilePath(directory, snapshots[i].ID))
 		if err != nil {
 			return CanvasHistory{}, fmt.Errorf("read snapshot shape count: %w", err)
 		}
@@ -99,7 +99,7 @@ func (d *Document) listSnapshotsLocked() ([]CanvasSnapshot, error) {
 	for _, entry := range entries {
 		ext := filepath.Ext(entry.Name())
 		id := strings.TrimSuffix(entry.Name(), ext)
-		if entry.IsDir() || ext != ".kavla" || !snapshotIDPattern.MatchString(id) {
+		if entry.IsDir() || (ext != ".kavla" && ext != ".revision") || !snapshotIDPattern.MatchString(id) {
 			continue
 		}
 		parts := strings.SplitN(id, "_", 3)
@@ -111,7 +111,15 @@ func (d *Document) listSnapshotsLocked() ([]CanvasSnapshot, error) {
 		if err != nil {
 			return nil, err
 		}
-		snapshots = append(snapshots, CanvasSnapshot{ID: id, CreatedAt: createdAt, Reason: parts[1], Size: info.Size()})
+		size := info.Size()
+		ref, err := readHistoryReference(filepath.Join(directory, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		if ref != nil {
+			size = ref.Size
+		}
+		snapshots = append(snapshots, CanvasSnapshot{ID: id, CreatedAt: createdAt, Reason: parts[1], Size: size})
 	}
 	sort.Slice(snapshots, func(i, j int) bool { return snapshots[i].ID > snapshots[j].ID })
 	return snapshots, nil
@@ -125,7 +133,15 @@ func (d *Document) snapshotPathLocked(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(directory, id+".kavla"), nil
+	return snapshotFilePath(directory, id), nil
+}
+
+func snapshotFilePath(directory, id string) string {
+	path := filepath.Join(directory, id+".revision")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return filepath.Join(directory, id+".kavla")
+	}
+	return path
 }
 
 // Only read the small document entries, never the uploaded file contents.
@@ -195,6 +211,10 @@ func (d *Document) Snapshot(reason string) error {
 }
 
 func (d *Document) SnapshotBeforeRestore() (string, error) {
+	return d.snapshotBeforeRestore(true)
+}
+
+func (d *Document) snapshotBeforeRestore(prune bool) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if len(d.canvasJSON) == 0 {
@@ -211,11 +231,13 @@ func (d *Document) SnapshotBeforeRestore() (string, error) {
 		return "", err
 	}
 	id := time.Now().UTC().Format(snapshotTimeFormat) + "_before-restore_" + uuid.NewString()
-	if err := atomicCopyArchive(d.path, filepath.Join(directory, id+".kavla")); err != nil {
+	if err := d.pinArchiveSnapshot(d.path, filepath.Join(directory, id+".revision")); err != nil {
 		return "", err
 	}
-	if err := d.pruneSnapshotsLocked(); err != nil {
-		return "", err
+	if prune {
+		if err := d.pruneSnapshotsLocked(); err != nil {
+			return "", err
+		}
 	}
 	return id, nil
 }
@@ -233,7 +255,7 @@ func (d *Document) keepArchiveSnapshotLocked(archivePath, reason string) error {
 		return err
 	}
 	if len(snapshots) > 0 {
-		previousManifest, previousCanvas, err := snapshotArchiveState(filepath.Join(directory, snapshots[0].ID+".kavla"))
+		previousManifest, previousCanvas, err := snapshotArchiveState(snapshotFilePath(directory, snapshots[0].ID))
 		if err != nil {
 			return err
 		}
@@ -248,7 +270,7 @@ func (d *Document) keepArchiveSnapshotLocked(archivePath, reason string) error {
 		}
 	}
 	id := time.Now().UTC().Format(snapshotTimeFormat) + "_" + reason + "_" + uuid.NewString()
-	return atomicCopyArchive(archivePath, filepath.Join(directory, id+".kavla"))
+	return d.pinArchiveSnapshot(archivePath, filepath.Join(directory, id+".revision"))
 }
 
 // Stream large archives to a separate file. Linking to the live document would
@@ -339,12 +361,20 @@ func (d *Document) pruneSnapshotsLocked() error {
 	if err != nil {
 		return err
 	}
+	candidates := make(map[string]bool)
 	for i := limit; i < len(snapshots); i++ {
-		if err := os.Remove(filepath.Join(directory, snapshots[i].ID+".kavla")); err != nil {
+		ref, err := readHistoryReference(snapshotFilePath(directory, snapshots[i].ID))
+		if err != nil {
+			return err
+		}
+		if ref != nil {
+			candidates[ref.Path] = true
+		}
+		if err := os.Remove(snapshotFilePath(directory, snapshots[i].ID)); err != nil {
 			return fmt.Errorf("remove expired history entry: %w", err)
 		}
 	}
-	return nil
+	return removeUnusedHistoryPins(directory, candidates)
 }
 
 func (s *Server) handleListSnapshots(w http.ResponseWriter, _ *http.Request) {
@@ -406,9 +436,10 @@ func (s *Server) handleDownloadSnapshot(w http.ResponseWriter, r *http.Request) 
 	}
 	s.document.mu.RLock()
 	path, err := s.document.snapshotPathLocked(id)
-	var file *os.File
+	var file *documentArchive
+	var content io.ReadSeeker
 	if err == nil {
-		file, err = os.Open(path)
+		file, content, err = snapshotContent(path)
 	}
 	name := s.document.manifest.DocumentName + "-" + id + ".kavla"
 	s.document.mu.RUnlock()
@@ -417,14 +448,14 @@ func (s *Server) handleDownloadSnapshot(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	defer file.Close()
-	info, err := file.Stat()
+	info, err := file.file.Stat()
 	if err != nil {
 		writeSnapshotError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
-	http.ServeContent(w, r, name, info.ModTime(), file)
+	http.ServeContent(w, r, name, info.ModTime(), content)
 }
 
 func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -467,17 +498,19 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	defer next.CleanupWorkingCopy()
 	// Materialize before the pre-restore save can prune this entry.
-	for _, blob := range next.Manifest().Blobs {
-		if _, _, err := next.BlobPath(blob.ID); err != nil {
-			writeSnapshotError(w, err)
-			return
-		}
-	}
-	beforeRestoreID, err := d.SnapshotBeforeRestore()
+	// The target now stays pinned until publication instead of extracting data.
+	beforeRestoreID, err := d.snapshotBeforeRestore(false)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err)
 		return
 	}
+	defer func() {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if err := d.pruneSnapshotsLocked(); err != nil {
+			log.Printf("Trim history after restore: %v", err)
+		}
+	}()
 	current := d.Manifest()
 	next.path = d.Path()
 	next.manifest.DocumentID = current.DocumentID

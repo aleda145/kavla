@@ -56,6 +56,17 @@ type Client struct {
 }
 
 func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), directories []string) (*Client, error) {
+	c := NewLazy(ctx, sources, logf, directories)
+	if _, err := c.ensureWorker(ctx); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
+// NewLazy keeps canvas opening independent of native compute and source I/O.
+// The first compute request starts the supervised worker through the same gate.
+func NewLazy(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), directories []string) *Client {
 	if logf == nil {
 		logf = log.Printf
 	}
@@ -66,11 +77,10 @@ func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf 
 		http: &http.Client{Transport: transport}, gate: make(chan struct{}, 1),
 		config: configuration{Sources: sources, Directories: slices.Clone(directories)},
 	}
-	if _, err := c.ensureWorker(ctx); err != nil {
-		_ = c.Close()
-		return nil, err
+	for name, source := range sources {
+		c.statuses = append(c.statuses, engine.SourceStatus{Name: name, Type: source.Type, Available: true})
 	}
-	return c, nil
+	return c
 }
 
 func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
@@ -211,6 +221,9 @@ func (c *Client) ensureWorker(ctx context.Context) (*process, error) {
 		// Re-importing large files may legitimately take longer than worker
 		// startup. Keep it cancellable by the request/session, without imposing
 		// the handshake timeout on the document's data.
+		if req.Op == "import" {
+			req.Op = "register-upload"
+		}
 		if _, err := c.sendJSON(ctx, next, req); err != nil {
 			next.kill()
 			return nil, fmt.Errorf("restore DuckDB service: %w", err)

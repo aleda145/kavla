@@ -28,6 +28,7 @@ type Engine struct {
 	adapterRegistry map[string]sources.AdapterFactory
 	adapters        map[string]sources.Adapter
 	sourceStatuses  map[string]SourceStatus
+	uploads         map[string]uploadedFile
 }
 
 type SourceStatus struct {
@@ -570,6 +571,9 @@ func (e *Engine) Close() error {
 }
 
 func (e *Engine) ensureDeferredTables(ctx context.Context, query string) error {
+	if err := e.ensureUploadedFiles(ctx, query); err != nil {
+		return err
+	}
 	for _, adapter := range e.adapters {
 		materializer, ok := adapter.(sources.DeferredTableMaterializer)
 		if !ok {

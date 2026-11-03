@@ -54,13 +54,18 @@ type Manifest struct {
 }
 
 type Document struct {
-	mu         sync.RWMutex
-	path       string
-	workingDir string
-	manifest   Manifest
-	canvasJSON []byte
-	undoJSON   []byte
-	blobs      map[string]BlobDescriptor
+	mu             sync.RWMutex
+	extractMu      sync.Mutex
+	path           string
+	archivePath    string
+	archiveSize    int64
+	blobServer     *archiveBlobServer
+	rewriteArchive bool
+	workingDir     string
+	manifest       Manifest
+	canvasJSON     []byte
+	undoJSON       []byte
+	blobs          map[string]BlobDescriptor
 }
 
 func OpenDocument(path string) (*Document, error) {
@@ -72,7 +77,7 @@ func openDocument(path string, recordHistory bool) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve document path: %w", err)
 	}
-	if !strings.EqualFold(filepath.Ext(absPath), ".kavla") {
+	if !strings.EqualFold(filepath.Ext(absPath), ".kavla") && (recordHistory || filepath.Ext(absPath) != ".revision") {
 		return nil, fmt.Errorf("Kavla documents must use the .kavla extension")
 	}
 
@@ -80,7 +85,7 @@ func openDocument(path string, recordHistory bool) (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	document := &Document{path: absPath, workingDir: workingDir, blobs: make(map[string]BlobDescriptor)}
+	document := &Document{path: absPath, archivePath: absPath, workingDir: workingDir, blobs: make(map[string]BlobDescriptor)}
 	opened := false
 	defer func() {
 		if !opened {
@@ -89,6 +94,14 @@ func openDocument(path string, recordHistory bool) (*Document, error) {
 	}()
 
 	if _, err := os.Stat(absPath); err == nil {
+		unlock, err := acquireArchiveLock(absPath)
+		if err != nil {
+			return nil, err
+		}
+		defer unlock()
+		if err := recoverArchive(absPath); err != nil {
+			return nil, err
+		}
 		if err := document.loadArchive(); err != nil {
 			return nil, err
 		}
@@ -322,17 +335,61 @@ func (d *Document) DeleteBlob(id string) error {
 }
 
 func (d *Document) BlobPath(id string) (string, BlobDescriptor, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.extractMu.Lock()
+	defer d.extractMu.Unlock()
+	d.mu.RLock()
 	descriptor, ok := d.blobs[id]
 	if !ok {
+		d.mu.RUnlock()
 		return "", BlobDescriptor{}, os.ErrNotExist
 	}
 	blobPath := filepath.Join(d.workingDir, "blobs", stagedBlobName(id))
-	if err := d.ensureBlobExtractedLocked(id, descriptor); err != nil {
+	if _, err := os.Stat(blobPath); err == nil {
+		d.mu.RUnlock()
+		return blobPath, descriptor, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		d.mu.RUnlock()
+		return "", BlobDescriptor{}, err
+	}
+	workingDir := d.workingDir
+	archive, entries, err := openArchiveEntries(d.archivePath)
+	d.mu.RUnlock()
+	if err != nil {
+		return "", BlobDescriptor{}, err
+	}
+	defer archive.Close()
+	entry := entries["blobs/"+id]
+	if entry == nil {
+		return "", BlobDescriptor{}, fmt.Errorf("archive is missing blob %s", id)
+	}
+	if err := os.MkdirAll(filepath.Dir(blobPath), 0700); err != nil {
+		return "", BlobDescriptor{}, err
+	}
+	prepared := blobPath + ".ready-" + uuid.NewString()
+	defer os.Remove(prepared)
+	// Legacy decompression and hashing must not hold the canvas metadata lock.
+	if err := extractBlob(entry, prepared, descriptor); err != nil {
+		return "", BlobDescriptor{}, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.workingDir != workingDir || d.blobs[id] != descriptor {
+		return "", BlobDescriptor{}, fmt.Errorf("blob changed while it was being prepared")
+	}
+	if err := os.Rename(prepared, blobPath); err != nil {
 		return "", BlobDescriptor{}, err
 	}
 	return blobPath, descriptor, nil
+}
+
+func (d *Document) BlobDescriptor(id string) (BlobDescriptor, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	blob, ok := d.blobs[id]
+	if !ok {
+		return BlobDescriptor{}, os.ErrNotExist
+	}
+	return blob, nil
 }
 
 func (d *Document) Save() error {
@@ -387,15 +444,20 @@ func (d *Document) Rename(path string) error {
 		return err
 	}
 	oldPath, oldName := d.path, d.manifest.DocumentName
+	oldArchivePath := d.archivePath
 	if err := os.Rename(oldPath, path); err != nil {
 		return err
 	}
 	d.path = path
+	if d.archivePath == oldPath {
+		d.archivePath = path
+	}
 	d.manifest.DocumentName = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	if err := d.saveLocked(path); err != nil {
 		rollbackErr := os.Rename(path, oldPath)
 		if rollbackErr == nil {
 			d.path, d.manifest.DocumentName = oldPath, oldName
+			d.archivePath = oldArchivePath
 			rollbackErr = d.writeManifestLocked()
 		}
 		return errors.Join(err, rollbackErr)
@@ -488,6 +550,8 @@ func (d *Document) NewAtPath(path string, canvasJSON []byte, overwrite bool) err
 	oldWorkingDir := d.workingDir
 	d.path = absPath
 	d.workingDir = newWorkingDir
+	d.archivePath = stagedDocument.archivePath
+	d.archiveSize = stagedDocument.archiveSize
 	d.manifest = stagedDocument.manifest
 	d.canvasJSON = append([]byte(nil), canvasJSON...)
 	d.undoJSON = nil
@@ -513,6 +577,14 @@ func (d *Document) writeArchiveLocked(path string, replace bool) error {
 }
 
 func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reason string) error {
+	unlock, err := acquireArchiveLock(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := recoverArchive(path); err != nil {
+		return err
+	}
 	d.manifest.FormatVersion = FormatVersion
 	if len(d.canvasJSON) == 0 {
 		return fmt.Errorf("cannot save a Kavla document without canvas state")
@@ -524,6 +596,39 @@ func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reas
 	d.rebuildBlobListLocked()
 	if err := d.writeManifestLocked(); err != nil {
 		return err
+	}
+	if replace && path == d.path && d.archivePath != "" && !d.rewriteArchive {
+		if info, err := os.Stat(path); err == nil {
+			if d.archivePath == path && d.archiveSize > 0 && info.Size() != d.archiveSize {
+				return fmt.Errorf("document changed on disk; reopen it before saving")
+			}
+			unchanged, err := d.archiveUnchangedLocked(path)
+			if err != nil {
+				return err
+			}
+			if !unchanged {
+				if err := d.appendArchiveLocked(path); err != nil {
+					return fmt.Errorf("append Kavla revision: %w", err)
+				}
+			}
+			d.archivePath = path
+			info, err = os.Stat(path)
+			if err != nil {
+				return err
+			}
+			d.archiveSize = info.Size()
+			if reason != "restore" {
+				if err := d.keepArchiveSnapshotLocked(path, reason); err != nil {
+					log.Printf("Kavla saved but could not record history: %v", err)
+				}
+				if err := d.pruneSnapshotsLocked(); err != nil {
+					log.Printf("Kavla saved but could not trim history: %v", err)
+				}
+			}
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -549,10 +654,7 @@ func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reas
 	}
 	if err == nil {
 		for _, descriptor := range d.manifest.Blobs {
-			if err = d.ensureBlobExtractedLocked(descriptor.ID, descriptor); err != nil {
-				break
-			}
-			if err = writeZipFile(zipWriter, "blobs/"+descriptor.ID, filepath.Join(d.workingDir, "blobs", stagedBlobName(descriptor.ID))); err != nil {
+			if err = d.copyBlobToArchiveLocked(zipWriter, descriptor); err != nil {
 				break
 			}
 		}
@@ -585,6 +687,15 @@ func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reas
 		}
 	} else if err := os.Link(tempName, path); err != nil {
 		return fmt.Errorf("create Kavla archive without overwrite: %w", err)
+	}
+	if err := syncArchiveDirectory(filepath.Dir(path)); err != nil {
+		return err
+	}
+	d.archivePath = path
+	if info, err := os.Stat(path); err == nil {
+		d.archiveSize = info.Size()
+	} else {
+		return err
 	}
 	// The save has committed. A cleanup failure must not report a failed save
 	// or leave a restore's live session behind the archive on disk.
@@ -671,6 +782,9 @@ func (d *Document) ReplaceFromArchive(archivePath string) error {
 // working copy is never considered on the next launch; only a saved .kavla
 // archive is opened.
 func (d *Document) CleanupWorkingCopy() error {
+	if d.blobServer != nil {
+		_ = d.blobServer.server.Close()
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.workingDir == "" {
@@ -689,6 +803,7 @@ func (d *Document) loadArchive() error {
 		return fmt.Errorf("open Kavla archive: %w", err)
 	}
 	defer reader.Close()
+	d.archiveSize = reader.size
 	if err := os.MkdirAll(filepath.Join(d.workingDir, "blobs"), 0700); err != nil {
 		return err
 	}
@@ -1044,8 +1159,8 @@ func writeZipFile(writer *zip.Writer, name, path string) error {
 	return err
 }
 
-func openArchiveEntries(path string) (*zip.ReadCloser, map[string]*zip.File, error) {
-	reader, err := zip.OpenReader(path)
+func openArchiveEntries(path string) (*documentArchive, map[string]*zip.File, error) {
+	reader, err := openDocumentArchive(path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1091,7 +1206,7 @@ func (d *Document) ensureBlobExtractedLocked(id string, descriptor BlobDescripto
 		return fmt.Errorf("inspect staged blob %s: %w", id, err)
 	}
 
-	reader, entries, err := openArchiveEntries(d.path)
+	reader, entries, err := openArchiveEntries(d.archivePath)
 	if err != nil {
 		return fmt.Errorf("open Kavla archive for blob %s: %w", id, err)
 	}

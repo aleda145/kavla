@@ -109,6 +109,12 @@ func (s *Session) Start() error {
 	return nil
 }
 
+func (s *Session) StartLazy() error {
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+	s.engine = compute.NewLazy(s.ctx, s.sources, s.logf, s.allowedDirectories)
+	return nil
+}
+
 func (s *Session) Cancel() {
 	if s.cancel != nil {
 		s.cancel()
@@ -513,6 +519,9 @@ func (s *Session) ImportUploadedFile(ctx context.Context, name, filename, path s
 	ctx, cancel := s.OperationContext(ctx)
 	defer cancel()
 	return s.engine.ImportUploadedFile(ctx, name, filename, path)
+}
+func (s *Session) RegisterUploadedFile(ctx context.Context, name, filename, path string) error {
+	return s.engine.RegisterUploadedFile(ctx, name, filename, path)
 }
 func (s *Session) DropUploadedFile(ctx context.Context, name string) error {
 	return s.engine.DropUploadedFile(ctx, name)

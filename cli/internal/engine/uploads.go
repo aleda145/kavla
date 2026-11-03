@@ -3,12 +3,47 @@ package engine
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/apache/arrow/go/v14/arrow/array"
 )
 
 const UploadedFilesSource = "uploaded_files"
+
+type uploadedFile struct {
+	name  string
+	path  string
+	ready bool
+}
+
+func (e *Engine) RegisterUploadedFile(tableName, fileName, path string) error {
+	if e.uploads == nil {
+		e.uploads = make(map[string]uploadedFile)
+	}
+	e.uploads[tableName] = uploadedFile{name: fileName, path: path}
+	return nil
+}
+
+func (e *Engine) ensureUploadedFiles(ctx context.Context, sql string) error {
+	qualifiedSQL := strings.ReplaceAll(sql, `"`, "")
+	for name, file := range e.uploads {
+		if file.ready {
+			continue
+		}
+		// Names are document identifiers. Match complete identifiers (including
+		// quoted forms) so a query for one upload does not open unrelated files.
+		pattern := `(?i)\buploaded_files\s*\.\s*(?:main\s*\.\s*)?` + regexp.QuoteMeta(name) + `\b`
+		if !regexp.MustCompile(pattern).MatchString(qualifiedSQL) {
+			continue
+		}
+		if err := e.ImportUploadedFile(ctx, name, file.name, file.path); err != nil {
+			return fmt.Errorf("open uploaded source %q: %w", name, err)
+		}
+	}
+	return nil
+}
 
 func (e *Engine) EnableUploadedFiles() {
 	e.sourceStatuses[UploadedFilesSource] = SourceStatus{Name: UploadedFilesSource, Type: "duckdb", Available: true}
@@ -21,12 +56,21 @@ func (e *Engine) ImportUploadedFile(ctx context.Context, tableName, fileName, pa
 	if err != nil {
 		return err
 	}
-	_, err = e.db.ExecContext(ctx, fmt.Sprintf("CREATE VIEW uploaded_files.main.%s AS SELECT * FROM %s(%s)", quoteIdentifier(tableName), reader, sqlStringLiteral(path)))
+	_, err = e.db.ExecContext(ctx, fmt.Sprintf("CREATE OR REPLACE VIEW uploaded_files.main.%s AS SELECT * FROM %s(%s)", quoteIdentifier(tableName), reader, sqlStringLiteral(path)))
+	if err == nil {
+		if e.uploads == nil {
+			e.uploads = make(map[string]uploadedFile)
+		}
+		e.uploads[tableName] = uploadedFile{name: fileName, path: path, ready: true}
+	}
 	return err
 }
 
 func (e *Engine) DropUploadedFile(ctx context.Context, tableName string) error {
 	_, err := e.db.ExecContext(ctx, "DROP VIEW IF EXISTS uploaded_files.main."+quoteIdentifier(tableName))
+	if err == nil {
+		delete(e.uploads, tableName)
+	}
 	return err
 }
 
@@ -37,13 +81,21 @@ func (e *Engine) uploadedTables(ctx context.Context) ([]string, error) {
 	}
 	defer rows.Close()
 	tables := []string{}
+	seen := make(map[string]bool)
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
 			return nil, err
 		}
 		tables = append(tables, "uploaded_files.main."+name)
+		seen[name] = true
 	}
+	for name := range e.uploads {
+		if !seen[name] {
+			tables = append(tables, "uploaded_files.main."+name)
+		}
+	}
+	sort.Strings(tables)
 	return tables, rows.Err()
 }
 

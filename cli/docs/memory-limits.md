@@ -74,15 +74,18 @@ rather than successful partial results. Individual result values/rows above
 and browser still allocate memory for results they consume: this change bounds
 compute memory, not all possible canvas or browser memory use.
 
-Uploaded originals remain bundled in the `.kavla` archive. An open document keeps
-its extracted files under `~/.kavla/working-copies`, avoiding system temporary
-directories that may use RAM-backed storage. DuckDB queries those files through
-views with the same `uploaded_files.main.<table>` names. Parquet scans can read
+Uploaded originals remain bundled in the `.kavla` archive. DuckDB queries stored
+entries directly through a private Go HTTP range server and lazy views with the
+same `uploaded_files.main.<table>` names. New uploads and compressed legacy
+entries use `~/.kavla/working-copies`, avoiding RAM-backed system temporary
+directories. Parquet scans can read
 only the required columns and row groups; CSV and JSON queries may need to scan
 the files again. Upload views are read-only. Existing archives remain compatible
 and do not need a format migration. Normal document teardown removes its working
 copy after saving; copies retained after a crash or failed save are not swept by
-DuckDB cleanup, since they may contain unsaved document data.
+DuckDB cleanup, since they may contain unsaved document data. See
+[document storage](document-storage.md) for incremental saves, history, recovery,
+compaction, and integrity verification.
 
 DuckDB's main and upload catalogs are also files under
 `~/.kavla/duckdb-tmp/session-<unique-id>`. The main file is named `memory.duckdb`
