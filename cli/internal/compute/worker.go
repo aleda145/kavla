@@ -51,7 +51,7 @@ func runWorker() error {
 		time.Sleep(3 * time.Second)
 		os.Exit(0)
 	}()
-	limit, err := memoryguard.Enable()
+	limit, err := memoryguard.Enable(config.Memory)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func runWorker() error {
 		}),
 	}
 	defer server.Close()
-	if err := json.NewEncoder(os.Stdout).Encode(ready{Address: listener.Addr().String(), Statuses: eng.SourceStatuses(), Limit: limit}); err != nil {
+	if err := json.NewEncoder(os.Stdout).Encode(ready{Address: listener.Addr().String(), Statuses: eng.SourceStatuses(), Limit: limit, DuckDBLimit: memoryguard.DuckDBLimit(), SwapLimitMiB: config.Memory.SwapLimitMiB}); err != nil {
 		return err
 	}
 	done := make(chan error, 1)

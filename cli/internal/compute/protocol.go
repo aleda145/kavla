@@ -14,13 +14,16 @@ type configuration struct {
 	Sources     map[string]kavlaconfig.SourceConfig
 	Directories []string
 	Token       string
+	Memory      kavlaconfig.MemorySettings
 }
 
 type ready struct {
-	Address  string
-	Statuses []engine.SourceStatus
-	Limit    uint64
-	Error    string
+	Address      string
+	Statuses     []engine.SourceStatus
+	Limit        uint64
+	DuckDBLimit  uint64
+	SwapLimitMiB int64
+	Error        string
 }
 
 type request struct {

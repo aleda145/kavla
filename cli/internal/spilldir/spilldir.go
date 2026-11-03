@@ -17,9 +17,9 @@ import (
 const directoryPrefix = "session-"
 
 type Directory struct {
-	path string
-	owner *os.File
-	once sync.Once
+	path     string
+	owner    *os.File
+	once     sync.Once
 	closeErr error
 }
 

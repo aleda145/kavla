@@ -74,6 +74,14 @@ func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf 
 }
 
 func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
+	userConfig, err := kavlaconfig.LoadConfigAllowMissing()
+	if err != nil {
+		return nil, ready{}, fmt.Errorf("load compute memory settings: %w", err)
+	}
+	settings, err := userConfig.Memory.Resolve()
+	if err != nil {
+		return nil, ready{}, err
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, ready{}, err
@@ -83,6 +91,7 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 		return nil, ready{}, err
 	}
 	config := c.config
+	config.Memory = settings
 	config.Token = hex.EncodeToString(secret)
 	cmd := exec.Command(executable, workerArgument)
 	control, err := cmd.StdinPipe()
@@ -221,7 +230,7 @@ func (c *Client) ensureWorker(ctx context.Context) (*process, error) {
 	if info.Limit == 0 {
 		c.logf("DuckDB service %d started; hard memory enforcement is currently Linux-only.\n", next.cmd.Process.Pid)
 	} else {
-		c.logf("DuckDB service %d started; compute processes share a %.2f GiB memory cap, with swap disabled.\n", next.cmd.Process.Pid, float64(info.Limit)/(1<<30))
+		c.logf("DuckDB service %d started; compute processes share a %.2f GiB memory cap; DuckDB budget %.2f GiB; configured swap limit %d MiB.\n", next.cmd.Process.Pid, float64(info.Limit)/(1<<30), float64(info.DuckDBLimit)/(1<<30), info.SwapLimitMiB)
 	}
 	return next, nil
 }
