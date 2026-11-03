@@ -225,7 +225,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	defer stop()
 	id := "upload:" + uuid.NewString()
 	name := uniqueUploadName(uploadBaseName(filename), s.document.Manifest().Blobs)
-	// The request gate excludes saves until both the native table and blob exist.
+	// The request gate excludes saves until both the file view and blob exist.
 	blob, err := s.document.PutBlob(id, BlobDescriptor{Kind: BlobKindSource, FileName: filename, MIMEType: r.Header.Get("Content-Type"), TableName: name}, r.Body)
 	if err != nil {
 		writeAPIError(w, 400, err)

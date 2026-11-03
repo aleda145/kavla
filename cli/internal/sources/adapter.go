@@ -93,8 +93,8 @@ func sqlSingleQuoted(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
-func openIsolatedDuckDB() (*sql.DB, error) {
-	db, err := sql.Open("duckdb", ":memory:")
+func openIsolatedDuckDB(path string) (*sql.DB, error) {
+	db, err := sql.Open("duckdb", path)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func withIsolatedCatalog(ctx context.Context, startupSQL []string, attachSQL str
 		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, spill.Close()) }()
-	db, err := openIsolatedDuckDB()
+	db, err := openIsolatedDuckDB(spill.DatabasePath("memory"))
 	if err != nil {
 		return err
 	}

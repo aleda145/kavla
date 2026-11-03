@@ -1,4 +1,4 @@
-// Package spilldir owns DuckDB's temporary files independently of document data.
+// Package spilldir owns DuckDB's session databases and spill files independently of document data.
 // OS locks distinguish active databases from leftovers after a process crash.
 package spilldir
 
@@ -66,7 +66,13 @@ func New() (_ *Directory, resultErr error) {
 	return &Directory{path: path, owner: owner}, nil
 }
 
-// Configure must run before DuckDB imports data or locks its configuration.
+// DatabasePath returns a session-local database path. Callers supply a fixed
+// catalog name, never an uploaded filename. These databases are rebuilt on restart.
+func (d *Directory) DatabasePath(name string) string {
+	return filepath.Join(d.path, name+".duckdb")
+}
+
+// Configure must run before DuckDB queries data or locks its configuration.
 func (d *Directory) Configure(db *sql.DB) error {
 	path := strings.ReplaceAll(filepath.Join(d.path, "data"), "'", "''")
 	if _, err := db.Exec("SET temp_directory = '" + path + "'"); err != nil {
