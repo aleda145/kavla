@@ -129,11 +129,11 @@ func restoreDocumentUploads(ctx context.Context, document *Document, target *ses
 		if blob.TableName == "" {
 			continue
 		}
-		path, _, err := document.BlobPath(blob.ID)
+		path, err := document.BlobURL(blob.ID)
 		if err != nil {
 			return err
 		}
-		if err := target.ImportUploadedFile(ctx, blob.TableName, blob.FileName, path); err != nil {
+		if err := target.RegisterUploadedFile(ctx, blob.TableName, blob.FileName, path); err != nil {
 			return fmt.Errorf("restore uploaded file %q: %w", blob.FileName, err)
 		}
 	}
@@ -155,7 +155,7 @@ func (s *Server) switchDocumentBeforePublish(ctx context.Context, document *Docu
 		if s.verbose {
 			next.SetVerboseLogger(s.logCLIOutput)
 		}
-		if err := next.Start(); err != nil {
+		if err := next.StartLazy(); err != nil {
 			return err
 		}
 		if err := restoreDocumentUploads(ctx, document, next); err != nil {
@@ -174,9 +174,20 @@ func (s *Server) switchDocumentBeforePublish(ctx context.Context, document *Docu
 	s.document.mu.Lock()
 	oldWorkingDir := s.document.workingDir
 	s.document.path = document.path
+	s.document.archivePath = document.archivePath
+	s.document.archiveSize = document.archiveSize
+	previousBlobServer := s.document.blobServer
+	s.document.blobServer = document.blobServer
+	if document.blobServer != nil {
+		document.blobServer.mu.Lock()
+		document.blobServer.document = s.document
+		document.blobServer.mu.Unlock()
+		document.blobServer = nil
+	}
 	s.document.workingDir = document.workingDir
 	s.document.manifest = document.manifest
 	s.document.canvasJSON = document.canvasJSON
+	s.document.undoJSON = document.undoJSON
 	s.document.blobs = document.blobs
 	document.workingDir = ""
 	s.document.mu.Unlock()
@@ -190,6 +201,9 @@ func (s *Server) switchDocumentBeforePublish(ctx context.Context, document *Docu
 		s.broadcastCLISources()
 	}
 	if oldWorkingDir != "" {
+		if previousBlobServer != nil {
+			_ = previousBlobServer.server.Close()
+		}
 		if err := os.RemoveAll(oldWorkingDir); err != nil {
 			s.logCLIOutput("Clean up previous document: %v\n", err)
 		}
@@ -242,7 +256,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
-	path, _, err := s.document.BlobPath(id)
+	path, err := s.document.BlobURL(id)
 	if err != nil {
 		writeAPIError(w, 500, err)
 		return
@@ -268,7 +282,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteUpload(w http.ResponseWriter, r *http.Request) {
-	_, blob, err := s.document.BlobPath(r.PathValue("id"))
+	blob, err := s.document.BlobDescriptor(r.PathValue("id"))
 	if err != nil || blob.TableName == "" {
 		writeAPIError(w, 404, fmt.Errorf("uploaded table does not exist"))
 		return
@@ -278,7 +292,7 @@ func (s *Server) handleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.document.DeleteBlob(blob.ID); err != nil {
-		path, _, pathErr := s.document.BlobPath(blob.ID)
+		path, pathErr := s.document.BlobURL(blob.ID)
 		if pathErr == nil {
 			pathErr = s.queries.ImportUploadedFile(context.Background(), blob.TableName, blob.FileName, path)
 		}
@@ -344,8 +358,10 @@ func (s *Server) documentRequests(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		exclusive := r.Method != http.MethodGet && (strings.HasPrefix(r.URL.Path, "/api/session/uploads") || strings.HasPrefix(r.URL.Path, "/api/cli/sources") || strings.HasPrefix(r.URL.Path, "/api/session/blobs") || r.URL.Path == "/api/session/document" || r.URL.Path == "/api/session/undo" || r.URL.Path == "/api/session/save" || r.URL.Path == "/api/session/transfer" || r.URL.Path == "/api/session/save-as" || r.URL.Path == "/api/session/close" || r.URL.Path == "/api/session/load-path" || r.URL.Path == "/api/session/new")
-		exclusive = exclusive || (r.Method != http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/session/snapshots"))
+		// Canvas edits and append-only saves can run while SQL is executing.
+		// Only mutations that replace/remove query inputs need the exclusive gate.
+		exclusive := r.Method != http.MethodGet && (strings.HasPrefix(r.URL.Path, "/api/session/uploads") || strings.HasPrefix(r.URL.Path, "/api/cli/sources") || strings.HasPrefix(r.URL.Path, "/api/session/blobs") || r.URL.Path == "/api/session/transfer" || r.URL.Path == "/api/session/save-as" || r.URL.Path == "/api/session/rename" || r.URL.Path == "/api/session/load-path" || r.URL.Path == "/api/session/new")
+		exclusive = exclusive || (r.Method != http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/session/snapshots/") && strings.HasSuffix(r.URL.Path, "/restore"))
 		if exclusive {
 			s.documentGate.Lock()
 			defer s.documentGate.Unlock()

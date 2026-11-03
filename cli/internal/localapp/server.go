@@ -173,7 +173,7 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 	if verbose {
 		querySession.SetVerboseLogger(server.logCLIOutput)
 	}
-	if err := querySession.Start(); err != nil {
+	if err := querySession.StartLazy(); err != nil {
 		_ = os.RemoveAll(transientDir)
 		return nil, fmt.Errorf("start local query session: %w", err)
 	}
@@ -840,7 +840,7 @@ func resolveSelectedDocumentPath(directory, fileName string) (string, error) {
 }
 
 func (s *Server) handleGetBlob(w http.ResponseWriter, r *http.Request) {
-	filePath, descriptor, err := s.document.BlobPath(r.PathValue("id"))
+	content, descriptor, close, err := s.document.OpenBlob(r.PathValue("id"))
 	if errors.Is(err, fs.ErrNotExist) {
 		http.NotFound(w, r)
 		return
@@ -849,6 +849,7 @@ func (s *Server) handleGetBlob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	defer close()
 	contentType := descriptor.MIMEType
 	if _, _, err := mime.ParseMediaType(contentType); err != nil {
 		contentType = "application/octet-stream"
@@ -871,7 +872,7 @@ func (s *Server) handleGetBlob(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": descriptor.FileName}))
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
-	http.ServeFile(w, r, filePath)
+	http.ServeContent(w, r, descriptor.FileName, time.Time{}, content)
 }
 
 func (s *Server) handleGetTransientResult(w http.ResponseWriter, r *http.Request) {
@@ -972,7 +973,7 @@ func (s *Server) discardTransientResult(id string) {
 }
 
 func (s *Server) handlePutBlob(w http.ResponseWriter, r *http.Request) {
-	if _, existing, err := s.document.BlobPath(r.PathValue("id")); err == nil && existing.TableName != "" {
+	if existing, err := s.document.BlobDescriptor(r.PathValue("id")); err == nil && existing.TableName != "" {
 		writeAPIError(w, http.StatusConflict, fmt.Errorf("uploaded files must be managed through the uploads API"))
 		return
 	}
@@ -996,7 +997,7 @@ func (s *Server) handlePutBlob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteBlob(w http.ResponseWriter, r *http.Request) {
-	if _, existing, err := s.document.BlobPath(r.PathValue("id")); err == nil && existing.TableName != "" {
+	if existing, err := s.document.BlobDescriptor(r.PathValue("id")); err == nil && existing.TableName != "" {
 		writeAPIError(w, http.StatusConflict, fmt.Errorf("delete this table through the uploads API"))
 		return
 	}
@@ -1378,8 +1379,7 @@ func (c *localHTTPQueryClient) SendResultData(shapeID string, format runner.Resu
 }
 
 func (c *localHTTPQueryClient) ResolveBlobURL(blobID string) (string, error) {
-	path, _, err := c.server.document.BlobPath(blobID)
-	return path, err
+	return c.server.document.BlobURL(blobID)
 }
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
