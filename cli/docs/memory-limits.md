@@ -57,9 +57,9 @@ The hard limit is a last resort. Linux can kill a worker when it cannot reclaim
 enough memory. Its current request fails while the canvas and document server
 stay alive. On the next compute request, the parent starts a replacement and
 restores successful uploads, mounted sources, and query views. It does not
-automatically retry the operation that failed. Recovery re-imports uploaded
-files, which can take time for large documents and can fail again if they exceed
-the budget. Arbitrary SQL side effects are not replayed.
+automatically retry the operation that failed. Recovery registers views over the
+uploaded originals again without copying their rows into DuckDB tables.
+Arbitrary SQL side effects are not replayed.
 
 Workers communicate through an authenticated loopback HTTP connection. The
 per-worker token and source configuration are passed through a private stdin
@@ -73,6 +73,23 @@ rather than successful partial results. Individual result values/rows above
 8 MiB are rejected for transfer; full file exports remain available. The parent
 and browser still allocate memory for results they consume: this change bounds
 compute memory, not all possible canvas or browser memory use.
+
+Uploaded originals remain bundled in the `.kavla` archive. An open document keeps
+its extracted files under `~/.kavla/working-copies`, avoiding system temporary
+directories that may use RAM-backed storage. DuckDB queries those files through
+views with the same `uploaded_files.main.<table>` names. Parquet scans can read
+only the required columns and row groups; CSV and JSON queries may need to scan
+the files again. Upload views are read-only. Existing archives remain compatible
+and do not need a format migration. Normal document teardown removes its working
+copy after saving; copies retained after a crash or failed save are not swept by
+DuckDB cleanup, since they may contain unsaved document data.
+
+DuckDB's main and upload catalogs are also files under
+`~/.kavla/duckdb-tmp/session-<unique-id>`. The main file is named `memory.duckdb`
+only to preserve the existing default SQL catalog name; it is disk-backed.
+These disposable catalogs are rebuilt from document metadata on worker restart,
+not bundled as additional copies of the data. Disk-backed storage still uses
+RAM for caching and query execution, so the memory limits remain necessary.
 
 DuckDB spills under `~/.kavla/duckdb-tmp/session-<unique-id>/data`, including the
 short-lived databases used to inspect configured sources. Each instance holds an

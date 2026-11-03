@@ -123,7 +123,17 @@ func openDocument(path string, recordHistory bool) (*Document, error) {
 }
 
 func createWorkingDirectory() (string, error) {
-	directory, err := os.MkdirTemp("", "kavla-document-*")
+	// System temporary directories can be RAM-backed. Keep extracted originals
+	// in the user's data directory so large uploads do not fill tmpfs.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("locate Kavla working directory: %w", err)
+	}
+	root := filepath.Join(home, ".kavla", "working-copies")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return "", fmt.Errorf("create Kavla working directory root: %w", err)
+	}
+	directory, err := os.MkdirTemp(root, "kavla-document-*")
 	if err != nil {
 		return "", fmt.Errorf("create temporary Kavla working directory: %w", err)
 	}

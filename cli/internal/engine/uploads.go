@@ -14,17 +14,19 @@ func (e *Engine) EnableUploadedFiles() {
 	e.sourceStatuses[UploadedFilesSource] = SourceStatus{Name: UploadedFilesSource, Type: "duckdb", Available: true}
 }
 
+// ImportUploadedFile registers the original file without copying its rows into
+// DuckDB. The document owns the file and keeps it available until the view drops.
 func (e *Engine) ImportUploadedFile(ctx context.Context, tableName, fileName, path string) error {
 	reader, err := readerForMountedFile(fileName)
 	if err != nil {
 		return err
 	}
-	_, err = e.db.ExecContext(ctx, fmt.Sprintf("CREATE TABLE uploaded_files.main.%s AS SELECT * FROM %s(%s)", quoteIdentifier(tableName), reader, sqlStringLiteral(path)))
+	_, err = e.db.ExecContext(ctx, fmt.Sprintf("CREATE VIEW uploaded_files.main.%s AS SELECT * FROM %s(%s)", quoteIdentifier(tableName), reader, sqlStringLiteral(path)))
 	return err
 }
 
 func (e *Engine) DropUploadedFile(ctx context.Context, tableName string) error {
-	_, err := e.db.ExecContext(ctx, "DROP TABLE IF EXISTS uploaded_files.main."+quoteIdentifier(tableName))
+	_, err := e.db.ExecContext(ctx, "DROP VIEW IF EXISTS uploaded_files.main."+quoteIdentifier(tableName))
 	return err
 }
 

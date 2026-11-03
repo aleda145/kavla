@@ -42,7 +42,7 @@ type ResultColumn struct {
 	Type string
 }
 
-// New creates a new in-memory DuckDB engine and initializes all configured sources.
+// New creates a disk-backed DuckDB engine and initializes all configured sources.
 func New(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{})) (*Engine, error) {
 	return NewWithAllowedDirectories(sourceConfigs, logf, nil)
 }
@@ -61,9 +61,11 @@ func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig
 		}
 	}()
 
-	db, err := sql.Open("duckdb", ":memory:")
+	// Preserve the default catalog name used by existing SQL references. Despite
+	// its name, memory.duckdb is a regular file in the managed session directory.
+	db, err := sql.Open("duckdb", spill.DatabasePath("memory"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to open in-memory DuckDB: %w", err)
+		return nil, fmt.Errorf("failed to open disk-backed DuckDB: %w", err)
 	}
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
@@ -80,6 +82,10 @@ func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig
 		}
 	}
 	db.SetMaxOpenConns(5)
+	if _, err := db.Exec("ATTACH " + sqlStringLiteral(spill.DatabasePath(UploadedFilesSource)) + " AS uploaded_files"); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open uploaded files catalog: %w", err)
+	}
 
 	e := &Engine{
 		db:              db,
@@ -103,9 +109,6 @@ func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string
 		if strings.EqualFold(name, UploadedFilesSource) {
 			return fmt.Errorf("source name uploaded_files is reserved for document uploads")
 		}
-	}
-	if _, err := e.db.ExecContext(ctx, "ATTACH ':memory:' AS uploaded_files"); err != nil {
-		return err
 	}
 	sourceNames := make([]string, 0, len(sourceConfigs))
 	for name := range sourceConfigs {
