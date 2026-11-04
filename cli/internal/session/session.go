@@ -10,6 +10,7 @@ import (
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/engine"
 	"github.com/aleda145/kavla/cli/internal/runner"
+	"github.com/aleda145/kavla/cli/internal/sources"
 	"github.com/apache/arrow/go/v14/arrow/array"
 )
 
@@ -566,4 +567,10 @@ func (s *Session) OperationContext(parent context.Context) (context.Context, con
 	ctx, cancel := context.WithCancel(parent)
 	stop := context.AfterFunc(s.ctx, cancel)
 	return ctx, func() { stop(); cancel() }
+}
+
+func (s *Session) EstimateQuery(ctx context.Context, executionEngine, sourceName, sql string) (*sources.QueryEstimate, error) {
+	ctx, cancel := s.OperationContext(ctx)
+	defer cancel()
+	return s.engine.EstimateQuery(ctx, executionEngine, sourceName, sql)
 }

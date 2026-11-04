@@ -41,6 +41,7 @@ import { getAutoExpandedSQLShapeSize } from "./sqlShapeSize";
 import { getKnobNames, getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
 import { ensureQueryKnobs } from "../Knob/createKnobs";
 import { useBizMode } from "../client/canvas/bizMode";
+import { SQLQueryEstimate } from "./SQLQueryEstimate";
 
 export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   private updateSourceName: ((payload: { prevName: string; nextName: string }) => void) | null = null;
@@ -438,7 +439,10 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     }, [handleRun, shape.id, shape.props.isRunning, shape.props.text]);
 
     const hasFooter = Boolean(
-      (shape.props.isRunning && shape.props.queryStartTime) || shape.props.error || shape.props.lastRunStats
+      (shape.props.isRunning && shape.props.queryStartTime) ||
+      shape.props.error ||
+      shape.props.lastRunStats ||
+      queryExecutionState.tabs.some((tab) => tab.type === "bigquery")
     );
 
     return (
@@ -503,6 +507,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
             onToggleTable={handleToggleTable}
             validator={handleValidate}
           />
+          <SQLQueryEstimate editor={this.editor} shape={shape} />
           <SQLTextAreaFooter shape={shape} />
           <div
             style={{
