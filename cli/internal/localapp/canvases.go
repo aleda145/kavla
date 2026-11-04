@@ -243,6 +243,12 @@ func newCanvasRegistry(root *Server) (*canvasRegistry, error) {
 		return nil, err
 	}
 	root.document.mu.Lock()
+	// Keep the live archive path aligned when resolving symlinks or platform
+	// path aliases, so Rename can move it along with the document. A separate
+	// history archive remains the source of blobs during a pending restore.
+	if root.document.archivePath == root.document.path {
+		root.document.archivePath = path
+	}
 	root.document.path = path
 	root.document.mu.Unlock()
 	root.canvases, root.canvasName = registry, name
