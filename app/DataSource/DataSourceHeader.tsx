@@ -40,18 +40,22 @@ export function DataSourceHeader({ editor, shape, source }: DataSourceHeaderProp
       {source?.loading ? (
         <span
           role="status"
-          title="Browse or query to connect this source"
+          title="Connecting to this source"
           className="flex shrink-0 items-center gap-1 text-[10px] normal-case"
         >
-          <Loader2 aria-hidden="true" size={14} className="animate-spin" /> Loading…
+          <Loader2 aria-hidden="true" size={14} className="animate-spin" /> Connecting…
         </span>
-      ) : source?.available === false ? (
+      ) : source?.available === false && source.error ? (
         <span
           role="status"
           title={source.error}
           className="flex shrink-0 items-center gap-1 text-[10px] normal-case text-red-700"
         >
           <AlertCircle aria-hidden="true" size={14} /> Unavailable
+        </span>
+      ) : source?.available === false ? (
+        <span title="Connect from Sources or run a query" className="shrink-0 text-[10px] normal-case text-gray-600">
+          Not connected
         </span>
       ) : null}
     </div>

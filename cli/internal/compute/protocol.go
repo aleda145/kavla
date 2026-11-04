@@ -9,6 +9,8 @@ import (
 
 const workerArgument = "_kavla_compute_worker"
 const completeTrailer = "Kavla-Compute-Complete"
+const sourceStatusesHeader = "Kavla-Source-Statuses"
+const sourceStatusPrefix = "KAVLA_SOURCE_STATUS "
 
 type configuration struct {
 	Sources     map[string]kavlaconfig.SourceConfig

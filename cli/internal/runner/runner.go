@@ -36,7 +36,7 @@ type resultSizeLimiter interface {
 
 type QueryEngine interface {
 	Query(context.Context, string) (array.RecordReader, error)
-	PreparePreviewSQL(string, string, string, int) (string, error)
+	PreparePreviewSQLContext(context.Context, string, string, string, int) (string, error)
 }
 
 type QueryRequest struct {
@@ -93,7 +93,7 @@ func Execute(ctx context.Context, req QueryRequest, t Transport, eng QueryEngine
 	} else {
 		t.Log("Querying without an implicit row limit...\n")
 	}
-	wrappedSQL, err := PreparePreviewSQL(req, eng, req.PreviewRowLimit)
+	wrappedSQL, err := PreparePreviewSQLContext(ctx, req, eng, req.PreviewRowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -251,19 +251,23 @@ func truncateParquetToLimit(schema *arrow.Schema, records []arrow.Record, totalR
 }
 
 func PreparePreviewSQL(req QueryRequest, eng QueryEngine, limit int) (string, error) {
+	return PreparePreviewSQLContext(context.Background(), req, eng, limit)
+}
+
+func PreparePreviewSQLContext(ctx context.Context, req QueryRequest, eng QueryEngine, limit int) (string, error) {
 	cleanSQL := strings.TrimSuffix(strings.TrimSpace(req.SQL), ";")
 	executionEngine := strings.TrimSpace(req.ExecutionEngine)
 	sourceName := strings.TrimSpace(req.SourceName)
 
 	if executionEngine == "" {
-		return eng.PreparePreviewSQL("", "", cleanSQL, limit)
+		return eng.PreparePreviewSQLContext(ctx, "", "", cleanSQL, limit)
 	}
 
 	if sourceName == "" {
 		return "", fmt.Errorf("source-native preview mode requires sourceName")
 	}
 
-	return eng.PreparePreviewSQL(executionEngine, sourceName, cleanSQL, limit)
+	return eng.PreparePreviewSQLContext(ctx, executionEngine, sourceName, cleanSQL, limit)
 }
 
 func serializeArrowIPC(schema *arrow.Schema, records []arrow.Record) (*bytes.Buffer, error) {

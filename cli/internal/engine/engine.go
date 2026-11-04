@@ -22,13 +22,15 @@ import (
 )
 
 type Engine struct {
-	db              *sql.DB
-	spillDir        *spilldir.Directory
-	logf            func(string, ...interface{})
-	adapterRegistry map[string]sources.AdapterFactory
-	adapters        map[string]sources.Adapter
-	sourceStatuses  map[string]SourceStatus
-	uploads         map[string]uploadedFile
+	db                  *sql.DB
+	spillDir            *spilldir.Directory
+	logf                func(string, ...interface{})
+	adapterRegistry     map[string]sources.AdapterFactory
+	adapters            map[string]sources.Adapter
+	sourceStatuses      map[string]SourceStatus
+	sourceConfigs       map[string]kavlaconfig.SourceConfig
+	sourceStatusChanged func(SourceStatus)
+	uploads             map[string]uploadedFile
 }
 
 type SourceStatus struct {
@@ -36,6 +38,7 @@ type SourceStatus struct {
 	Type      string
 	Available bool
 	Loading   bool
+	Revision  uint64
 	Error     string
 }
 
@@ -50,6 +53,18 @@ func New(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ..
 }
 
 func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), additionalDirectories []string) (result *Engine, resultErr error) {
+	e, err := NewLazyWithAllowedDirectories(sourceConfigs, logf, additionalDirectories)
+	if err != nil {
+		return nil, err
+	}
+	e.InitializeSources(context.Background())
+	return e, nil
+}
+
+// NewLazyWithAllowedDirectories configures DuckDB without connecting sources.
+// Source paths are collected before locking configuration; validation, directory
+// scans, extension loading and catalog attachment happen only on first use.
+func NewLazyWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), additionalDirectories []string) (result *Engine, resultErr error) {
 	if logf == nil {
 		logf = log.Printf
 	}
@@ -107,6 +122,7 @@ func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig
 }
 
 func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string]kavlaconfig.SourceConfig, additionalDirectories []string) error {
+	e.sourceConfigs = make(map[string]kavlaconfig.SourceConfig, len(sourceConfigs))
 	for name := range sourceConfigs {
 		if strings.EqualFold(name, UploadedFilesSource) {
 			return fmt.Errorf("source name uploaded_files is reserved for document uploads")
@@ -126,16 +142,9 @@ func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string
 		}
 	}
 	pathSet := make(map[string]struct{})
-	reg := sources.RegistrationContext{
-		DB:   e.db,
-		Logf: e.logf,
-		ExecSQL: func(label, sql string) error {
-			return e.execStartupSQL(ctx, sql)
-		},
-	}
-
 	for _, name := range sourceNames {
 		src := sourceConfigs[name]
+		e.sourceConfigs[name] = src
 		status := SourceStatus{Name: name, Type: src.Type}
 
 		adapter, err := e.getAdapterForType(src.Type)
@@ -150,16 +159,6 @@ func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string
 			continue
 		}
 
-		if err := adapter.Validate(ctx, name, src); err != nil {
-			e.markSourceUnavailable(status, err)
-			continue
-		}
-
-		if err := adapter.Init(ctx, reg, name, src); err != nil {
-			e.markSourceUnavailable(status, err)
-			continue
-		}
-
 		for _, dir := range requirements.AllowedDirectories {
 			dirSet[dir] = struct{}{}
 		}
@@ -167,8 +166,6 @@ func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string
 			pathSet[path] = struct{}{}
 		}
 
-		status.Available = true
-		e.adapters[name] = adapter
 		e.sourceStatuses[name] = status
 	}
 
@@ -205,9 +202,18 @@ func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string
 
 func (e *Engine) markSourceUnavailable(status SourceStatus, err error) {
 	status.Available = false
+	status.Loading = false
 	status.Error = err.Error()
+	status.Revision++
 	e.sourceStatuses[status.Name] = status
+	if e.sourceStatusChanged != nil {
+		e.sourceStatusChanged(status)
+	}
 	e.logf("Source '%s' (%s): unavailable: %v\n", status.Name, status.Type, err)
+}
+
+func (e *Engine) SetSourceStatusHandler(handler func(SourceStatus)) {
+	e.sourceStatusChanged = handler
 }
 
 func (e *Engine) execStartupSQL(ctx context.Context, sql string) error {
@@ -258,26 +264,71 @@ func (e *Engine) unavailableSourceError(sourceName string) error {
 	return nil
 }
 
-func (e *Engine) ensureSourceAvailable(sourceName string) error {
-	return e.unavailableSourceError(sourceName)
+// InitializeSources retains eager connection checks for explicit CLI connect
+// and configuration validation. Canvas workers do not call it at startup.
+func (e *Engine) InitializeSources(ctx context.Context) {
+	for _, status := range e.SourceStatuses() {
+		_ = e.ensureSourceAvailable(ctx, status.Name)
+	}
 }
 
-func (e *Engine) ensureConfiguredSourceHealthy(sourceName string) error {
+func (e *Engine) ensureSourceAvailable(ctx context.Context, sourceName string) error {
+	for name := range e.sourceConfigs {
+		if strings.EqualFold(name, sourceName) {
+			sourceName = name
+			break
+		}
+	}
+	status, exists := e.sourceStatuses[sourceName]
+	if !exists || status.Available || status.Error != "" {
+		return e.unavailableSourceError(sourceName)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	status.Loading = true
+	status.Revision++
+	e.sourceStatuses[sourceName] = status
+	if e.sourceStatusChanged != nil {
+		e.sourceStatusChanged(status)
+	}
+	src := e.sourceConfigs[sourceName]
+	adapter, err := e.getAdapterForType(src.Type)
+	if err == nil {
+		err = adapter.Validate(ctx, sourceName, src)
+	}
+	if err == nil {
+		err = adapter.Init(ctx, sources.RegistrationContext{
+			DB: e.db, Logf: e.logf,
+			ExecSQL: func(label, sql string) error { return e.execStartupSQL(ctx, sql) },
+		}, sourceName, src)
+	}
+	if err != nil {
+		e.markSourceUnavailable(status, err)
+		return fmt.Errorf("initialize source %q: %w", sourceName, err)
+	}
+	status.Loading = false
+	status.Available = true
+	status.Revision++
+	e.adapters[sourceName] = adapter
+	e.sourceStatuses[sourceName] = status
+	if e.sourceStatusChanged != nil {
+		e.sourceStatusChanged(status)
+	}
+	return nil
+}
+
+func (e *Engine) ensureConfiguredSourceHealthy(ctx context.Context, sourceName string) error {
 	sourceName = strings.TrimSpace(sourceName)
 	if sourceName == "" {
 		return nil
 	}
-	status, ok := e.sourceStatuses[sourceName]
-	if !ok {
-		return nil
+	for name := range e.sourceConfigs {
+		if strings.EqualFold(name, sourceName) {
+			return e.ensureSourceAvailable(ctx, name)
+		}
 	}
-	if status.Available {
-		return nil
-	}
-	if status.Error != "" {
-		return fmt.Errorf("%s", status.Error)
-	}
-	return fmt.Errorf("source '%s' is unavailable", sourceName)
+	return nil
 }
 
 func (e *Engine) Query(ctx context.Context, query string) (array.RecordReader, error) {
@@ -540,10 +591,14 @@ func (e *Engine) DropResult(ctx context.Context, resultID string) error {
 }
 
 func (e *Engine) GetTables(sourceName string) ([]string, error) {
+	return e.GetTablesContext(context.Background(), sourceName)
+}
+
+func (e *Engine) GetTablesContext(ctx context.Context, sourceName string) ([]string, error) {
 	if sourceName == UploadedFilesSource {
-		return e.uploadedTables(context.Background())
+		return e.uploadedTables(ctx)
 	}
-	if err := e.ensureSourceAvailable(sourceName); err != nil {
+	if err := e.ensureSourceAvailable(ctx, sourceName); err != nil {
 		return nil, err
 	}
 
@@ -552,7 +607,7 @@ func (e *Engine) GetTables(sourceName string) ([]string, error) {
 		return nil, fmt.Errorf("unknown source: %s", sourceName)
 	}
 
-	tables, err := adapter.ListTables(context.Background())
+	tables, err := adapter.ListTables(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -572,6 +627,9 @@ func (e *Engine) Close() error {
 }
 
 func (e *Engine) ensureDeferredTables(ctx context.Context, query string) error {
+	if err := e.ensureReferencedSources(ctx, query); err != nil {
+		return err
+	}
 	if err := e.ensureUploadedFiles(ctx, query); err != nil {
 		return err
 	}

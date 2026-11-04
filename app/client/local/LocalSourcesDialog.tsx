@@ -14,6 +14,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Plug,
   Save,
   Search,
   Trash2,
@@ -221,17 +222,17 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
       if (savedSource) beginEdit(savedSource);
       addToast({
         title:
-          savedSource?.available || savedSource?.loading
+          savedSource && !savedSource.error
             ? editingName
               ? "CLI source updated"
               : "CLI source added"
             : "CLI source saved but unavailable",
-        description: savedSource?.loading
-          ? `${draft.name.trim()} will connect when you browse or query it.`
-          : savedSource?.available
-            ? `${draft.name.trim()} is available to the canvas immediately.`
+        description: savedSource?.available
+          ? `${draft.name.trim()} is available to the canvas immediately.`
+          : savedSource && !savedSource.error
+            ? `Use Connect to browse tables in ${draft.name.trim()}, or run a query to connect automatically.`
             : (savedSource?.error ?? "Check the source connection and save again."),
-        severity: savedSource?.available || savedSource?.loading ? "success" : "warning",
+        severity: savedSource && !savedSource.error ? "success" : "warning",
       });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -432,19 +433,35 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
                       ? { ...availableStyle, backgroundColor: "#dbeafe" }
                       : editingSource.available
                         ? availableStyle
-                        : errorStyle
+                        : editingSource.error
+                          ? errorStyle
+                          : { ...availableStyle, backgroundColor: "#f3f4f6" }
                   }
                 >
                   {editingSource.loading ? (
                     <>
-                      <Loader2 aria-hidden="true" className="animate-spin" size={15} /> Loading… Browse or query to
-                      connect.
+                      <Loader2 aria-hidden="true" className="animate-spin" size={15} /> Connecting…
                     </>
                   ) : editingSource.available ? (
                     <span>Connected and available to the canvas.</span>
-                  ) : (
+                  ) : editingSource.error ? (
                     <>
                       <AlertCircle size={15} /> {editingSource.error || "This source is unavailable."}
+                    </>
+                  ) : (
+                    <>
+                      <span>Not connected.</span>
+                      <button
+                        onClick={() => {
+                          setShowEditor(false);
+                          setBrowsingSource(editingSource);
+                        }}
+                        style={connectButtonStyle}
+                        type="button"
+                        title={`Connect to ${editingSource.name} and browse tables`}
+                      >
+                        <Plug aria-hidden="true" size={14} /> <span>Connect</span>
+                      </button>
                     </>
                   )}
                 </div>
@@ -495,7 +512,7 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
                   return (
                     <div key={source.name} style={sourceRowStyle}>
                       <span style={{ alignItems: "center", display: "flex", gap: 9, minWidth: 0 }}>
-                        <CliSourceLogoBadge source={source} unavailable={!source.available} />
+                        <CliSourceLogoBadge source={source} unavailable={!source.available && Boolean(source.error)} />
                         <span
                           style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, textAlign: "left" }}
                         >
@@ -515,22 +532,50 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
                           </span>
                           {source.loading ? (
                             <span role="status" style={{ fontSize: 10, fontWeight: 700 }}>
-                              Loading… Browse or query to connect.
+                              Connecting…
                             </span>
                           ) : source.error ? (
                             <span style={{ color: "#b91c1c", fontSize: 10, fontWeight: 700 }}>{source.error}</span>
+                          ) : !source.available ? (
+                            <span style={{ color: "#475569", fontSize: 10 }}>Not connected</span>
                           ) : null}
                         </span>
                       </span>
                       <span style={{ display: "flex", flexShrink: 0, gap: 6 }}>
                         <button
-                          disabled={!source.available && !source.loading}
+                          disabled={source.loading || (!source.available && Boolean(source.error))}
                           onClick={() => setBrowsingSource(source)}
-                          style={{ ...primaryButtonStyle, opacity: source.available || source.loading ? 1 : 0.45 }}
-                          title={source.available || source.loading ? `Browse tables in ${source.name}` : source.error}
+                          style={{
+                            ...(source.available ? primaryButtonStyle : connectButtonStyle),
+                            opacity: source.loading || (!source.available && source.error) ? 0.45 : 1,
+                          }}
+                          title={
+                            source.loading
+                              ? `Connecting to ${source.name}`
+                              : source.error ||
+                                (source.available
+                                  ? `Browse tables in ${source.name}`
+                                  : `Connect to ${source.name} and browse tables`)
+                          }
+                          aria-busy={source.loading === true}
                           type="button"
                         >
-                          <Database size={14} /> Tables
+                          {source.loading ? (
+                            <Loader2 aria-hidden="true" className="animate-spin" size={14} />
+                          ) : source.available ? (
+                            <Database aria-hidden="true" size={14} />
+                          ) : (
+                            <Plug aria-hidden="true" size={14} />
+                          )}
+                          <span>
+                            {source.loading
+                              ? "Connecting…"
+                              : source.available
+                                ? "Tables"
+                                : source.error
+                                  ? "Unavailable"
+                                  : "Connect"}
+                          </span>
                         </button>
                         {!source.builtin && (
                           <button
@@ -1106,6 +1151,7 @@ const primaryButtonStyle = {
   padding: "7px 10px",
 };
 const queryButtonStyle = { ...primaryButtonStyle, backgroundColor: "#fde68a" };
+const connectButtonStyle = { ...primaryButtonStyle, backgroundColor: "#bbf7d0" };
 const secondaryButtonStyle = { ...primaryButtonStyle, backgroundColor: "#fff" };
 const dangerButtonStyle = { ...primaryButtonStyle, backgroundColor: "#fecaca", color: "#7f1d1d" };
 const smallNavigationButtonStyle = {

@@ -55,7 +55,7 @@ func runWorker() error {
 	if err != nil {
 		return err
 	}
-	eng, err := engine.NewWithAllowedDirectories(config.Sources, log.Printf, config.Directories)
+	eng, err := engine.NewLazyWithAllowedDirectories(config.Sources, log.Printf, config.Directories)
 	if err != nil {
 		return err
 	}
@@ -64,6 +64,12 @@ func runWorker() error {
 			log.Printf("Close DuckDB and clean up spill files: %v", err)
 		}
 	}()
+	eng.SetSourceStatusHandler(func(status engine.SourceStatus) {
+		// stderr already has a continuously drained parent pipe. Structured
+		// status lines report readiness before a long-running query completes.
+		data, _ := json.Marshal(status)
+		fmt.Fprintln(os.Stderr, sourceStatusPrefix+string(data))
+	})
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
@@ -106,6 +112,8 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 	var reader array.RecordReader
 	var err error
 	switch req.Op {
+	case "initialize":
+		eng.InitializeSources(ctx)
 	case "query":
 		reader, err = eng.Query(ctx, req.SQL)
 	case "page":
@@ -113,7 +121,7 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 	case "widget":
 		reader, err = eng.QueryWidget(ctx, req.SQL, req.ID, req.Columns, req.Rows)
 	case "preview":
-		result.SQL, err = eng.PreparePreviewSQL(req.ExecutionEngine, req.Source, req.SQL, req.Limit)
+		result.SQL, err = eng.PreparePreviewSQLContext(ctx, req.ExecutionEngine, req.Source, req.SQL, req.Limit)
 	case "prepare-mount":
 		result.SQL, err = eng.PrepareRemoteFileMountSQL(req.Source, req.FileName, req.Path)
 	case "mount":
@@ -129,7 +137,7 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 	case "drop-view":
 		err = eng.DropResult(ctx, req.ID)
 	case "tables":
-		result.Tables, err = eng.GetTables(req.Source)
+		result.Tables, err = eng.GetTablesContext(ctx, req.Source)
 	case "describe":
 		result.Columns, err = eng.DescribeTable(ctx, req.Source)
 	case "stats":
@@ -147,6 +155,10 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 	default:
 		err = fmt.Errorf("unknown compute operation %q", req.Op)
 	}
+	// Also return an authoritative snapshot with every response, including
+	// failed operations and Arrow streams, before the caller releases its gate.
+	statuses, _ := json.Marshal(eng.SourceStatuses())
+	w.Header().Set(sourceStatusesHeader, string(statuses))
 	if reader == nil || err != nil {
 		if reader != nil {
 			reader.Release()

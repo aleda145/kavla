@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -59,7 +60,7 @@ type Client struct {
 
 func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), directories []string) (*Client, error) {
 	c := NewLazy(ctx, sources, logf, directories)
-	if _, err := c.ensureWorker(ctx); err != nil {
+	if _, err := c.call(ctx, request{Op: "initialize"}); err != nil {
 		_ = c.Close()
 		return nil, err
 	}
@@ -80,7 +81,7 @@ func NewLazy(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, l
 		config: configuration{Sources: sources, Directories: slices.Clone(directories)},
 	}
 	for name, source := range sources {
-		c.statuses = append(c.statuses, engine.SourceStatus{Name: name, Type: source.Type, Loading: true})
+		c.statuses = append(c.statuses, engine.SourceStatus{Name: name, Type: source.Type})
 	}
 	return c
 }
@@ -142,6 +143,13 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 		scanner := bufio.NewScanner(stderr)
 		scanner.Buffer(make([]byte, 4096), 1<<20)
 		for scanner.Scan() {
+			if data, ok := strings.CutPrefix(scanner.Text(), sourceStatusPrefix); ok {
+				var status engine.SourceStatus
+				if err := json.Unmarshal([]byte(data), &status); err == nil {
+					c.updateWorkerSourceStatuses(p, []engine.SourceStatus{status})
+					continue
+				}
+			}
 			c.logf("[DuckDB %d] %s\n", cmd.Process.Pid, scanner.Text())
 		}
 		// Keep draining even if a native extension emits an unusually long line.
@@ -216,7 +224,7 @@ func (c *Client) ensureWorker(ctx context.Context) (_ *process, startupErr error
 	c.mu.Lock()
 	c.worker = nil
 	c.workerError = ""
-	c.markSourcesLoadingLocked()
+	c.markSourcesDisconnectedLocked()
 	c.mu.Unlock()
 	c.notifySourcesChanged()
 	defer func() {
@@ -315,7 +323,37 @@ func (c *Client) send(ctx context.Context, p *process, req request) (*http.Respo
 		}
 		return nil, fmt.Errorf("%s: %w", stoppedMessage, err)
 	}
+	if data := result.Header.Get(sourceStatusesHeader); data != "" {
+		var statuses []engine.SourceStatus
+		if err := json.Unmarshal([]byte(data), &statuses); err != nil {
+			_ = result.Body.Close()
+			c.invalidate(p)
+			return nil, fmt.Errorf("read compute source statuses: %w", err)
+		}
+		c.updateWorkerSourceStatuses(p, statuses)
+	}
 	return result, nil
+}
+
+func (c *Client) updateWorkerSourceStatuses(p *process, statuses []engine.SourceStatus) {
+	c.mu.Lock()
+	changed := false
+	if c.worker == p && !c.closed {
+		for _, status := range statuses {
+			for i := range c.statuses {
+				// Pipe progress and HTTP snapshots can arrive in either order.
+				if c.statuses[i].Name == status.Name && status.Revision >= c.statuses[i].Revision && c.statuses[i] != status {
+					c.statuses[i] = status
+					changed = true
+					break
+				}
+			}
+		}
+	}
+	c.mu.Unlock()
+	if changed {
+		c.notifySourcesChanged()
+	}
 }
 
 func (c *Client) sendJSON(ctx context.Context, p *process, req request) (response, error) {
@@ -511,7 +549,7 @@ func (c *Client) Suspend(ctx context.Context) error {
 	p := c.worker
 	c.worker = nil
 	c.workerError = ""
-	c.markSourcesLoadingLocked()
+	c.markSourcesDisconnectedLocked()
 	c.mu.Unlock()
 	c.notifySourcesChanged()
 	c.restoredViews = nil
@@ -580,10 +618,11 @@ func (c *Client) notifySourcesChanged() {
 	}
 }
 
-func (c *Client) markSourcesLoadingLocked() {
+func (c *Client) markSourcesDisconnectedLocked() {
 	for i := range c.statuses {
 		c.statuses[i].Available = false
-		c.statuses[i].Loading = true
+		c.statuses[i].Loading = false
+		c.statuses[i].Revision = 0
 		c.statuses[i].Error = ""
 	}
 }

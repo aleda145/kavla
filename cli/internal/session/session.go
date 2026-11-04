@@ -268,7 +268,7 @@ func (s *Session) RunQuery(parent context.Context, client Client, req runner.Que
 	if err := s.mountRemoteFileSources(queryCtx, client, req.MountedFileSources); err != nil {
 		return nil, err
 	}
-	preparedSQL, err := runner.PreparePreviewSQL(req, s.engine, 0)
+	preparedSQL, err := runner.PreparePreviewSQLContext(queryCtx, req, s.engine, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -382,10 +382,14 @@ func (s *Session) CancelQuery(shapeID string) (string, bool) {
 }
 
 func (s *Session) GetTables(sourceName string) ([]string, error) {
+	return s.GetTablesContext(s.ctx, sourceName)
+}
+
+func (s *Session) GetTablesContext(ctx context.Context, sourceName string) ([]string, error) {
 	if strings.TrimSpace(sourceName) == "" {
 		return nil, fmt.Errorf("source name is required")
 	}
-	return s.engine.GetTables(sourceName)
+	return s.engine.GetTablesContext(ctx, sourceName)
 }
 
 func (s *Session) GetSourceSchema(ctx context.Context, tableRef string) ([]map[string]string, error) {
