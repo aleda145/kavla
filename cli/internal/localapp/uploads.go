@@ -193,6 +193,7 @@ func (s *Server) switchDocumentBeforePublish(ctx context.Context, document *Docu
 	s.document.mu.Unlock()
 	if next != nil {
 		s.queriesMu.Lock()
+		s.watchSourceStatuses(next)
 		s.queries = next
 		s.queriesMu.Unlock()
 		if err := previous.Close(); err != nil {

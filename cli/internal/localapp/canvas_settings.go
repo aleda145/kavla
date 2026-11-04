@@ -44,6 +44,7 @@ func (c *canvasRegistry) applySources(config *kavlaconfig.Config) error {
 	for _, runtime := range runtimes {
 		runtime.queriesMu.Lock()
 		previous := runtime.queries
+		runtime.watchSourceStatuses(replacements[runtime])
 		runtime.queries = replacements[runtime]
 		delete(replacements, runtime)
 		runtime.queriesMu.Unlock()

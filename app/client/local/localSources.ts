@@ -15,6 +15,7 @@ export interface CliConfiguredSource {
   type: string;
   connection: string;
   available: boolean;
+  loading?: boolean;
   error?: string;
 }
 

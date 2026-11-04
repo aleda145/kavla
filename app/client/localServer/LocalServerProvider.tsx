@@ -105,6 +105,9 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
             resetBackendCaches();
             notifyCliSources(event.data as unknown[]);
             break;
+          case "source-status":
+            notifyCliSources(event.data as unknown[]);
+            break;
           case "output":
             notifyCliOutputLine(event.data as CliOutputLine);
             break;
@@ -162,10 +165,10 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
     });
     if (!response.ok) {
       const error = await responseError(response);
-      updateCliSourceStatus(sourceName, { available: false, error: error.message });
+      updateCliSourceStatus(sourceName, { available: false, loading: false, error: error.message });
       throw error;
     }
-    updateCliSourceStatus(sourceName, { available: true, error: undefined });
+    updateCliSourceStatus(sourceName, { available: true, loading: false, error: undefined });
     return (await response.json()) as { tables: string[] };
   }, []);
 

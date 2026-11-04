@@ -42,6 +42,7 @@ type ConfiguredSource struct {
 	Type       string `json:"type"`
 	Connection string `json:"connection"`
 	Available  bool   `json:"available"`
+	Loading    bool   `json:"loading,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
 
@@ -142,9 +143,10 @@ func DescribeConfig(configured map[string]kavlaconfig.SourceConfig, statuses []m
 		source := configured[name]
 		status := statusByName[name]
 		available, _ := status["available"].(bool)
+		loading, _ := status["loading"].(bool)
 		errorMessage, _ := status["error"].(string)
 		result.Sources = append(result.Sources, ConfiguredSource{
-			Name: name, Type: source.Type, Connection: source.Connection, Available: available, Error: errorMessage,
+			Name: name, Type: source.Type, Connection: source.Connection, Available: available, Loading: loading, Error: errorMessage,
 		})
 	}
 	for _, definition := range BuiltInDefinitions() {

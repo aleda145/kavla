@@ -405,7 +405,11 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
             zIndex: 1,
           }}
         >
-          <DataSourceHeader editor={this.editor} shape={shape} />
+          <DataSourceHeader
+            editor={this.editor}
+            shape={shape}
+            source={cliSources.find((source) => source.name === remoteSourceInfo?.sourceName)}
+          />
 
           <input
             type="file"

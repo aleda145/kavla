@@ -151,6 +151,7 @@ func (s *Session) SourceList() []map[string]interface{} {
 				"name":      status.Name,
 				"type":      status.Type,
 				"available": status.Available,
+				"loading":   status.Loading,
 				"builtin":   status.Name == engine.UploadedFilesSource,
 			}
 			if status.Error != "" {
@@ -170,6 +171,12 @@ func (s *Session) SourceList() []map[string]interface{} {
 		})
 	}
 	return sourceList
+}
+
+func (s *Session) SetSourcesChangedHandler(handler func([]map[string]interface{})) {
+	s.engine.SetSourcesChangedHandler(func() {
+		handler(s.SourceList())
+	})
 }
 
 func (s *Session) HandleQuery(client Client, req runner.QueryRequest) {

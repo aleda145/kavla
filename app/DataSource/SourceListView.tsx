@@ -153,8 +153,8 @@ export function SourceListView<T>({
         </div>
 
         {isLoading ? (
-          <div className="flex items-center justify-center p-4 flex-1">
-            <Loader2 size={16} className="animate-spin" />
+          <div role="status" className="flex items-center justify-center gap-2 p-4 flex-1">
+            <Loader2 aria-hidden="true" size={16} className="animate-spin" /> Loading…
           </div>
         ) : (
           <div
