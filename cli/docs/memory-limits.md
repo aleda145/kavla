@@ -5,6 +5,13 @@ The canvas HTTP server, document saves, agent orchestration, and desktop browser
 stay in the parent process, outside the compute memory boundary. This also
 applies to sessions used by `kavla connect`.
 
+Canvas workers start on demand. Once an editor disconnects, its worker stops
+after a 15-second grace period unless another editor acquires that canvas.
+Stopping releases native memory and removes the worker's temporary databases
+and spill files. The next compute request restores uploads and query definitions
+lazily. Workers for canvases that remain open continue running, sharing the same
+cap; cached canvas metadata in the parent is outside that cap.
+
 Configure memory in `~/.kavla/config.yaml`:
 
 ```yaml

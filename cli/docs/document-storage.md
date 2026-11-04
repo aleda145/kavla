@@ -5,6 +5,16 @@ upload names without reading their contents and starts the compute worker on
 the first compute request. Canvas edits and normal saves do not wait for SQL
 execution. Existing table widgets have their own loading and error states.
 
+Each canvas has its own compute worker, created lazily. After its owning editor
+disconnects, Kavla saves the canvas and allows 15 seconds for a reconnect before
+stopping that worker. Reconnecting or transferring ownership cancels the pending
+stop. Other open canvases keep their workers. Upload registrations and query
+definitions stay in the parent, so the next query can recreate compute without
+reopening the document. Shutdown releases native allocations and cleans the
+worker's session databases and spill files; canvas metadata remains cached.
+All workers still share the configured compute memory cap. Updating shared
+sources replaces sessions lazily, including canvases that are currently inactive.
+
 Uncompressed ZIP entries are read directly through a private loopback HTTP range
 server owned by Go. DuckDB uses its HTTP file reader to request Parquet footers,
 columns, and row groups. No extracted copy or full-file checksum pass is needed

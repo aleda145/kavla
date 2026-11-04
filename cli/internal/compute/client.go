@@ -473,6 +473,41 @@ func (r *streamReader) Next() bool {
 }
 func (r *streamReader) Err() error { return r.err }
 
+// Suspend releases the native process while retaining the replay journal and
+// session context. The next operation restores compute through ensureWorker.
+func (c *Client) Suspend(ctx context.Context) error {
+	ctx, done, err := c.operation(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	p := c.worker
+	c.worker = nil
+	c.workerError = ""
+	c.mu.Unlock()
+	c.restoredViews = nil
+	c.transport.CloseIdleConnections()
+	if p == nil {
+		return nil
+	}
+	_ = p.control.Close()
+	timer := time.NewTimer(4 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-p.done:
+	case <-ctx.Done():
+		p.kill()
+	case <-timer.C:
+		p.kill()
+	}
+	c.logf("DuckDB service %d stopped for an inactive canvas; compute will restart on demand.\n", p.cmd.Process.Pid)
+	return nil
+}
+
 func (c *Client) Close() error {
 	c.cancel()
 	c.mu.Lock()

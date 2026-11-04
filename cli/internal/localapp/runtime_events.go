@@ -128,6 +128,7 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 			s.documentGate.Unlock()
 			s.ownerToken = ""
 			s.ownerCancel = nil
+			s.scheduleIdleComputeLocked()
 		}()
 		if err := write("editor", cliRuntimeEvent{name: "ready", data: map[string]string{"token": token, "generation": generation}}); err != nil {
 			return
@@ -228,6 +229,7 @@ func (s *Server) acquireEditor(ctx context.Context, client, previousGeneration s
 
 // Both editorMu and ownerMu must be held by the caller.
 func (s *Server) grantEditor(ctx context.Context, client string) (string, string) {
+	s.cancelIdleComputeLocked()
 	if s.ownerClient != client {
 		s.ownerGeneration++
 		s.ownerClient = client
