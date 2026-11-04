@@ -48,21 +48,22 @@ type cliRuntimeEvent struct {
 }
 
 type Server struct {
-	canvasHandler   http.Handler
-	canvases        *canvasRegistry
-	canvasName      string
-	editorMu        sync.Mutex
-	ownerCancel     context.CancelFunc
-	ownerRevoked    chan struct{}
-	ownerEvents     chan cliRuntimeEvent
-	transferMu      sync.Mutex
-	transfer        *editorTransfer
-	ownerMu         sync.RWMutex
-	ownerContext    context.Context
-	ownerToken      string
-	ownerClient     string
-	ownerGeneration uint64
-	connections     sync.WaitGroup
+	canvasHandler    http.Handler
+	canvases         *canvasRegistry
+	canvasName       string
+	editorMu         sync.Mutex
+	idleComputeTimer *time.Timer // Protected by editorMu.
+	ownerCancel      context.CancelFunc
+	ownerRevoked     chan struct{}
+	ownerEvents      chan cliRuntimeEvent
+	transferMu       sync.Mutex
+	transfer         *editorTransfer
+	ownerMu          sync.RWMutex
+	ownerContext     context.Context
+	ownerToken       string
+	ownerClient      string
+	ownerGeneration  uint64
+	connections      sync.WaitGroup
 
 	documentGate sync.RWMutex
 	document     *Document
@@ -314,6 +315,9 @@ func (s *Server) Close(ctx context.Context) error {
 		s.workerMu.Lock()
 		s.closing = true
 		s.workerMu.Unlock()
+		s.editorMu.Lock()
+		s.cancelIdleComputeLocked()
+		s.editorMu.Unlock()
 
 		s.closeRuntimeSubscribers()
 		s.closeAgentSubscribers()

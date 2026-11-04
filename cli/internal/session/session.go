@@ -135,6 +135,13 @@ func (s *Session) Close() error {
 	return s.engine.Close()
 }
 
+func (s *Session) SuspendCompute(ctx context.Context) error {
+	if s.engine == nil {
+		return nil
+	}
+	return s.engine.Suspend(ctx)
+}
+
 func (s *Session) SourceList() []map[string]interface{} {
 	if s.engine != nil {
 		statuses := s.engine.SourceStatuses()

@@ -30,7 +30,7 @@ func (c *canvasRegistry) applySources(config *kavlaconfig.Config) error {
 		if runtime.verbose {
 			next.SetVerboseLogger(runtime.logCLIOutput)
 		}
-		if err := next.Start(); err != nil {
+		if err := next.StartLazy(); err != nil {
 			return err
 		}
 		replacements[runtime] = next
