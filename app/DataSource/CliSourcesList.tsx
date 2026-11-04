@@ -188,7 +188,6 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
         >
           {label}
           {src.loading && <span className="block text-[9px] font-normal">Connecting…</span>}
-          {isDisconnected && <span className="block text-[9px] font-normal">Connect</span>}
         </span>
       </button>
     );
