@@ -4,6 +4,8 @@ import { Play, Square } from "lucide-react";
 import { getColumnAnalysisSteps, getColumnAnalysisType } from "../src/duckdb/column-stats-sql";
 import type { ColumnStats } from "../src/duckdb/column-stats-types";
 import { getColumnTypeColor } from "../util/column-colors";
+import { QueryEstimate } from "../util/QueryEstimate";
+import type { QueryEstimateRequest } from "../client/queryEstimate";
 import {
   getRemoteHoverPolicy,
   RemoteHoverPolicy,
@@ -12,6 +14,7 @@ import {
 } from "./remote-hover-policy";
 import {
   getCachedRemoteColumnStats,
+  buildRemoteColumnStatsQuery,
   getExistingRemoteColumnStats,
   invalidateRemoteColumnStats,
   type RemoteSourceInfo,
@@ -200,6 +203,21 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
   const remoteAnalysisType = getColumnAnalysisType(type);
   const remoteAnalysisSteps = getColumnAnalysisSteps(remoteAnalysisType);
   const visibleStats = stats ?? (loading && isRemoteCliSource ? previousStatsRef.current : null);
+  let estimateRequest: QueryEstimateRequest | null = null;
+  let estimateError: string | undefined;
+  if (isRemoteCliSource && remoteSourceType === "bigquery" && !precomputedStats) {
+    try {
+      estimateRequest = {
+        sql: buildRemoteColumnStatsQuery(remoteTableRef!, columnName, type, remoteSourceType, remoteSource?.tableSql)
+          .sql,
+        sourceName: remoteSourceName,
+        sourceType: remoteSourceType,
+        sourceNative: true,
+      };
+    } catch (error) {
+      estimateError = error instanceof Error ? error.message : String(error);
+    }
+  }
 
   const handleRemoteHoverPolicyChange = (shouldAlwaysAsk: boolean) => {
     const nextPolicy: RemoteHoverPolicy = shouldAlwaysAsk ? "ask" : "auto";
@@ -334,6 +352,7 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
         )}
       </div>
 
+      <QueryEstimate request={estimateRequest} unavailableReason={estimateError} disabled={loading} />
       <div className="p-2 bg-white flex flex-col justify-center min-h-[60px]">
         {loading && (!isRemoteCliSource || !visibleStats) ? (
           isRemoteCliSource ? (

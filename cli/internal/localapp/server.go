@@ -357,6 +357,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/session/uploads/{id}", s.sameOriginMutation(s.handleDeleteUpload))
 	mux.HandleFunc("POST /api/session/compute", s.sameOriginMutation(s.handleCompute))
 	mux.HandleFunc("POST /api/session/validate", s.sameOriginMutation(s.handleCompute))
+	mux.HandleFunc("POST /api/session/query-estimate", s.sameOriginMutation(s.handleQueryEstimate))
 	mux.HandleFunc("POST /api/session/widget-query", s.sameOriginMutation(s.handleCompute))
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("GET /api/runtime/events", s.sameOriginMutation(s.handleRuntimeEvents))

@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/aleda145/kavla/cli/internal/engine"
+	"github.com/aleda145/kavla/cli/internal/sources"
 	"github.com/apache/arrow/go/v14/arrow/array"
 )
 
@@ -134,4 +135,9 @@ func (c *Client) DropUploadedFile(ctx context.Context, name string) error {
 func (c *Client) ValidateQuery(ctx context.Context, sql string) error {
 	_, err := c.call(ctx, request{Op: "validate", SQL: sql})
 	return err
+}
+
+func (c *Client) EstimateQuery(ctx context.Context, executionEngine, source, sql string) (*sources.QueryEstimate, error) {
+	result, err := c.call(ctx, request{Op: "estimate", ExecutionEngine: executionEngine, Source: source, SQL: sql})
+	return result.Estimate, err
 }

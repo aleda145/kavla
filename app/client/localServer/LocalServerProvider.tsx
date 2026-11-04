@@ -24,12 +24,13 @@ import {
   notifyCliSources,
   notifyCliStatus,
   notifyKavlaVersion,
-  transpileRemoteSQL,
   updateCliSourceStatus,
   type CliOutputLine,
   type KavlaVersionInfo,
 } from "./runtimeStore";
 import { MissingQueryResultError, type LocalServerContextType, type RunRemoteQueryPayload } from "./types";
+
+import { prepareRemoteQuery } from "../queryEstimate";
 
 const LocalServerContext = createContext<LocalServerContextType | null>(null);
 
@@ -222,11 +223,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
     async (payload: RunRemoteQueryPayload) =>
       withBackendActivity(async () => {
         const { includeSampleRows = true, ...queryPayload } = payload;
-        const executionEngine = payload.sourceNative ? payload.sourceType?.trim() || undefined : undefined;
-        if (executionEngine && !payload.sourceName) throw new Error("sourceName is required for source-native preview");
-        const sql = executionEngine
-          ? transpileRemoteSQL(payload.sql, payload.sourceName!, executionEngine)
-          : payload.sql;
+        const { sql, executionEngine } = prepareRemoteQuery(payload);
 
         queryControllers.current.get(payload.shapeId)?.abort();
         const controller = new AbortController();

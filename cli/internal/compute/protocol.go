@@ -5,6 +5,7 @@ package compute
 import (
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/engine"
+	"github.com/aleda145/kavla/cli/internal/sources"
 )
 
 const workerArgument = "_kavla_compute_worker"
@@ -44,11 +45,12 @@ type request struct {
 }
 
 type response struct {
-	Error   string
-	SQL     string
-	Tables  []string
-	Columns []map[string]string
-	Stats   map[string]int64
-	Count   int64
-	Schema  []engine.ResultColumn
+	Estimate *sources.QueryEstimate
+	Error    string
+	SQL      string
+	Tables   []string
+	Columns  []map[string]string
+	Stats    map[string]int64
+	Count    int64
+	Schema   []engine.ResultColumn
 }

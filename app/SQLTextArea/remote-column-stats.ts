@@ -133,16 +133,27 @@ async function getRemoteColumnStats(
   requestShapeId: string,
   tableSql?: string
 ): Promise<ColumnStats> {
+  const { analysisType, sql } = buildRemoteColumnStatsQuery(fullTableRef, columnName, colType, sourceType, tableSql);
+  const rows = await runRemoteAndParse(runRemoteQuery, sourceName, sourceType, sql, requestShapeId);
+  return parseColumnStatsRows(analysisType, rows);
+}
+
+// Both execution and dry runs use the complete analysis query (including histograms).
+export function buildRemoteColumnStatsQuery(
+  fullTableRef: string,
+  columnName: string,
+  colType: string,
+  sourceType?: string | null,
+  tableSql?: string
+) {
   const quotedCol = quoteIdentifier(columnName);
   const quotedTable = tableSql ? `(${tableSql.replace(/;+\s*$/, "")})` : quoteDottedIdentifier(fullTableRef);
-  const { analysisType, sql } = buildColumnStatsQuery({
+  return buildColumnStatsQuery({
     quotedTable,
     quotedColumn: quotedCol,
     columnType: colType,
     sourceType,
   });
-  const rows = await runRemoteAndParse(runRemoteQuery, sourceName, sourceType, sql, requestShapeId);
-  return parseColumnStatsRows(analysisType, rows);
 }
 
 export function clearColumnStatsCache(): void {

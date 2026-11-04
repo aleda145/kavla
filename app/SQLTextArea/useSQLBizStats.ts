@@ -196,6 +196,13 @@ export function useSQLBizStats(shape: SQLTextAreaShape, sql: string | null, erro
   };
   return {
     state,
+    estimateRequest: request.status === "ready" ? request.payload : null,
+    estimateUnavailableReason:
+      request.status === "ready" &&
+      !request.payload.sourceNative &&
+      request.sources.some((source) => source.sourceType === "bigquery")
+        ? "BigQuery scan estimate unavailable for federated queries."
+        : undefined,
     retry: start,
     auto,
     setAuto,
