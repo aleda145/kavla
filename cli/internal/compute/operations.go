@@ -21,7 +21,11 @@ func (c *Client) QueryWidget(ctx context.Context, sql, name string, columns []en
 }
 
 func (c *Client) PreparePreviewSQL(executionEngine, source, sql string, limit int) (string, error) {
-	result, err := c.call(c.ctx, request{Op: "preview", ExecutionEngine: executionEngine, Source: source, SQL: sql, Limit: limit})
+	return c.PreparePreviewSQLContext(c.ctx, executionEngine, source, sql, limit)
+}
+
+func (c *Client) PreparePreviewSQLContext(ctx context.Context, executionEngine, source, sql string, limit int) (string, error) {
+	result, err := c.call(ctx, request{Op: "preview", ExecutionEngine: executionEngine, Source: source, SQL: sql, Limit: limit})
 	return result.SQL, err
 }
 
@@ -61,8 +65,12 @@ func (c *Client) DropResult(ctx context.Context, id string) error {
 }
 
 func (c *Client) GetTables(source string) ([]string, error) {
+	return c.GetTablesContext(c.ctx, source)
+}
+
+func (c *Client) GetTablesContext(ctx context.Context, source string) ([]string, error) {
 	if source == engine.UploadedFilesSource {
-		_, done, err := c.operation(c.ctx)
+		_, done, err := c.operation(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -76,7 +84,7 @@ func (c *Client) GetTables(source string) ([]string, error) {
 		sort.Strings(tables)
 		return tables, nil
 	}
-	result, err := c.call(c.ctx, request{Op: "tables", Source: source})
+	result, err := c.call(ctx, request{Op: "tables", Source: source})
 	return result.Tables, err
 }
 

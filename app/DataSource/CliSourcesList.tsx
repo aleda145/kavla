@@ -119,12 +119,15 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
   const renderSourceButton = (src: CliSource) => {
     const { backgroundColor, hoverClassName } = getCliSourceAppearance(src);
     const label = src.name === "uploaded_files" ? "Browse files" : src.name;
-    const isAvailable = src.loading || src.available !== false;
+    const hasError = !src.loading && src.available === false && Boolean(src.error);
+    const isDisconnected = !src.loading && src.available === false && !src.error;
     const title = src.loading
-      ? `${label} · Loading… Browse or query to connect.`
-      : !isAvailable && src.error
+      ? `${label} · Connecting…`
+      : hasError
         ? `${label}\n${src.error}`
-        : label;
+        : isDisconnected
+          ? `Connect to ${label} and browse tables`
+          : label;
 
     return (
       <button
@@ -142,7 +145,7 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
           justifyContent: "center",
           backgroundColor,
           position: "relative",
-          outline: isAvailable ? undefined : "2px solid #ef4444",
+          outline: hasError ? "2px solid #ef4444" : undefined,
         }}
         onClick={() => onSourceClick(src.name)}
         onPointerDown={(e) => {
@@ -153,7 +156,7 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
         aria-label={title}
         aria-busy={src.loading === true}
       >
-        {!isAvailable && (
+        {hasError && (
           <span
             title={src.error ?? "Source unavailable"}
             style={{
@@ -184,7 +187,8 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
           }}
         >
           {label}
-          {src.loading && <span className="block text-[9px] font-normal">Loading…</span>}
+          {src.loading && <span className="block text-[9px] font-normal">Connecting…</span>}
+          {isDisconnected && <span className="block text-[9px] font-normal">Connect</span>}
         </span>
       </button>
     );

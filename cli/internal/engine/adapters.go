@@ -18,15 +18,17 @@ func (e *Engine) getAdapterForType(executionEngine string) (sources.Adapter, err
 }
 
 func (e *Engine) PreparePreviewSQL(executionEngine, sourceName, sql string, limit int) (string, error) {
+	return e.PreparePreviewSQLContext(context.Background(), executionEngine, sourceName, sql, limit)
+}
+
+func (e *Engine) PreparePreviewSQLContext(ctx context.Context, executionEngine, sourceName, sql string, limit int) (string, error) {
 	executionEngine = strings.TrimSpace(executionEngine)
 	sourceName = strings.TrimSpace(sourceName)
 
-	if sourceName != "" {
-		if err := e.ensureConfiguredSourceHealthy(sourceName); err != nil {
-			return "", err
-		}
+	// An explicit source also supports existing SQL with unqualified tables.
+	if err := e.ensureConfiguredSourceHealthy(ctx, sourceName); err != nil {
+		return "", err
 	}
-
 	if executionEngine != "" {
 		if sourceName == "" {
 			return "", fmt.Errorf("source-native preview mode requires sourceName")
@@ -42,12 +44,12 @@ func (e *Engine) PreparePreviewSQL(executionEngine, sourceName, sql string, limi
 
 func (e *Engine) DescribeTable(ctx context.Context, tableRef string) ([]map[string]string, error) {
 	if sourceName := sourceNameFromTableRef(tableRef); sourceName != "" {
-		if err := e.ensureConfiguredSourceHealthy(sourceName); err != nil {
+		if err := e.ensureConfiguredSourceHealthy(ctx, sourceName); err != nil {
 			return nil, err
 		}
 	}
 
-	if err := e.ensureDeferredTables(ctx, tableRef); err != nil {
+	if err := e.ensureDeferredTables(ctx, "SELECT * FROM "+tableRef); err != nil {
 		return nil, err
 	}
 
@@ -83,12 +85,12 @@ func (e *Engine) DescribeTable(ctx context.Context, tableRef string) ([]map[stri
 
 func (e *Engine) GetSourceStats(ctx context.Context, tableRef string) (map[string]int64, error) {
 	if sourceName := sourceNameFromTableRef(tableRef); sourceName != "" {
-		if err := e.ensureConfiguredSourceHealthy(sourceName); err != nil {
+		if err := e.ensureConfiguredSourceHealthy(ctx, sourceName); err != nil {
 			return nil, err
 		}
 	}
 
-	if err := e.ensureDeferredTables(ctx, tableRef); err != nil {
+	if err := e.ensureDeferredTables(ctx, "SELECT * FROM "+tableRef); err != nil {
 		return nil, err
 	}
 
@@ -109,12 +111,12 @@ func (e *Engine) GetSourceStats(ctx context.Context, tableRef string) (map[strin
 
 func (e *Engine) ExportSourceTable(ctx context.Context, tableRef, format, outputPath string) error {
 	if sourceName := sourceNameFromTableRef(tableRef); sourceName != "" {
-		if err := e.ensureConfiguredSourceHealthy(sourceName); err != nil {
+		if err := e.ensureConfiguredSourceHealthy(ctx, sourceName); err != nil {
 			return err
 		}
 	}
 
-	if err := e.ensureDeferredTables(ctx, tableRef); err != nil {
+	if err := e.ensureDeferredTables(ctx, "SELECT * FROM "+tableRef); err != nil {
 		return err
 	}
 
@@ -186,16 +188,27 @@ func (e *Engine) exportTableSQL(tableRef string) (string, error) {
 
 func sourceNameFromTableRef(tableRef string) string {
 	tableRef = strings.TrimSpace(tableRef)
-	if tableRef == "" {
+	if strings.HasPrefix(tableRef, `"`) {
+		var name strings.Builder
+		for i := 1; i < len(tableRef); i++ {
+			if tableRef[i] == '"' {
+				if i+1 < len(tableRef) && tableRef[i+1] == '"' {
+					name.WriteByte('"')
+					i++
+					continue
+				}
+				if strings.HasPrefix(strings.TrimSpace(tableRef[i+1:]), ".") {
+					return name.String()
+				}
+				return ""
+			}
+			name.WriteByte(tableRef[i])
+		}
 		return ""
 	}
-	parts := strings.SplitN(tableRef, ".", 2)
-	if len(parts) < 2 {
-		return ""
+	name, _, qualified := strings.Cut(tableRef, ".")
+	if qualified {
+		return strings.TrimSpace(name)
 	}
-	sourceName := strings.TrimSpace(parts[0])
-	if len(sourceName) >= 2 && sourceName[0] == '"' && sourceName[len(sourceName)-1] == '"' {
-		sourceName = strings.ReplaceAll(sourceName[1:len(sourceName)-1], `""`, `"`)
-	}
-	return sourceName
+	return ""
 }

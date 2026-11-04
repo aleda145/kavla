@@ -1083,7 +1083,7 @@ func (s *Server) handleGetSourceTables(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer done()
-	tables, err := querySession.GetTables(r.PathValue("name"))
+	tables, err := querySession.GetTablesContext(r.Context(), r.PathValue("name"))
 	if err != nil {
 		writeAPIError(w, http.StatusUnprocessableEntity, err)
 		return

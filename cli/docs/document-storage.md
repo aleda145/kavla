@@ -5,6 +5,14 @@ upload names without reading their contents and starts the compute worker on
 the first compute request. Canvas edits and normal saves do not wait for SQL
 execution. Existing table widgets have their own loading and error states.
 
+Starting a canvas worker does not connect configured sources. Browsing tables
+connects only that source; SQL connects sources referenced by qualified table
+names or native BigQuery/Postgres query functions. Federated joins connect each
+referenced source. Unused sources show as disconnected with a Connect action
+for table browsing. Spinners appear only during connection, and readiness/errors
+are sent to the canvas as connections finish. Explicit CLI connect and source
+configuration validation retain eager connection checks.
+
 Each canvas has its own compute worker, created lazily. After its owning editor
 disconnects, Kavla saves the canvas and allows 15 seconds for a reconnect before
 stopping that worker. Reconnecting or transferring ownership cancels the pending
