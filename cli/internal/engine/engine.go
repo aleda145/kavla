@@ -35,6 +35,7 @@ type SourceStatus struct {
 	Name      string
 	Type      string
 	Available bool
+	Loading   bool
 	Error     string
 }
 

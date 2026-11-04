@@ -183,6 +183,7 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		_ = os.RemoveAll(transientDir)
 		return nil, err
 	}
+	server.watchSourceStatuses(querySession)
 	if err := server.loadAgentRuns(); err != nil {
 		_ = querySession.Close()
 		_ = os.RemoveAll(transientDir)

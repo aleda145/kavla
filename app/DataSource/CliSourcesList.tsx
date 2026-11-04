@@ -1,5 +1,5 @@
 import React from "react";
-import { Database, File, Folder, Search, Upload, X } from "lucide-react";
+import { Database, File, Folder, Loader2, Search, Upload, X } from "lucide-react";
 import { siDuckdb, siGooglebigquery, siPostgresql } from "simple-icons";
 import type { CliSource } from "../client/useLocalServer";
 import { TldrawScrollAreaIndicator } from "./TldrawScrollAreaIndicator";
@@ -76,8 +76,17 @@ export function getCliSourceAppearance(source: { type: string; name?: string }):
   };
 }
 
-export function CliSourceIcon({ source, size = 18 }: { source: { type: string; name?: string }; size?: number }) {
+export function CliSourceIcon({
+  source,
+  size = 18,
+}: {
+  source: { type: string; name?: string; loading?: boolean };
+  size?: number;
+}) {
   const { IconComponent, iconSvg } = getCliSourceAppearance(source);
+  if (source.loading) {
+    return <Loader2 aria-hidden="true" size={size} className="animate-spin shrink-0" />;
+  }
   if (iconSvg) {
     return (
       <svg
@@ -110,8 +119,12 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
   const renderSourceButton = (src: CliSource) => {
     const { backgroundColor, hoverClassName } = getCliSourceAppearance(src);
     const label = src.name === "uploaded_files" ? "Browse files" : src.name;
-    const isAvailable = src.available !== false;
-    const title = !isAvailable && src.error ? `${label}\n${src.error}` : label;
+    const isAvailable = src.loading || src.available !== false;
+    const title = src.loading
+      ? `${label} · Loading… Browse or query to connect.`
+      : !isAvailable && src.error
+        ? `${label}\n${src.error}`
+        : label;
 
     return (
       <button
@@ -138,6 +151,7 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
         }}
         title={title}
         aria-label={title}
+        aria-busy={src.loading === true}
       >
         {!isAvailable && (
           <span
@@ -170,6 +184,7 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
           }}
         >
           {label}
+          {src.loading && <span className="block text-[9px] font-normal">Loading…</span>}
         </span>
       </button>
     );

@@ -24,7 +24,7 @@ import type { ColumnMetadata, DataSourceShape } from "../../DataSource/data-sour
 import { CliSourceIcon, getCliSourceAppearance } from "../../DataSource/CliSourcesList";
 import { calculateDataSourceHeight, calculateDataSourceWidth } from "../../DataSource/ingestLocalDataSourceFile";
 import { getRemoteTableDisplayName } from "../../DataSource/remote-source-metadata";
-import { useData } from "../useLocalServer";
+import { useCliSources, useData } from "../useLocalServer";
 import { getUniqueName } from "../../util/getUniqueName";
 import { getColumnTypeColor } from "../../util/column-colors";
 import { toValidSqlName } from "../../util/sql";
@@ -52,7 +52,7 @@ function CliSourceLogoBadge({
   source,
   unavailable = false,
 }: {
-  source: { type: string; name?: string };
+  source: { type: string; name?: string; loading?: boolean };
   unavailable?: boolean;
 }) {
   const appearance = getCliSourceAppearance(source);
@@ -74,7 +74,7 @@ function CliSourceLogoBadge({
       }}
     >
       <CliSourceIcon source={source} size={20} />
-      {unavailable ? <AlertCircle color="#b91c1c" size={16} /> : null}
+      {unavailable && !source.loading ? <AlertCircle color="#b91c1c" size={16} /> : null}
     </span>
   );
 }
@@ -94,14 +94,25 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
   const { addToast } = useToasts();
   const editor = useEditor();
   const { getSourceSchema, getSourceStats, getSourceTables } = useData();
+  const cliSources = useCliSources();
+  const configuredSources = useMemo(
+    () =>
+      configuration?.sources.map((source) => {
+        const status = cliSources.find((candidate) => candidate.name === source.name);
+        return status
+          ? { ...source, available: status.available !== false, loading: status.loading, error: status.error }
+          : source;
+      }) ?? [],
+    [configuration?.sources, cliSources]
+  );
 
   const definition = useMemo(
     () => configuration?.definitions.find((candidate) => candidate.type === draft.type) ?? null,
     [configuration?.definitions, draft.type]
   );
   const editingSource = useMemo(
-    () => configuration?.sources.find((source) => source.name === editingName) ?? null,
-    [configuration?.sources, editingName]
+    () => configuredSources.find((source) => source.name === editingName) ?? null,
+    [configuredSources, editingName]
   );
 
   useEffect(() => {
@@ -209,15 +220,18 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
       const savedSource = nextConfiguration.sources.find((source) => source.name === draft.name.trim());
       if (savedSource) beginEdit(savedSource);
       addToast({
-        title: savedSource?.available
-          ? editingName
-            ? "CLI source updated"
-            : "CLI source added"
-          : "CLI source saved but unavailable",
-        description: savedSource?.available
-          ? `${draft.name.trim()} is available to the canvas immediately.`
-          : (savedSource?.error ?? "Check the source connection and save again."),
-        severity: savedSource?.available ? "success" : "warning",
+        title:
+          savedSource?.available || savedSource?.loading
+            ? editingName
+              ? "CLI source updated"
+              : "CLI source added"
+            : "CLI source saved but unavailable",
+        description: savedSource?.loading
+          ? `${draft.name.trim()} will connect when you browse or query it.`
+          : savedSource?.available
+            ? `${draft.name.trim()} is available to the canvas immediately.`
+            : (savedSource?.error ?? "Check the source connection and save again."),
+        severity: savedSource?.available || savedSource?.loading ? "success" : "warning",
       });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -412,8 +426,21 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
               ) : null}
 
               {editingSource ? (
-                <div style={editingSource.available ? availableStyle : errorStyle}>
-                  {editingSource.available ? (
+                <div
+                  style={
+                    editingSource.loading
+                      ? { ...availableStyle, backgroundColor: "#dbeafe" }
+                      : editingSource.available
+                        ? availableStyle
+                        : errorStyle
+                  }
+                >
+                  {editingSource.loading ? (
+                    <>
+                      <Loader2 aria-hidden="true" className="animate-spin" size={15} /> Loading… Browse or query to
+                      connect.
+                    </>
+                  ) : editingSource.available ? (
                     <span>Connected and available to the canvas.</span>
                   ) : (
                     <>
@@ -463,8 +490,8 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
             </div>
 
             <div style={sourceListStyle}>
-              {configuration?.sources.length ? (
-                configuration.sources.map((source) => {
+              {configuredSources.length ? (
+                configuredSources.map((source) => {
                   return (
                     <div key={source.name} style={sourceRowStyle}>
                       <span style={{ alignItems: "center", display: "flex", gap: 9, minWidth: 0 }}>
@@ -486,17 +513,21 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
                           >
                             {source.builtin ? "Files stored in this document" : `${source.type} · ${source.connection}`}
                           </span>
-                          {source.error ? (
+                          {source.loading ? (
+                            <span role="status" style={{ fontSize: 10, fontWeight: 700 }}>
+                              Loading… Browse or query to connect.
+                            </span>
+                          ) : source.error ? (
                             <span style={{ color: "#b91c1c", fontSize: 10, fontWeight: 700 }}>{source.error}</span>
                           ) : null}
                         </span>
                       </span>
                       <span style={{ display: "flex", flexShrink: 0, gap: 6 }}>
                         <button
-                          disabled={!source.available}
+                          disabled={!source.available && !source.loading}
                           onClick={() => setBrowsingSource(source)}
-                          style={{ ...primaryButtonStyle, opacity: source.available ? 1 : 0.45 }}
-                          title={source.available ? `Browse tables in ${source.name}` : source.error}
+                          style={{ ...primaryButtonStyle, opacity: source.available || source.loading ? 1 : 0.45 }}
+                          title={source.available || source.loading ? `Browse tables in ${source.name}` : source.error}
                           type="button"
                         >
                           <Database size={14} /> Tables

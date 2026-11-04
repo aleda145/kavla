@@ -38,21 +38,23 @@ type process struct {
 // Client serializes operations for one document. A streaming Arrow result owns
 // the gate until Release, so results cross the process boundary batch by batch.
 type Client struct {
-	ctx            context.Context
-	cancel         context.CancelFunc
-	config         configuration
-	logf           func(string, ...interface{})
-	transport      *http.Transport
-	http           *http.Client
-	gate           chan struct{}
-	mu             sync.Mutex
-	worker         *process
-	statuses       []engine.SourceStatus
-	closed         bool
-	uploadsEnabled bool
-	workerError    string
-	journal        []request // Successful source/view mutations, replayed after a crash.
-	restoredViews  map[string]bool
+	ctx             context.Context
+	cancel          context.CancelFunc
+	config          configuration
+	logf            func(string, ...interface{})
+	transport       *http.Transport
+	http            *http.Client
+	gate            chan struct{}
+	mu              sync.Mutex
+	sourcesNotifyMu sync.Mutex
+	worker          *process
+	statuses        []engine.SourceStatus
+	sourcesChanged  func()
+	closed          bool
+	uploadsEnabled  bool
+	workerError     string
+	journal         []request // Successful source/view mutations, replayed after a crash.
+	restoredViews   map[string]bool
 }
 
 func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), directories []string) (*Client, error) {
@@ -78,7 +80,7 @@ func NewLazy(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, l
 		config: configuration{Sources: sources, Directories: slices.Clone(directories)},
 	}
 	for name, source := range sources {
-		c.statuses = append(c.statuses, engine.SourceStatus{Name: name, Type: source.Type, Available: true})
+		c.statuses = append(c.statuses, engine.SourceStatus{Name: name, Type: source.Type, Loading: true})
 	}
 	return c
 }
@@ -151,6 +153,12 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 			c.logf("Clean up DuckDB spill files after worker exit: %v\n", err)
 		}
 		close(p.done)
+		c.mu.Lock()
+		isCurrent := c.worker == p
+		c.mu.Unlock()
+		if isCurrent {
+			c.notifySourcesChanged()
+		}
 	}()
 	startup := make(chan ready, 1)
 	go func() {
@@ -188,7 +196,7 @@ func (p *process) kill() {
 	<-p.done
 }
 
-func (c *Client) ensureWorker(ctx context.Context) (*process, error) {
+func (c *Client) ensureWorker(ctx context.Context) (_ *process, startupErr error) {
 	c.mu.Lock()
 	p := c.worker
 	closed := c.closed
@@ -205,6 +213,20 @@ func (c *Client) ensureWorker(ctx context.Context) (*process, error) {
 		}
 		c.logf("DuckDB service exited. Restoring compute; the canvas is still open.\n")
 	}
+	c.mu.Lock()
+	c.worker = nil
+	c.workerError = ""
+	c.markSourcesLoadingLocked()
+	c.mu.Unlock()
+	c.notifySourcesChanged()
+	defer func() {
+		if startupErr != nil {
+			c.mu.Lock()
+			c.workerError = startupErr.Error()
+			c.mu.Unlock()
+		}
+		c.notifySourcesChanged()
+	}()
 	startupCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	next, info, err := c.startWorker(startupCtx)
@@ -271,6 +293,7 @@ func (c *Client) invalidate(p *process) {
 	// Cancellation also discards the worker: an interrupted mutation must not
 	// keep running after its caller rolls back an upload or deletes a file.
 	p.kill()
+	c.notifySourcesChanged()
 }
 
 func (c *Client) send(ctx context.Context, p *process, req request) (*http.Response, error) {
@@ -488,7 +511,9 @@ func (c *Client) Suspend(ctx context.Context) error {
 	p := c.worker
 	c.worker = nil
 	c.workerError = ""
+	c.markSourcesLoadingLocked()
 	c.mu.Unlock()
+	c.notifySourcesChanged()
 	c.restoredViews = nil
 	c.transport.CloseIdleConnections()
 	if p == nil {
@@ -533,6 +558,36 @@ func (c *Client) EnableUploadedFiles() {
 	c.mu.Unlock()
 }
 
+// The handler must not acquire the caller's session/operation locks. It runs
+// outside mu so it can read SourceStatuses without blocking worker startup.
+func (c *Client) SetSourcesChangedHandler(handler func()) {
+	c.mu.Lock()
+	c.sourcesChanged = handler
+	c.mu.Unlock()
+}
+
+func (c *Client) notifySourcesChanged() {
+	// Worker exit and operation callbacks can race. Keep snapshots and delivery
+	// ordered so an older snapshot cannot overwrite a newer one in the browser.
+	c.sourcesNotifyMu.Lock()
+	defer c.sourcesNotifyMu.Unlock()
+	c.mu.Lock()
+	handler := c.sourcesChanged
+	closed := c.closed
+	c.mu.Unlock()
+	if handler != nil && !closed {
+		handler()
+	}
+}
+
+func (c *Client) markSourcesLoadingLocked() {
+	for i := range c.statuses {
+		c.statuses[i].Available = false
+		c.statuses[i].Loading = true
+		c.statuses[i].Error = ""
+	}
+}
+
 func (c *Client) SourceStatuses() []engine.SourceStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -551,6 +606,7 @@ func (c *Client) SourceStatuses() []engine.SourceStatus {
 	if message != "" {
 		for i := range statuses {
 			statuses[i].Available = false
+			statuses[i].Loading = false
 			statuses[i].Error = message
 		}
 	}

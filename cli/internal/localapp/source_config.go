@@ -110,6 +110,7 @@ func (s *Server) applyCLIConfig(config *kavlaconfig.Config) error {
 	previousSession.Cancel()
 	s.workers.Wait()
 	s.queriesMu.Lock()
+	s.watchSourceStatuses(nextSession)
 	s.queries = nextSession
 	s.queriesMu.Unlock()
 	if err := previousSession.Close(); err != nil {
@@ -125,6 +126,13 @@ func (s *Server) broadcastCLISources() {
 	sourceList := s.queries.SourceList()
 	s.queriesMu.RUnlock()
 	s.broadcastRuntimeEvent(cliRuntimeEvent{name: "sources", data: sourceList})
+}
+
+func (s *Server) watchSourceStatuses(querySession *session.Session) {
+	querySession.SetSourcesChangedHandler(func(sourceList []map[string]interface{}) {
+		// Status changes do not invalidate table/schema caches like config edits do.
+		s.broadcastRuntimeEvent(cliRuntimeEvent{name: "source-status", data: sourceList})
+	})
 }
 
 func (s *Server) writeCLISourcesResponse(w http.ResponseWriter) {

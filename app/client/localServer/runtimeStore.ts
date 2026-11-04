@@ -98,6 +98,7 @@ export interface CliSource {
   name: string;
   type: string;
   available?: boolean;
+  loading?: boolean;
   error?: string;
 }
 
@@ -116,6 +117,7 @@ const normalizeCliSource = (source: unknown): CliSource | null => {
     name: candidate.name,
     type: candidate.type,
     available: typeof candidate.available === "boolean" ? candidate.available : true,
+    loading: candidate.loading === true,
     error: typeof candidate.error === "string" && candidate.error.trim() ? candidate.error : undefined,
   };
 };
