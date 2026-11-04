@@ -73,7 +73,7 @@ func (m *Manager) configureSources(request sources.ConfigChange) (interface{}, e
 	next := session.New(config.Sources)
 	next.SetLogger(m.Log)
 	next.SetVerboseLogger(m.Verbose)
-	if err := next.Start(); err != nil {
+	if err := next.StartLazy(); err != nil {
 		return nil, fmt.Errorf("start updated CLI sources: %w", err)
 	}
 	if m.context.Err() != nil {
@@ -86,6 +86,7 @@ func (m *Manager) configureSources(request sources.ConfigChange) (interface{}, e
 	}
 	previous := m.session
 	m.session = next
+	m.watchSourceStatuses(next)
 	if err := previous.Close(); err != nil {
 		m.Log("Could not close previous source session: %v\n", err)
 	}

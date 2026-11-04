@@ -10,8 +10,9 @@ connects only that source; SQL connects sources referenced by qualified table
 names or native BigQuery/Postgres query functions. Federated joins connect each
 referenced source. Unused sources show as disconnected with a Connect action
 for table browsing. Spinners appear only during connection, and readiness/errors
-are sent to the canvas as connections finish. Explicit CLI connect and source
-configuration validation retain eager connection checks.
+are sent to the canvas as connections finish. `kavla connect` also advertises
+sources without starting compute or connecting them. Cloud source edits replace
+the session lazily, and connection progress is relayed to the cloud canvas.
 
 Each canvas has its own compute worker, created lazily. After its owning editor
 disconnects, Kavla saves the canvas and allows 15 seconds for a reconnect before

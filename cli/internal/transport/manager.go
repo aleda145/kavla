@@ -27,13 +27,15 @@ type DisconnectEvent struct {
 }
 
 type Manager struct {
-	client    *Client
-	session   *session.Session
-	sessionMu sync.RWMutex
-	verbose   bool
-	context   context.Context
-	cancel    context.CancelFunc
-	prepared  bool
+	client              *Client
+	session             *session.Session
+	sessionMu           sync.RWMutex
+	verbose             bool
+	context             context.Context
+	cancel              context.CancelFunc
+	prepared            bool
+	sourceStatusMu      sync.Mutex
+	activeSourceSession *session.Session
 
 	Done     chan DisconnectEvent
 	stopOnce sync.Once
@@ -55,7 +57,7 @@ func (m *Manager) Prepare() error {
 	}
 	m.session.SetLogger(m.Log)
 	m.session.SetVerboseLogger(m.Verbose)
-	if err := m.session.Start(); err != nil {
+	if err := m.session.StartLazy(); err != nil {
 		return fmt.Errorf("start CLI sources: %w", err)
 	}
 	m.prepared = true
@@ -70,6 +72,7 @@ func (m *Manager) Start() error {
 	if err := m.client.Connect(m.context); err != nil {
 		return err
 	}
+	m.watchSourceStatuses(m.session)
 	if err := m.client.SendJSON(map[string]interface{}{
 		"type":    "cli_sources",
 		"payload": hostedSourceList(m.session.SourceList()),
@@ -92,12 +95,33 @@ func hostedSourceList(sources []map[string]interface{}) []map[string]interface{}
 				entry[key] = value
 			}
 		}
-		if available, ok := entry["available"].(bool); ok && !available {
+		if message, _ := source["error"].(string); message != "" {
 			entry["error"] = "Source is unavailable. Check the Kavla CLI terminal."
 		}
 		hosted = append(hosted, entry)
 	}
 	return hosted
+}
+
+func (m *Manager) watchSourceStatuses(querySession *session.Session) {
+	m.sourceStatusMu.Lock()
+	defer m.sourceStatusMu.Unlock()
+	m.activeSourceSession = querySession
+	querySession.SetSourcesChangedHandler(func(sources []map[string]interface{}) {
+		// Compute reports progress while requests hold sessionMu. Use a separate
+		// lock and ignore late events from sessions replaced by source edits.
+		m.sourceStatusMu.Lock()
+		defer m.sourceStatusMu.Unlock()
+		if m.activeSourceSession != querySession || m.context.Err() != nil {
+			return
+		}
+		if err := m.client.SendJSON(map[string]interface{}{
+			"type": "cli_sources", "payload": hostedSourceList(sources),
+		}); err != nil && m.context.Err() == nil {
+			fmt.Printf("Could not send CLI source status: %v\n", err)
+			go m.Stop(DisconnectReasonReadError, err)
+		}
+	})
 }
 
 func (m *Manager) readLoop() {

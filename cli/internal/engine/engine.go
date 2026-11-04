@@ -264,8 +264,8 @@ func (e *Engine) unavailableSourceError(sourceName string) error {
 	return nil
 }
 
-// InitializeSources retains eager connection checks for explicit CLI connect
-// and configuration validation. Canvas workers do not call it at startup.
+// InitializeSources retains connection checks for explicitly eager sessions.
+// Local and cloud canvas workers do not call it at startup.
 func (e *Engine) InitializeSources(ctx context.Context) {
 	for _, status := range e.SourceStatuses() {
 		_ = e.ensureSourceAvailable(ctx, status.Name)
