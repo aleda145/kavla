@@ -64,6 +64,10 @@ reference a committed prefix of an archive pinned by a hard link in a sibling
 does not duplicate its uploads. The pin stays on the archive's filesystem, so
 the history directory can be on another disk. This requires a filesystem with
 hard-link support. Preserve the backing directory to retain history.
+History entries whose backing archives are missing are skipped when opening,
+saving, and listing history. Their references remain so they become available
+again if the backing directory returns. Corrupt or unreadable archives still
+report errors.
 
 Kavla never rewrites committed bytes during normal saves. Rename, replacement,
 and deletion of the live filename leave pins intact. In-place modification of

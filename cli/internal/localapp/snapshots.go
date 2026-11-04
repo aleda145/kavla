@@ -72,18 +72,24 @@ func (d *Document) ListSnapshots() (CanvasHistory, error) {
 	}
 	// Read shape counts from each archive's canvas records.
 	// Automatic snapshot deduplication only uses the cheaper directory listing.
-	for i := range snapshots {
-		_, canvas, err := snapshotArchiveState(snapshotFilePath(directory, snapshots[i].ID))
+	available := snapshots[:0]
+	for _, snapshot := range snapshots {
+		_, canvas, err := snapshotArchiveState(snapshotFilePath(directory, snapshot.ID))
+		if errors.Is(err, os.ErrNotExist) {
+			// A backing archive may disappear after the directory listing.
+			continue
+		}
 		if err != nil {
 			return CanvasHistory{}, fmt.Errorf("read snapshot shape count: %w", err)
 		}
 		shapes, _, err := canvasBlobOwners(canvas)
 		if err != nil {
-			return CanvasHistory{}, fmt.Errorf("read snapshot %s shape count: %w", snapshots[i].ID, err)
+			return CanvasHistory{}, fmt.Errorf("read snapshot %s shape count: %w", snapshot.ID, err)
 		}
-		snapshots[i].ShapeCount = len(shapes)
+		snapshot.ShapeCount = len(shapes)
+		available = append(available, snapshot)
 	}
-	return CanvasHistory{Snapshots: snapshots, Limit: limit}, nil
+	return CanvasHistory{Snapshots: available, Limit: limit}, nil
 }
 
 func (d *Document) listSnapshotsLocked() ([]CanvasSnapshot, error) {
@@ -108,15 +114,29 @@ func (d *Document) listSnapshotsLocked() ([]CanvasSnapshot, error) {
 			return nil, fmt.Errorf("read snapshot timestamp: %w", err)
 		}
 		info, err := entry.Info()
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
 		size := info.Size()
 		ref, err := readHistoryReference(filepath.Join(directory, entry.Name()))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
 		if ref != nil {
+			if _, err := os.Stat(ref.Path); errors.Is(err, os.ErrNotExist) {
+				// Copies share a document ID, but their history pins can live in
+				// deleted folders or offline drives. Keep the reference so it
+				// becomes available again if its backing archive returns.
+				continue
+			} else if err != nil {
+				return nil, fmt.Errorf("stat snapshot archive: %w", err)
+			}
 			size = ref.Size
 		}
 		snapshots = append(snapshots, CanvasSnapshot{ID: id, CreatedAt: createdAt, Reason: parts[1], Size: size})
@@ -255,18 +275,24 @@ func (d *Document) keepArchiveSnapshotLocked(archivePath, reason string) error {
 		return err
 	}
 	if len(snapshots) > 0 {
-		previousManifest, previousCanvas, err := snapshotArchiveState(snapshotFilePath(directory, snapshots[0].ID))
-		if err != nil {
-			return err
-		}
 		manifest, canvas, err := snapshotArchiveState(archivePath)
 		if err != nil {
 			return err
 		}
-		// Ignore save timestamps, but include uploads even when no shapes changed.
-		if bytes.Equal(previousCanvas, canvas) && manifest.DocumentName == previousManifest.DocumentName &&
-			manifest.FormatVersion == previousManifest.FormatVersion && slices.Equal(manifest.Blobs, previousManifest.Blobs) {
-			return nil
+		for _, snapshot := range snapshots {
+			previousManifest, previousCanvas, err := snapshotArchiveState(snapshotFilePath(directory, snapshot.ID))
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			// Ignore save timestamps, but include uploads even when no shapes changed.
+			if bytes.Equal(previousCanvas, canvas) && manifest.DocumentName == previousManifest.DocumentName &&
+				manifest.FormatVersion == previousManifest.FormatVersion && slices.Equal(manifest.Blobs, previousManifest.Blobs) {
+				return nil
+			}
+			break
 		}
 	}
 	id := time.Now().UTC().Format(snapshotTimeFormat) + "_" + reason + "_" + uuid.NewString()
