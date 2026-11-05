@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FlaskConical, LoaderCircle } from "lucide-react";
 import { useValue } from "tldraw";
 import { backendRevision } from "../client/backendCompute";
+import { getActiveLocalSession } from "../client/local/localSession";
 import {
   estimateQuery,
   formatEstimatedQueryCost,
@@ -11,50 +12,65 @@ import {
 } from "../client/queryEstimate";
 
 type EstimateState = { key: string; bytes?: string; error?: string };
+const staticEstimates = new Map<string, EstimateState>();
+const staticEstimatesInFlight = new Map<string, Promise<EstimateState>>();
 
 export function QueryEstimate({
   request,
   unavailableReason,
   disabled = false,
   compact = false,
+  cacheStatic = false,
 }: {
   request: QueryEstimateRequest | null;
   unavailableReason?: string;
   disabled?: boolean;
   compact?: boolean;
+  cacheStatic?: boolean;
 }) {
   const revision = useValue("Query estimate revision", () => backendRevision.get(), []);
   const [refresh, setRefresh] = useState(0);
   const [result, setResult] = useState<EstimateState | null>(null);
   const supported = request !== null && supportsQueryEstimate(request);
-  const key = JSON.stringify([supported ? request : null, revision, refresh]);
+  const key = JSON.stringify([getActiveLocalSession()?.documentId, supported ? request : null, revision, refresh]);
 
   useEffect(() => {
     if (!supported || disabled) return;
+    if (cacheStatic && staticEstimates.has(key)) return;
     let active = true;
-    const timer = setTimeout(() => {
-      void estimateQuery(request!).then(
-        (estimate) => {
-          if (active) setResult({ key, bytes: estimate.bytesProcessed });
-        },
-        (error: unknown) => {
-          if (active) {
-            setResult({ key, error: error instanceof Error ? error.message : String(error) });
-          }
-        }
+    const receive = (pending: Promise<EstimateState>) => {
+      void pending.then((estimate) => {
+        if (active) setResult(estimate);
+      });
+    };
+    const existing = cacheStatic ? staticEstimatesInFlight.get(key) : undefined;
+    if (existing) {
+      receive(existing);
+    } else {
+      const pending = estimateQuery(request!).then(
+        (estimate): EstimateState => ({ key, bytes: estimate.bytesProcessed }),
+        (error: unknown): EstimateState => ({ key, error: error instanceof Error ? error.message : String(error) })
       );
-    }, 650);
+      if (cacheStatic) {
+        if (staticEstimates.size >= 500) staticEstimates.delete(staticEstimates.keys().next().value!);
+        staticEstimatesInFlight.set(key, pending);
+        void pending.then((estimate) => {
+          staticEstimatesInFlight.delete(key);
+          staticEstimates.set(key, estimate);
+        });
+      }
+      receive(pending);
+    }
     return () => {
-      clearTimeout(timer);
       // The compute supervisor discards its worker on request cancellation.
       // Let an in-flight dry run finish so typing/closing a hover cannot discard
       // loaded query results. Ignore its response once the inputs change.
       active = false;
     };
-  }, [key, supported, disabled]);
+  }, [key, supported, disabled, cacheStatic]);
 
   if (!supported && !unavailableReason) return null;
-  const current = result?.key === key ? result : null;
+  const current = result?.key === key ? result : cacheStatic ? (staticEstimates.get(key) ?? null) : null;
   const loading = supported && !current && !disabled;
   const label = unavailableReason
     ? unavailableReason
@@ -69,12 +85,12 @@ export function QueryEstimate({
   if (compact) {
     const compactLabel =
       unavailableReason || current?.error
-        ? "Est.: unavailable"
+        ? "Estimate: unavailable"
         : current?.bytes !== undefined
-          ? `Est.: ${formatProcessedBytes(current.bytes)}`
+          ? `Estimate: ${formatProcessedBytes(current.bytes)}`
           : loading
-            ? "Est.: loading"
-            : "Est.: —";
+            ? "Estimate: loading"
+            : "Estimate: —";
     return (
       <span className="min-w-0" aria-live="polite">
         <button
@@ -89,7 +105,7 @@ export function QueryEstimate({
         >
           {loading ? (
             <>
-              Est.: <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden />
+              Estimate: <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden />
             </>
           ) : (
             <span className="truncate">{compactLabel}</span>

@@ -124,36 +124,38 @@ export function SQLTextAreaFooter({ shape, estimate }: { shape: SQLTextAreaShape
             padding: "6px 8px",
           }}
         >
-          <span style={{ flexShrink: 0 }} title={stats?.runnerName}>
-            {running ? (
+          <span className="flex flex-wrap items-center gap-2">
+            <span title={stats?.runnerName}>
+              {running ? (
+                <>
+                  Running · <Timer startTime={shape.props.queryStartTime!} />
+                </>
+              ) : stats ? (
+                <>
+                  {stats.rowCount.toLocaleString()} rows <span aria-hidden>|</span>{" "}
+                  {(stats.executionTime / 1000).toFixed(2)} s
+                </>
+              ) : (
+                "Not run"
+              )}
+            </span>
+            {estimate && (
               <>
-                Running · <Timer startTime={shape.props.queryStartTime!} />
+                <span aria-hidden>|</span>
+                <span
+                  title={
+                    stats?.scan?.bytesProcessed !== undefined
+                      ? formatEstimatedQueryCost(stats.scan.bytesProcessed)
+                      : undefined
+                  }
+                >
+                  Scanned:{" "}
+                  {stats?.scan?.bytesProcessed !== undefined ? formatProcessedBytes(stats.scan.bytesProcessed) : "—"}
+                </span>
               </>
-            ) : stats ? (
-              <>
-                {stats.rowCount.toLocaleString()} rows <span aria-hidden>|</span>{" "}
-                {(stats.executionTime / 1000).toFixed(2)} s
-              </>
-            ) : (
-              "Not run"
             )}
           </span>
-          {estimate && (
-            <span className="ml-auto flex min-w-0 items-center gap-2 whitespace-nowrap">
-              {estimate}
-              <span aria-hidden>|</span>
-              <span
-                title={
-                  stats?.scan?.bytesProcessed !== undefined
-                    ? formatEstimatedQueryCost(stats.scan.bytesProcessed)
-                    : undefined
-                }
-              >
-                Scanned:{" "}
-                {stats?.scan?.bytesProcessed !== undefined ? formatProcessedBytes(stats.scan.bytesProcessed) : "—"}
-              </span>
-            </span>
-          )}
+          {estimate && <span className="ml-auto min-w-0 whitespace-nowrap">{estimate}</span>}
         </div>
       )}
     </div>
