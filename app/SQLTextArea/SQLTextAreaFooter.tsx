@@ -3,7 +3,7 @@ import { Copy } from "lucide-react";
 import { useToasts } from "tldraw";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { getErrorMessage } from "../util/error-message";
-import { formatProcessedBytes } from "../client/queryEstimate";
+import { formatEstimatedQueryCost, formatProcessedBytes } from "../client/queryEstimate";
 
 const copyButtonClass =
   "h-9 px-3 border-2 border-black text-black font-bold text-xs flex items-center justify-center gap-2 rounded cursor-pointer transition-all active:translate-y-[1px] shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]";
@@ -142,7 +142,13 @@ export function SQLTextAreaFooter({ shape, estimate }: { shape: SQLTextAreaShape
             <span className="ml-auto flex min-w-0 items-center gap-2 whitespace-nowrap">
               {estimate}
               <span aria-hidden>|</span>
-              <span title={stats?.scan?.error || "Bytes scanned by the last run"}>
+              <span
+                title={
+                  stats?.scan?.bytesProcessed !== undefined
+                    ? formatEstimatedQueryCost(stats.scan.bytesProcessed)
+                    : undefined
+                }
+              >
                 Scanned:{" "}
                 {stats?.scan?.bytesProcessed !== undefined ? formatProcessedBytes(stats.scan.bytesProcessed) : "—"}
               </span>
