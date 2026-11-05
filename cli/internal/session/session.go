@@ -10,6 +10,7 @@ import (
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/engine"
 	"github.com/aleda145/kavla/cli/internal/runner"
+	"github.com/aleda145/kavla/cli/internal/sources"
 	"github.com/apache/arrow/go/v14/arrow/array"
 )
 
@@ -390,6 +391,13 @@ func (s *Session) GetTablesContext(ctx context.Context, sourceName string) ([]st
 		return nil, fmt.Errorf("source name is required")
 	}
 	return s.engine.GetTablesContext(ctx, sourceName)
+}
+
+func (s *Session) ExploreSource(ctx context.Context, sourceName string) (*sources.SourceExploration, error) {
+	if strings.TrimSpace(sourceName) == "" {
+		return nil, fmt.Errorf("source name is required")
+	}
+	return s.engine.ExploreSource(ctx, sourceName)
 }
 
 func (s *Session) GetSourceSchema(ctx context.Context, tableRef string) ([]map[string]string, error) {

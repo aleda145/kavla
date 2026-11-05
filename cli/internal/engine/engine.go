@@ -616,6 +616,17 @@ func (e *Engine) GetTablesContext(ctx context.Context, sourceName string) ([]str
 	return tables, nil
 }
 
+func (e *Engine) ExploreSource(ctx context.Context, sourceName string) (*sources.SourceExploration, error) {
+	if err := e.ensureSourceAvailable(sourceName); err != nil {
+		return nil, err
+	}
+	explorer, ok := e.adapters[sourceName].(sources.SchemaExplorer)
+	if !ok {
+		return nil, fmt.Errorf("schema exploration is not supported for source %s", sourceName)
+	}
+	return explorer.ExploreSchema(ctx)
+}
+
 func (e *Engine) Close() error {
 	if err := e.db.Close(); err != nil {
 		return err
