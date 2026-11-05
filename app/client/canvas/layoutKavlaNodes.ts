@@ -10,25 +10,9 @@ import type { LensShape } from "../../Lens/lens-shape-types";
 import type { SummaryShape } from "../../Summary/summary-shape-types";
 import { layoutQueryBranches, type LayoutConnection, type LayoutDirection } from "./layoutQueryBranches";
 import { avoidLayoutArrows } from "./avoidLayoutArrows";
-import { captureLayoutAnnotations } from "./layoutAnnotations";
+import { captureLayoutAnnotations, findEmptyPosition } from "./layoutAnnotations";
 import { resetConnectorLanes, routeConnectorLanes } from "./connectorLanes";
-
-// Explicitly opt in: native tldraw shapes and the hidden agent-chat record aren't nodes.
-const nodeTypes = new Set([
-  "data-source",
-  "sql-text-area",
-  "sql-result-table",
-  "chart-shape",
-  "lens-shape",
-  "knob",
-  "summary-shape",
-  "cli-terminal",
-  "agent-blob",
-]);
-
-export function isLayoutNode(shape: TLShape): boolean {
-  return nodeTypes.has(shape.type);
-}
+import { getLayoutSelection, isLayoutNode } from "./layoutSelection";
 
 function isQueryView(shape: TLShape): shape is ChartShape | SQLResultTableShape | LensShape {
   return ["chart-shape", "sql-result-table", "lens-shape"].includes(shape.type);
@@ -41,14 +25,16 @@ type LayoutGroup = {
   offsets: Map<TLShapeId, { x: number; y: number }>;
 };
 
-export async function layoutKavlaNodes(editor: Editor): Promise<void> {
+export async function layoutKavlaNodes(editor: Editor, selection = editor.getSelectedShapeIds()): Promise<void> {
   if (editor.getIsReadonly()) return;
   const pageId = editor.getCurrentPageId();
   const shapes = editor.getCurrentPageShapes();
-  const nodes = shapes.filter((shape) => isLayoutNode(shape) && !editor.isShapeOrAncestorLocked(shape));
+  const selectedShapes = getLayoutSelection(editor, selection);
+  const nodes = selectedShapes.filter(isLayoutNode);
   if (nodes.length < 2) return;
+  const nodeIds = new Set(nodes.map((shape) => shape.id));
   const allNodes = shapes.filter(isLayoutNode);
-  const moveAnnotations = captureLayoutAnnotations(editor, shapes, allNodes);
+  const moveAnnotations = captureLayoutAnnotations(editor, selectedShapes, allNodes);
 
   const bounds = new Map(
     nodes.map((shape) => {
@@ -89,7 +75,8 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
   const membersByGroup = new Map<TLShapeId, TLShape[]>();
   for (const shape of nodes) {
     const queryId = isQueryView(shape) ? getQueryForView(shape) : undefined;
-    // Locked queries aren't moved, so their views remain standalone layout nodes.
+    // Queries outside the movable selection stay put, so their selected views
+    // remain standalone layout nodes.
     const groupId = queryId && bounds.has(queryId) ? queryId : shape.id;
     groupByShape.set(shape.id, groupId);
     const members = membersByGroup.get(groupId) ?? [];
@@ -257,11 +244,39 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
   }
   if (deltas.size !== nodes.length) throw new Error("Layout did not return every node.");
 
+  // Keep the arranged selection together and find room around the fixed board.
+  // ELK only sees selected nodes, so it cannot reserve this space itself.
+  const planned = nodes.map((shape) => {
+    const box = bounds.get(shape.id)!;
+    const delta = deltas.get(shape.id)!;
+    return { x: box.x + delta.x, y: box.y + delta.y, w: box.w, h: box.h };
+  });
+  const left = Math.min(...planned.map((box) => box.x));
+  const top = Math.min(...planned.map((box) => box.y));
+  const fixed = shapes.flatMap((shape) => {
+    if (nodeIds.has(shape.id) || ["arrow", "group", "frame", "agent-chat"].includes(shape.type)) return [];
+    const box = editor.getShapePageBounds(shape);
+    return box ? [box] : [];
+  });
+  const free = findEmptyPosition(
+    {
+      x: left,
+      y: top,
+      w: Math.max(...planned.map((box) => box.x + box.w)) - left,
+      h: Math.max(...planned.map((box) => box.y + box.h)) - top,
+    },
+    fixed
+  );
+  for (const delta of deltas.values()) {
+    delta.x += free.x - left;
+    delta.y += free.y - top;
+  }
+
   const updates = shapes.flatMap((shape) => {
     const delta = deltas.get(shape.id);
     const parentDelta = deltas.get(shape.parentId as TLShapeId);
     if (!delta && !parentDelta) return [];
-    // Keep children fixed during node placement. Nearby unlocked annotations
+    // Keep children fixed during node placement. Selected unlocked annotations
     // follow their chosen node after arrow avoidance has finished.
     const origin = editor.getShapePageTransform(shape).applyToPoint({ x: 0, y: 0 });
     const point = editor.getPointInParentSpace(shape, {
@@ -275,7 +290,7 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
   editor.run(
     () => {
       editor.updateShapes(updates);
-      resetConnectorLanes(editor);
+      resetConnectorLanes(editor, nodeIds);
 
       // Clear endpoint pins and custom bends saved by earlier layout versions.
       // Generated query connectors return to automatic routing; native arrows
@@ -287,6 +302,7 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
         if (arrow.props.kind !== "elbow") continue;
         const { start, end } = getArrowBindings(editor, arrow);
         if (!start || !end) continue;
+        if (!nodeIds.has(start.toId) && !nodeIds.has(end.toId)) continue;
         const source = editor.getShape(start.toId);
         const target = editor.getShape(end.toId);
         if (
@@ -311,13 +327,17 @@ export async function layoutKavlaNodes(editor: Editor): Promise<void> {
       avoidLayoutArrows(
         editor,
         new Map([...groupByShape].filter(([id, groupId]) => id !== groupId && isQueryView(shapesById.get(id)!))),
-        new Set(allNodes.map((shape) => shape.id)),
+        new Set(
+          shapes
+            .filter((shape) => !["arrow", "group", "frame", "agent-chat"].includes(shape.type))
+            .map((shape) => shape.id)
+        ),
         new Map(
           [...groups].map(([id, group]) => [id, { direction: group.direction, members: [...group.offsets.keys()] }])
         )
       );
       moveAnnotations();
-      routeConnectorLanes(editor);
+      routeConnectorLanes(editor, nodeIds);
     },
     { ignoreShapeLock: true }
   );

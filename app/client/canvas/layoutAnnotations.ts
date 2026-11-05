@@ -10,7 +10,7 @@ import {
 
 type Bounds = { x: number; y: number; w: number; h: number };
 
-function findEmptyPosition(preferred: Bounds, obstacles: Bounds[]): { x: number; y: number } {
+export function findEmptyPosition(preferred: Bounds, obstacles: Bounds[]): { x: number; y: number } {
   const gap = 16;
   const overlaps = (point: { x: number; y: number }, box: Bounds) =>
     point.x < box.x + box.w + gap &&

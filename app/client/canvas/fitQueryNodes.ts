@@ -2,6 +2,7 @@ import type { Editor } from "tldraw";
 import { format } from "sql-formatter";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { isBizMode } from "./bizMode";
+import { getLayoutSelection } from "./layoutSelection";
 import {
   getSQLBizCardHeight,
   getSQLBizColumns,
@@ -11,11 +12,9 @@ import {
 
 export function fitQueryNodes(editor: Editor): void {
   if (editor.getIsReadonly()) return;
-  const queries = editor
-    .getCurrentPageShapes()
-    .filter(
-      (shape): shape is SQLTextAreaShape => shape.type === "sql-text-area" && !editor.isShapeOrAncestorLocked(shape)
-    );
+  const queries = getLayoutSelection(editor).filter(
+    (shape): shape is SQLTextAreaShape => shape.type === "sql-text-area"
+  );
   if (!queries.length) return;
   const context = document.createElement("canvas").getContext("2d");
   if (!context) throw new Error("Could not measure query text.");
