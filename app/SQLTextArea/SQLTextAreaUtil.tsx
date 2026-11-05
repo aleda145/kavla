@@ -42,6 +42,7 @@ import { getKnobNames, getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
 import { ensureQueryKnobs } from "../Knob/createKnobs";
 import { useBizMode } from "../client/canvas/bizMode";
 import { SQLQueryEstimate } from "./SQLQueryEstimate";
+import type { QueryScan } from "../client/localServer/types";
 
 export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
   private updateSourceName: ((payload: { prevName: string; nextName: string }) => void) | null = null;
@@ -259,6 +260,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
       try {
         let rowCount: number;
+        let scan: QueryScan | undefined;
         let schema: { name: string; type: string }[];
         let sampleRows: Record<string, unknown>[] = [];
         setIsRemoteRunning(true);
@@ -276,6 +278,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
             sourceNative: sourceNativePreview,
           });
           rowCount = result.rowCount;
+          scan = result.scan;
           schema = result.schema;
           sampleRows = result.sampleRows;
         }
@@ -289,6 +292,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
           stale: false,
           columnStats: null,
           lastRunStats: {
+            ...(scan ? { scan } : {}),
             executionTime,
             rowCount,
             runnerName,

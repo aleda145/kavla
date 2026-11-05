@@ -1,5 +1,6 @@
 import { TLBaseShape } from "tldraw";
 import type { ColumnStats } from "../src/duckdb/column-stats-types";
+import type { QueryScan } from "../client/localServer/types";
 
 export type SQLTextAreaShape = TLBaseShape<
   "sql-text-area",
@@ -20,6 +21,7 @@ export type SQLTextAreaShape = TLBaseShape<
     showTable: boolean;
     runnerName: string | null;
     lastRunStats: {
+      scan?: QueryScan;
       executionTime: number;
       rowCount: number;
       runnerName: string;

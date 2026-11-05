@@ -2,6 +2,11 @@ import type { TLShapeId } from "tldraw";
 
 export type UnsubscribeFn = () => void;
 
+export interface QueryScan {
+  bytesProcessed?: string;
+  error?: string;
+}
+
 export class MissingQueryResultError extends Error {
   constructor(message = "This query result is not loaded. Run the query to load it.") {
     super(message);
@@ -67,6 +72,7 @@ export interface LocalServerContextType {
     fileName: string;
   }) => Promise<{ downloadUrl: string; fileName: string }>;
   runRemoteQuery: (payload: RunRemoteQueryPayload) => Promise<{
+    scan?: QueryScan;
     rowCount: number;
     schema: { name: string; type: string }[];
     sampleRows: Record<string, unknown>[];

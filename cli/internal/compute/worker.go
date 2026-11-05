@@ -120,6 +120,8 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 		reader, err = eng.QueryResultPage(ctx, req.ID, req.Offset, req.Limit)
 	case "widget":
 		reader, err = eng.QueryWidget(ctx, req.SQL, req.ID, req.Columns, req.Rows)
+	case "query-scan":
+		result.Scan, err = eng.ReadQueryScan(ctx, req.Source, req.SQL, req.StartedAt, req.FinishedAt)
 	case "estimate":
 		result.Estimate, err = eng.EstimateQuery(ctx, req.ExecutionEngine, req.Source, req.SQL)
 	case "preview":

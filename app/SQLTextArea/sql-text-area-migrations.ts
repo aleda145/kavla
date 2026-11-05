@@ -14,6 +14,7 @@ const versions = createShapePropsMigrationIds(
     AddOutputSchema: 8,
     AddIsManuallyResized: 9,
     AddColumnStats: 10,
+    AddScanStatistics: 11,
   }
 );
 
@@ -109,6 +110,15 @@ export const SQLTextAreaMigrations = createShapePropsMigrationSequence({
       },
       down(props) {
         delete props.columnStats;
+      },
+    },
+    {
+      id: versions.AddScanStatistics,
+      up() {
+        // Scan metadata is optional; older results remain valid without it.
+      },
+      down(props) {
+        if (props.lastRunStats) delete props.lastRunStats.scan;
       },
     },
   ],

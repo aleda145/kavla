@@ -26,6 +26,7 @@ import (
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/runner"
 	"github.com/aleda145/kavla/cli/internal/session"
+	"github.com/aleda145/kavla/cli/internal/sources"
 	"github.com/apache/arrow/go/v14/arrow"
 	"github.com/apache/arrow/go/v14/arrow/ipc"
 )
@@ -1367,6 +1368,7 @@ func sourceExportFileName(requestedName, tableRef, format string) string {
 }
 
 type localQueryResponse struct {
+	Scan     *sources.QueryScan     `json:"scan,omitempty"`
 	ShapeID  string                 `json:"shapeId"`
 	RowCount int64                  `json:"rowCount"`
 	Schema   []session.ResultColumn `json:"schema"`
@@ -1417,6 +1419,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, localQueryResponse{
+		Scan:     result.Scan,
 		ShapeID:  request.ShapeId,
 		RowCount: result.RowCount,
 		Schema:   result.Schema,
