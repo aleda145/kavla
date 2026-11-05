@@ -50,7 +50,8 @@ export function InheritedSourceSample({
   const sources = useValue("Inherited source sampling", () => getSourceSamples(editor, shapeId), [editor, shapeId]);
   const [tooltipRect, setTooltipRect] = useState<DOMRect | null>(null);
   const tooltipId = useId();
-  if (!sources.some((source) => source.percent < 100)) return null;
+  const sampledSources = sources.filter((source) => source.percent < 100);
+  if (!sampledSources.length) return null;
 
   const percentages = new Set(sources.map((source) => source.percent));
   const label = percentages.size === 1 ? `${sources[0].percent}%` : "Mixed";
@@ -58,14 +59,20 @@ export function InheritedSourceSample({
 
   return (
     <div className="kavla-source-sample">
-      <span
+      <button
+        type="button"
         className={`kavla-source-sample-tab kavla-source-sample-inherited${compact ? " kavla-source-sample-compact" : ""}`}
         data-sampling="true"
-        tabIndex={0}
-        aria-label={`Source sample (read-only): ${description}`}
+        aria-label={`Go to sample source${sampledSources.length > 1 ? "s" : ""}: ${description}`}
         aria-describedby={tooltipRect ? tooltipId : undefined}
         onPointerDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          setTooltipRect(null);
+          editor.select(...sampledSources.map((source) => source.id));
+          editor.zoomToSelection({ animation: { duration: 250 } });
+        }}
         onMouseEnter={(event) => setTooltipRect(event.currentTarget.getBoundingClientRect())}
         onMouseLeave={() => setTooltipRect(null)}
         onFocus={(event) => setTooltipRect(event.currentTarget.getBoundingClientRect())}
@@ -73,7 +80,7 @@ export function InheritedSourceSample({
       >
         <Pipette size={compact ? 14 : 18} aria-hidden />
         <span>{label}</span>
-      </span>
+      </button>
       {tooltipRect &&
         createPortal(
           <div

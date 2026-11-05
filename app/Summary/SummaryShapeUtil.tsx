@@ -4,7 +4,6 @@ import { SummaryShapeProps } from "./summary-shape-props";
 import type { SummaryArtifact, SummaryShape } from "./summary-shape-types";
 import { SummaryBody } from "./SummaryBody";
 import { SummaryHeader } from "./SummaryHeader";
-import { InheritedSourceSample } from "../DataSource/InheritedSourceSample";
 
 export class SummaryShapeUtil extends ShapeUtil<SummaryShape> {
   static override type = "summary-shape" as const;
@@ -76,9 +75,7 @@ export class SummaryShapeUtil extends ShapeUtil<SummaryShape> {
           fontFamily: "Inter, sans-serif",
         }}
       >
-        <SummaryHeader name={shape.props.name}>
-          <InheritedSourceSample editor={this.editor} shapeId={shape.id} compact />
-        </SummaryHeader>
+        <SummaryHeader name={shape.props.name} />
         <SummaryBody
           answer={shape.props.answer}
           artifacts={shape.props.artifacts}
