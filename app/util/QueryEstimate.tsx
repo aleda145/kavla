@@ -4,6 +4,7 @@ import { useValue } from "tldraw";
 import { backendRevision } from "../client/backendCompute";
 import {
   estimateQuery,
+  formatEstimatedQueryCost,
   formatProcessedBytes,
   supportsQueryEstimate,
   type QueryEstimateRequest,
@@ -79,7 +80,7 @@ export function QueryEstimate({
         <button
           type="button"
           className="flex max-w-full items-center gap-1 cursor-pointer hover:text-black disabled:cursor-default"
-          title="Dry run estimate"
+          title={current?.bytes !== undefined ? formatEstimatedQueryCost(current.bytes) : undefined}
           aria-label={unavailableReason || current?.error || compactLabel}
           aria-busy={loading}
           disabled={!supported || loading || disabled}
