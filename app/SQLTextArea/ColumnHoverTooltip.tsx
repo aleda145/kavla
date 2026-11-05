@@ -249,7 +249,7 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
             handleRemoteHoverPolicyChange(!event.target.checked);
           }}
         />
-        <span className="min-w-0 flex-1">Auto run column analysis</span>
+        <span className="min-w-0 flex-1">Auto-run</span>
       </label>
     );
   };
@@ -302,7 +302,17 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
 
     return (
       <div className="flex items-center justify-between gap-3 border-t border-gray-200 pt-2 mt-1 px-1">
-        {renderRemoteModeToggle()}
+        <div className="flex min-w-0 flex-col items-start gap-1">
+          {renderRemoteModeToggle()}
+          <QueryEstimate
+            request={estimateRequest}
+            unavailableReason={estimateError}
+            disabled={loading}
+            cacheStatic
+            hasRun={Boolean(visibleStats && !visibleStats.error)}
+            scan={visibleStats?.scan}
+          />
+        </div>
         {renderRunButton()}
       </div>
     );
@@ -352,7 +362,6 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
         )}
       </div>
 
-      <QueryEstimate request={estimateRequest} unavailableReason={estimateError} disabled={loading} cacheStatic />
       <div className="p-2 bg-white flex flex-col justify-center min-h-[60px]">
         {loading && (!isRemoteCliSource || !visibleStats) ? (
           isRemoteCliSource ? (

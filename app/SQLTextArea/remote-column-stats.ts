@@ -1,3 +1,4 @@
+import type { QueryScan } from "../client/localServer/types";
 import { backendRevision } from "../client/backendCompute";
 import { getActiveLocalSession } from "../client/local/localSession";
 import { buildColumnStatsQuery, parseColumnStatsRows } from "../src/duckdb/column-stats-sql";
@@ -12,6 +13,7 @@ export type RunRemoteQueryFn = (payload: {
   sourceNative?: boolean;
   transient?: boolean;
 }) => Promise<{
+  scan?: QueryScan;
   rowCount: number;
   schema: { name: string; type: string }[];
   sampleRows: Record<string, unknown>[];
@@ -26,25 +28,6 @@ export interface RemoteSourceInfo {
   tableSql?: string;
   runRemoteQuery: RunRemoteQueryFn;
   cancelRemoteQuery: CancelRemoteQueryFn;
-}
-
-async function runRemoteAndParse(
-  runRemoteQuery: RunRemoteQueryFn,
-  sourceName: string,
-  sourceType: string | null | undefined,
-  sql: string,
-  requestShapeId: string
-): Promise<any[]> {
-  const { sampleRows } = await runRemoteQuery({
-    sql,
-    sourceName,
-    sourceType,
-    shapeId: requestShapeId,
-    sourceNative: true,
-    transient: true,
-  });
-
-  return sampleRows;
 }
 
 const remoteStatsCache = new Map<string, ColumnStats>();
@@ -134,8 +117,15 @@ async function getRemoteColumnStats(
   tableSql?: string
 ): Promise<ColumnStats> {
   const { analysisType, sql } = buildRemoteColumnStatsQuery(fullTableRef, columnName, colType, sourceType, tableSql);
-  const rows = await runRemoteAndParse(runRemoteQuery, sourceName, sourceType, sql, requestShapeId);
-  return parseColumnStatsRows(analysisType, rows);
+  const result = await runRemoteQuery({
+    sql,
+    sourceName,
+    sourceType,
+    shapeId: requestShapeId,
+    sourceNative: true,
+    transient: true,
+  });
+  return { ...parseColumnStatsRows(analysisType, result.sampleRows), ...(result.scan ? { scan: result.scan } : {}) };
 }
 
 // Both execution and dry runs use the complete analysis query (including histograms).
