@@ -3,6 +3,7 @@ import { ArrowDownUp, ArrowLeft, Play, Plus, X } from "lucide-react";
 import { TldrawUiButton } from "tldraw";
 import type { SQLDependencyShape } from "../../SQLTextArea/sqlDependencies";
 import { buildSelectionQuery, getSelectionSchema, type KeyMapping } from "../../SQLTextArea/selectionOperations";
+import { getSelectionOperationDefaults, suggestSelectionKey } from "../../SQLTextArea/selectionOperationDefaults";
 
 export function SelectionOperationPanel({
   operation,
@@ -19,10 +20,11 @@ export function SelectionOperationPanel({
 }) {
   const root = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
-  const [inputIds, setInputIds] = useState(() => selectedInputs.map((input) => input.id));
+  const [defaults] = useState(() => getSelectionOperationDefaults(operation, selectedInputs));
+  const [inputIds, setInputIds] = useState(defaults.inputIds);
   const inputs = inputIds.map((id) => selectedInputs.find((input) => input.id === id)!);
-  const [useKeys, setUseKeys] = useState(operation === "JOIN");
-  const [keys, setKeys] = useState<KeyMapping[]>([inputs.map(() => "")]);
+  const [useKeys, setUseKeys] = useState(defaults.useKeys);
+  const [keys, setKeys] = useState<KeyMapping[]>(defaults.keys);
   const needsKeys = operation === "JOIN" || (operation === "DIFF" && useKeys);
   const incompleteKeys = needsKeys && keys.some((mapping) => mapping.some((column) => !column));
   let error: string | null = null;
@@ -81,6 +83,12 @@ export function SelectionOperationPanel({
         <strong>{title}</strong>
       </div>
       <div className="kavla-selection-setup-body">
+        <p
+          className="kavla-selection-setup-hint"
+          title="Defaults are suggested from column and dataset names. Check them before running."
+        >
+          Review, then run.
+        </p>
         {operation === "EXCEPT" ? (
           <>
             <label>
@@ -197,7 +205,9 @@ export function SelectionOperationPanel({
                   type="icon"
                   title="Add matching key"
                   aria-label="Add matching key"
-                  onClick={() => setKeys([...keys, inputs.map(() => "")])}
+                  onClick={() =>
+                    setKeys([...keys, suggestSelectionKey(inputs, operation, keys) ?? inputs.map(() => "")])
+                  }
                 >
                   <Plus size={14} aria-hidden />
                   <span className="kavla-control-label">Add key</span>
