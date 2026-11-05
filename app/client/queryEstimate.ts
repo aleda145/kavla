@@ -50,8 +50,9 @@ export async function estimateQuery(request: QueryEstimateRequest, signal?: Abor
 
 export function formatProcessedBytes(value: string): string {
   const bytes = Number(value);
-  if (bytes === 0) return "0 GB";
-  if (bytes < 10_000_000) return "<0.01 GB";
-  const divisor = bytes >= 1e12 ? 1e12 : 1e9;
-  return `${(bytes / divisor).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${divisor === 1e12 ? "TB" : "GB"}`;
+  if (bytes === 0) return "0 MB";
+  if (bytes < 1e6) return "<1 MB";
+  const divisor = bytes >= 1e12 ? 1e12 : bytes >= 1e9 ? 1e9 : 1e6;
+  const unit = divisor === 1e12 ? "TB" : divisor === 1e9 ? "GB" : "MB";
+  return `${(bytes / divisor).toLocaleString(undefined, { maximumFractionDigits: 0 })} ${unit}`;
 }

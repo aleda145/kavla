@@ -507,8 +507,14 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
             onToggleTable={handleToggleTable}
             validator={handleValidate}
           />
-          <SQLQueryEstimate editor={this.editor} shape={shape} />
-          <SQLTextAreaFooter shape={shape} />
+          <SQLTextAreaFooter
+            shape={shape}
+            estimate={
+              queryExecutionState.tabs.some((tab) => tab.type === "bigquery") ? (
+                <SQLQueryEstimate editor={this.editor} shape={shape} />
+              ) : undefined
+            }
+          />
           <div
             style={{
               position: "absolute",

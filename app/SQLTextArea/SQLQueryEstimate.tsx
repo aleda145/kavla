@@ -36,5 +36,5 @@ export function SQLQueryEstimate({ editor, shape }: { editor: Editor; shape: SQL
     },
     [editor, shape.id]
   );
-  return <QueryEstimate {...input} disabled={shape.props.isRunning} />;
+  return <QueryEstimate {...input} disabled={shape.props.isRunning} compact />;
 }

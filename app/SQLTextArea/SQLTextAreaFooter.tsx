@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Copy } from "lucide-react";
 import { useToasts } from "tldraw";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
@@ -8,11 +8,12 @@ const copyButtonClass =
   "h-9 px-3 border-2 border-black text-black font-bold text-xs flex items-center justify-center gap-2 rounded cursor-pointer transition-all active:translate-y-[1px] shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]";
 
 const footerStyle: CSSProperties = {
-  padding: "8px",
-  fontSize: 12,
+  padding: 0,
+  flexShrink: 0,
+  fontSize: 11,
   color: "#666",
   fontWeight: "bold",
-  textAlign: "center",
+  textAlign: "left",
   borderTop: "4px solid #000",
   background: "#f3f4f6",
   borderBottomLeftRadius: 8,
@@ -33,31 +34,23 @@ function Timer({ startTime }: { startTime: number }) {
   return <span>{elapsed.toFixed(1)}s</span>;
 }
 
-export function SQLTextAreaFooter({ shape }: { shape: SQLTextAreaShape }) {
+export function SQLTextAreaFooter({ shape, estimate }: { shape: SQLTextAreaShape; estimate?: ReactNode }) {
   const { addToast } = useToasts();
-
-  if (shape.props.isRunning && shape.props.queryStartTime) {
-    return (
-      <div style={footerStyle}>
-        <span style={{ marginRight: 6 }}>{shape.props.runnerName} is running</span>
-        (<Timer startTime={shape.props.queryStartTime} />)
-      </div>
-    );
-  }
-
-  if (shape.props.error) {
+  const running = shape.props.isRunning && shape.props.queryStartTime !== null;
+  const stats = shape.props.lastRunStats;
+  let errorContent: ReactNode = null;
+  if (shape.props.error && !running) {
     const errorMessage = getErrorMessage(shape.props.error);
     const copyError = () => {
       void navigator.clipboard.writeText(errorMessage);
       addToast({ title: "Copied to clipboard" });
     };
 
-    return (
+    errorContent = (
       <div
         style={{
           display: "flex",
           background: "#fef2f2",
-          borderTop: "4px solid #000",
           borderBottomLeftRadius: 8,
           borderBottomRightRadius: 8,
         }}
@@ -114,21 +107,38 @@ export function SQLTextAreaFooter({ shape }: { shape: SQLTextAreaShape }) {
     );
   }
 
-  if (shape.props.lastRunStats) {
-    const { executionTime, rowCount, runnerName } = shape.props.lastRunStats;
-    return (
-      <div style={footerStyle}>
-        <div style={{ display: "flex", gap: "4px", justifyContent: "center", alignItems: "center" }}>
-          <span>{runnerName}</span>
-          <span>ran query in</span>
-          <span>{(executionTime / 1000).toFixed(2)}s</span>
-          <span>·</span>
-          <span>{rowCount.toLocaleString()}</span>
-          <span>rows</span>
-        </div>
-      </div>
-    );
-  }
+  if (!running && !errorContent && !stats && !estimate) return null;
 
-  return null;
+  return (
+    <div style={footerStyle}>
+      {errorContent}
+      {(running || stats || estimate) && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            padding: "6px 8px",
+          }}
+        >
+          <span style={{ flexShrink: 0 }} title={stats?.runnerName}>
+            {running ? (
+              <>
+                Running · <Timer startTime={shape.props.queryStartTime!} />
+              </>
+            ) : stats ? (
+              <>
+                {stats.rowCount.toLocaleString()} rows <span aria-hidden>|</span>{" "}
+                {(stats.executionTime / 1000).toFixed(2)} s
+              </>
+            ) : (
+              "Not run"
+            )}
+          </span>
+          {estimate}
+        </div>
+      )}
+    </div>
+  );
 }
