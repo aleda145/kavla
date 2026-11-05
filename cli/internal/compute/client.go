@@ -35,6 +35,8 @@ type process struct {
 	token      string
 	done       chan struct{}
 	stopReason atomic.Pointer[string]
+	started    time.Time
+	limits     ready
 }
 
 // Client serializes operations for one document. A streaming Arrow result owns
@@ -142,7 +144,7 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 	}
 	_ = stdoutChild.Close()
 	_ = stderrChild.Close()
-	p := &process{cmd: cmd, control: control, token: config.Token, done: make(chan struct{})}
+	p := &process{cmd: cmd, control: control, token: config.Token, done: make(chan struct{}), started: time.Now()}
 	go func() {
 		defer stderr.Close()
 		scanner := bufio.NewScanner(stderr)
@@ -214,6 +216,7 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 		for _, status := range result.Statuses {
 			c.logSourceStatus(p, status)
 		}
+		p.limits = result
 		return p, result, nil
 	case <-ctx.Done():
 		p.stopping("startup interrupted")
