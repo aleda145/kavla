@@ -9,6 +9,7 @@ import {
 } from "tldraw";
 import { extractTableNames } from "../../util/parseSql";
 import { crosses, readRoute, type Bounds, type Route } from "./arrowGeometry";
+import { resetConnectorLane } from "./connectorLanes";
 import type { LayoutDirection } from "./layoutQueryBranches";
 
 const storageKey = "kavla.auto-placement";
@@ -33,7 +34,6 @@ const nodeTypes = new Set([
 ]);
 const views = new Set(["sql-result-table", "chart-shape", "lens-shape"]);
 const directions: LayoutDirection[] = ["RIGHT", "DOWN", "LEFT", "UP"];
-const vector = { RIGHT: { x: 1, y: 0 }, LEFT: { x: -1, y: 0 }, DOWN: { x: 0, y: 1 }, UP: { x: 0, y: -1 } };
 function directionBetween(a: Bounds, b: Bounds): LayoutDirection {
   const dx = b.x + b.w / 2 - a.x - a.w / 2;
   const dy = b.y + b.h / 2 - a.y - a.h / 2;
@@ -137,9 +137,7 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
       anchorId = source;
     }
     const anchor = anchorId && occupied.get(anchorId);
-    const anchorShape = anchorId && editor.getShape(anchorId);
     let preferred = anchorId ? establishedDirection(anchorId) : "RIGHT";
-    const siblings: Bounds[] = [];
     if (shape.type === "sql-text-area" && anchorId && anchor) {
       const counts = new Map<LayoutDirection, number>();
       for (const binding of editor.getBindingsToShape<TLArrowBinding>(anchorId, "arrow")) {
@@ -155,7 +153,6 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
           continue;
         const sibling = occupied.get(end.toId);
         if (!sibling) continue;
-        siblings.push(sibling);
         const direction = directionBetween(anchor, sibling);
         counts.set(direction, (counts.get(direction) ?? 0) + 1);
       }
@@ -165,8 +162,7 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
         if ((counts.get(direction) ?? 0) > (counts.get(preferred) ?? 0)) preferred = direction;
       }
     }
-    const sideBranch = shape.type === "sql-text-area" && anchorShape?.type === "data-source";
-    let candidates = sideBranch ? directions : [preferred];
+    let preferredSide = preferred;
     if (views.has(shape.type)) {
       const table = shape.type === "sql-result-table";
       const tableSide: Record<LayoutDirection, LayoutDirection> = {
@@ -176,9 +172,9 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
         UP: "LEFT",
       };
       const side = tableSide[preferred];
-      candidates = [table ? side : directions[(directions.indexOf(side) + 2) % 4]];
-    } else if (shape.type === "knob") candidates = ["UP"];
-    let best: { x: number; y: number; score: number; direction: LayoutDirection } | undefined;
+      preferredSide = table ? side : directions[(directions.indexOf(side) + 2) % 4];
+    } else if (shape.type === "knob") preferredSide = "UP";
+    let best: { x: number; y: number; score: number; hits: number; direction: LayoutDirection } | undefined;
     const obstacles = [...occupied].filter(
       ([id]) => id !== shape.id && !editor.hasAncestor(shape, id) && !editor.hasAncestor(id, shape.id)
     );
@@ -191,6 +187,28 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
           candidate.y + candidate.h + 28 > other.y
       );
     refreshPaths();
+    // The lane pass resets automatic ports before routing. Probe that same
+    // geometry, otherwise a clear pinned route can become obstructed afterwards.
+    // Only touch connectors adjacent to this insertion, not the existing DAG.
+    const adjacentArrows = new Set(connectorIds);
+    for (const id of new Set([...inputs, ...(anchorId ? [anchorId] : [])])) {
+      for (const binding of editor.getBindingsToShape<TLArrowBinding>(id, "arrow")) adjacentArrows.add(binding.fromId);
+    }
+    const previousPaths = [...adjacentArrows].flatMap((id) => {
+      const route = paths.get(id);
+      return route ? [route] : [];
+    });
+    for (const id of adjacentArrows) {
+      const arrow = editor.getShape<TLArrowShape>(id);
+      if (arrow) resetConnectorLane(editor, arrow);
+      dirtyArrows.add(id);
+    }
+    refreshPaths();
+    // Keep space for both the current lanes and the natural routes used as the
+    // baseline when lanes are recomputed after the insertion.
+    const existingPaths = [...previousPaths, ...paths.values()].filter(
+      (route) => !connectorIds.has(route.id) && ![...route.ends].some((id) => pending.has(id))
+    );
     const origin = editor.getShapePageTransform(shape).applyToPoint({ x: 0, y: 0 });
     const positionUpdate = (candidate: { x: number; y: number }) => {
       const point = editor.getPointInParentSpace(shape, {
@@ -219,54 +237,84 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
         editor.updateShape({ id: shape.id, type: shape.type, x: shape.x, y: shape.y });
       }
     };
-    for (const direction of candidates) {
-      const axis = vector[direction];
-      const vertical = axis.y !== 0;
-      const gap = views.has(shape.type) ? 48 : 120;
-      const anchors =
-        shape.type === "sql-text-area"
-          ? inputs.map((id) => occupied.get(id)).filter((box): box is Bounds => !!box)
-          : anchor
-            ? [anchor]
-            : [];
-      let x = box.x,
-        y = box.y;
-      if (anchor && anchors.length) {
-        x = anchor.x + (anchor.w - box.w) / 2;
-        y = anchor.y + (anchor.h - box.h) / 2;
-        if (direction === "RIGHT") x = Math.max(...anchors.map((b) => b.x + b.w)) + gap;
-        if (direction === "LEFT") x = Math.min(...anchors.map((b) => b.x)) - box.w - gap;
-        if (direction === "DOWN") y = Math.max(...anchors.map((b) => b.y + b.h)) + gap;
-        if (direction === "UP") y = Math.min(...anchors.map((b) => b.y)) - box.h - gap;
+    const center = anchor ?? box;
+    const originX = center.x + (center.w - box.w) / 2;
+    const originY = center.y + (center.h - box.h) / 2;
+    const gap = views.has(shape.type) ? 48 : 120;
+    const reachX = (center.w + box.w) / 2 + gap;
+    const reachY = (center.h + box.h) / 2 + gap;
+    let radius = Math.hypot(reachX, reachY);
+    // Search a circle around the parent on all sides. Expand only when there
+    // is no shape-sized empty space inside it, never to satisfy flow preference.
+    while (!best) {
+      const xs = new Set([originX, originX - reachX, originX + reachX]);
+      const ys = new Set([originY, originY - reachY, originY + reachY]);
+      const addEdges = (other: Bounds, clearances: number[]) => {
+        if (
+          other.x > originX + radius + box.w + 64 ||
+          other.x + other.w < originX - radius - 64 ||
+          other.y > originY + radius + box.h + 64 ||
+          other.y + other.h < originY - radius - 64
+        )
+          return;
+        // Obstacle edges find actual pockets, including gaps a fixed grid misses.
+        for (const clearance of clearances) {
+          xs.add(other.x - box.w - clearance);
+          xs.add(other.x + other.w + clearance);
+          ys.add(other.y - box.h - clearance);
+          ys.add(other.y + other.h + clearance);
+        }
+      };
+      for (const [, other] of obstacles) addEdges(other, [28, 64]);
+      for (const route of existingPaths) {
+        for (let i = 1; i < route.points.length; i++) {
+          const a = route.points[i - 1],
+            b = route.points[i];
+          addEdges(
+            { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) },
+            [28]
+          );
+        }
       }
-      // A bounded local search, with a clear outer lane as a crowded-board fallback.
-      const offsets = [0, -1, 1, -2, 2, -3, 3].map((n) => n * ((vertical ? box.w : box.h) + 64));
-      const outerOffsets: number[] = [];
-      for (const sibling of siblings) {
-        offsets.push(vertical ? sibling.x - box.w - 64 - x : sibling.y - box.h - 64 - y);
-        offsets.push(vertical ? sibling.x + sibling.w + 64 - x : sibling.y + sibling.h + 64 - y);
+      const candidates: (Bounds & { score: number; hits: number; direction: LayoutDirection })[] = [];
+      for (const x of xs) {
+        if (Math.abs(x - originX) > radius) continue;
+        for (const y of ys) {
+          const distance = Math.hypot(x - originX, y - originY);
+          if (distance > radius) continue;
+          const candidate = { x, y, w: box.w, h: box.h };
+          if (overlaps(candidate)) continue;
+          const direction = directionBetween(center, candidate);
+          const edgeGap = {
+            RIGHT: x - center.x - center.w,
+            LEFT: center.x - x - box.w,
+            DOWN: y - center.y - center.h,
+            UP: center.y - y - box.h,
+          }[direction];
+          // Keep a comfortable connector gap when possible. Both that gap and
+          // flow direction are preferences, so tight local pockets remain usable.
+          const score =
+            distance + (direction === preferredSide ? 0 : 240) + (anchor ? Math.max(0, gap - edgeGap) * 2 : 0);
+          const hits = new Set(
+            existingPaths.filter((route) => crosses(route, shape.id, candidate)).map((route) => route.id)
+          ).size;
+          candidates.push({ ...candidate, direction, score, hits });
+        }
       }
-      if (obstacles.length) {
-        outerOffsets.push(
-          Math.min(...obstacles.map(([, b]) => (vertical ? b.x : b.y))) - (vertical ? box.w + x : box.h + y) - 64
-        );
-        outerOffsets.push(
-          Math.max(...obstacles.map(([, b]) => (vertical ? b.x + b.w : b.y + b.h))) - (vertical ? x : y) + 64
-        );
+      candidates.sort((a, b) => a.hits - b.hits || a.score - b.score);
+      let probes = 0;
+      for (const candidate of candidates) {
+        if (best && (candidate.hits > best.hits || (candidate.hits === best.hits && candidate.score >= best.score)))
+          continue;
+        const hits = candidate.hits + connectorHits(candidate);
+        if (!best || hits < best.hits || (hits === best.hits && candidate.score < best.score))
+          best = { ...candidate, hits };
+        // Geometry checks are cheap. Bound actual tldraw route probes on very
+        // crowded boards, and keep the best nearby placement found so far.
+        if (++probes >= 96) break;
       }
-      const nearby = [...new Set(offsets)].sort((a, b) => Math.abs(a) - Math.abs(b)).slice(0, 24);
-      for (const offset of [...new Set([...nearby, ...outerOffsets])]) {
-        const candidate = { x: x + (vertical ? offset : 0), y: y + (vertical ? 0 : offset), w: box.w, h: box.h };
-        if (overlaps(candidate)) continue;
-        const distance = Math.abs(offset) + (direction === preferred ? 0 : 80);
-        if (best && distance >= best.score) continue;
-        const crossings =
-          [...paths.values()].filter((route) => crosses(route, shape.id, candidate)).length + connectorHits(candidate);
-        const score = distance + crossings * 10000;
-        if (!best || score < best.score) best = { ...candidate, score, direction };
-      }
+      radius *= 1.5;
     }
-    if (!best) return;
     // Remove before updating so the placement itself cannot become another insertion.
     pending.delete(shape.id);
     editor.updateShape(positionUpdate(best));
@@ -333,6 +381,13 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
       if (pending.has(binding.toId)) {
         for (const id of pending) dirty.add(id);
       }
+    }),
+    editor.sideEffects.registerAfterChangeHandler("binding", (before, after) => {
+      if (before.type === "arrow") dirtyArrows.add(before.fromId);
+      if (after.type === "arrow") dirtyArrows.add(after.fromId);
+    }),
+    editor.sideEffects.registerAfterDeleteHandler("binding", (binding) => {
+      if (binding.type === "arrow") dirtyArrows.add(binding.fromId);
     }),
     editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
       occupied.delete(shape.id);
