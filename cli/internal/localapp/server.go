@@ -1618,7 +1618,7 @@ func (s *Server) writeQueryArrow(w http.ResponseWriter, ctx context.Context, rea
 
 func writeArrowResult(w http.ResponseWriter, reader array.RecordReader) (rows, size int64, err error) {
 	w.Header().Set("Content-Type", "application/vnd.apache.arrow.stream")
-	return encodeArrowResult(w, reader)
+	return encodeArrowResult(resultWriter{w: w}, reader)
 }
 
 func encodeArrowResult(w io.Writer, reader array.RecordReader) (rows, size int64, err error) {
