@@ -21,23 +21,29 @@ export function resetConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
     const arrow = shape as TLArrowShape;
     const { start, end } = getArrowBindings(editor, arrow);
     if (nodeIds && ![start, end].some((binding) => binding && nodeIds.has(binding.toId))) continue;
-    for (const binding of [start, end]) {
-      if (binding?.meta.kavlaLane !== true) continue;
-      editor.updateBinding<TLArrowBinding>({
-        id: binding.id,
-        type: "arrow",
-        meta: { kavlaLane: false, kavlaLaneAnchor: null },
-        props: { normalizedAnchor: { x: 0.5, y: 0.5 }, isPrecise: false, isExact: false, snap: "none" },
-      });
-    }
-    if (typeof arrow.meta.kavlaLaneMidpoint === "number") {
-      editor.updateShape<TLArrowShape>({
-        id: arrow.id,
-        type: "arrow",
-        meta: { kavlaLaneMidpoint: null, kavlaLaneAssignedMidpoint: null },
-        props: { elbowMidPoint: arrow.meta.kavlaLaneMidpoint },
-      });
-    }
+    resetConnectorLane(editor, arrow);
+  }
+}
+
+export function resetConnectorLane(editor: Editor, arrow: TLArrowShape): void {
+  if (arrow.meta.kavlaConnector !== true || editor.isShapeOrAncestorLocked(arrow)) return;
+  const { start, end } = getArrowBindings(editor, arrow);
+  for (const binding of [start, end]) {
+    if (binding?.meta.kavlaLane !== true) continue;
+    editor.updateBinding<TLArrowBinding>({
+      id: binding.id,
+      type: "arrow",
+      meta: { kavlaLane: false, kavlaLaneAnchor: null },
+      props: { normalizedAnchor: { x: 0.5, y: 0.5 }, isPrecise: false, isExact: false, snap: "none" },
+    });
+  }
+  if (typeof arrow.meta.kavlaLaneMidpoint === "number") {
+    editor.updateShape<TLArrowShape>({
+      id: arrow.id,
+      type: "arrow",
+      meta: { kavlaLaneMidpoint: null, kavlaLaneAssignedMidpoint: null },
+      props: { elbowMidPoint: arrow.meta.kavlaLaneMidpoint },
+    });
   }
 }
 
