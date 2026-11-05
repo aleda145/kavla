@@ -243,7 +243,7 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
                 event.stopPropagation();
                 if (event.pointerType === "touch") onFileClick();
               }}
-              title="Upload a CSV, Parquet, JSON, or NDJSON file"
+              title="Upload an Excel (.xlsx, .xlsm), CSV, Parquet, JSON, or NDJSON file"
             >
               <Upload size={18} />
               <span className="kavla-control-label">Pick a file</span>

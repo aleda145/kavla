@@ -2,6 +2,7 @@ import { useEffect, type RefObject } from "react";
 import { createShapeId, type Editor, type TLUiToastsContextType } from "tldraw";
 import type { DataSourceShape } from "../../DataSource/data-source-types";
 import { ingestLocalDataSourceFile } from "../../DataSource/ingestLocalDataSourceFile";
+import { isExcelFile } from "../../DataSource/excel-import";
 import { toValidSqlName } from "../../util/sql";
 
 export function useCanvasFileDrop(
@@ -10,13 +11,17 @@ export function useCanvasFileDrop(
 ): void {
   useEffect(() => {
     const handleDrop = async (event: DragEvent) => {
+      if (event.target instanceof Element && event.target.closest("dialog[open]")) {
+        event.preventDefault();
+        return;
+      }
       const editor = editorRef.current;
       if (!editor || editor.getInstanceState().isReadonly || !event.dataTransfer?.files?.length) {
         return;
       }
 
       const files = Array.from(event.dataTransfer.files).filter((file) =>
-        /\.(csv|parquet|json|ndjson)$/i.test(file.name)
+        /\.(csv|parquet|json|ndjson|xlsx|xlsm)$/i.test(file.name)
       );
       if (!files.length) return;
       event.preventDefault();
@@ -37,6 +42,29 @@ export function useCanvasFileDrop(
         const shapeId = createShapeId();
         const baseName = file.name.split(".")[0];
 
+        if (isExcelFile(file)) {
+          try {
+            const props = await ingestLocalDataSourceFile(editor, shapeId, file);
+            if (props) {
+              editor.createShape<DataSourceShape>({
+                id: shapeId,
+                type: "data-source",
+                x: point.x + index * 40,
+                y: point.y + index * 40,
+                props,
+              });
+              editor.select(shapeId);
+            }
+          } catch (error) {
+            addToast({
+              title: "Excel import failed",
+              description: error instanceof Error ? error.message : String(error),
+              severity: "error",
+            });
+          }
+          continue;
+        }
+
         editor.createShape<DataSourceShape>({
           id: shapeId,
           type: "data-source",
@@ -52,6 +80,7 @@ export function useCanvasFileDrop(
 
         try {
           const props = await ingestLocalDataSourceFile(editor, shapeId, file);
+          if (!props) continue;
 
           const currentShape = editor.getShape<DataSourceShape>(shapeId);
           if (currentShape) {

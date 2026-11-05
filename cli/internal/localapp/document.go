@@ -34,14 +34,15 @@ const (
 )
 
 type BlobDescriptor struct {
-	TableName string   `json:"tableName,omitempty"`
-	ID        string   `json:"id"`
-	Kind      BlobKind `json:"kind"`
-	ShapeID   string   `json:"shapeId,omitempty"`
-	FileName  string   `json:"fileName"`
-	MIMEType  string   `json:"mimeType"`
-	Size      int64    `json:"size"`
-	SHA256    string   `json:"sha256"`
+	ExcelImport *ExcelImportConfig `json:"excelImport,omitempty"`
+	TableName   string             `json:"tableName,omitempty"`
+	ID          string             `json:"id"`
+	Kind        BlobKind           `json:"kind"`
+	ShapeID     string             `json:"shapeId,omitempty"`
+	FileName    string             `json:"fileName"`
+	MIMEType    string             `json:"mimeType"`
+	Size        int64              `json:"size"`
+	SHA256      string             `json:"sha256"`
 }
 
 type Manifest struct {
@@ -256,6 +257,11 @@ func (d *Document) PutBlob(id string, descriptor BlobDescriptor, reader io.Reade
 	descriptor.SHA256 = hex.EncodeToString(hash.Sum(nil))
 
 	destination := filepath.Join(blobDir, stagedBlobName(id))
+	for _, blob := range d.blobs {
+		if blob.ExcelImport != nil && blob.ExcelImport.WorkbookID == id {
+			return BlobDescriptor{}, fmt.Errorf("workbook is still used by uploaded table %q", blob.TableName)
+		}
+	}
 	if err := os.Rename(tempName, destination); err != nil {
 		return BlobDescriptor{}, fmt.Errorf("publish staged blob: %w", err)
 	}
@@ -316,6 +322,11 @@ func (d *Document) DeleteBlob(id string) error {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	for _, blob := range d.blobs {
+		if blob.ExcelImport != nil && blob.ExcelImport.WorkbookID == id {
+			return fmt.Errorf("workbook is still used by uploaded table %q", blob.TableName)
+		}
+	}
 	descriptor, ok := d.blobs[id]
 	if !ok {
 		return os.ErrNotExist
@@ -923,9 +934,15 @@ func (d *Document) pruneUnreferencedBlobsLocked() error {
 		return err
 	}
 
+	workbooks := make(map[string]bool)
+	for _, blob := range d.blobs {
+		if blob.ExcelImport != nil {
+			workbooks[blob.ExcelImport.WorkbookID] = true
+		}
+	}
 	removed := make(map[string]BlobDescriptor)
 	for id, descriptor := range d.blobs {
-		if descriptor.TableName != "" {
+		if descriptor.TableName != "" || workbooks[id] {
 			continue
 		}
 		if descriptor.Kind != BlobKindSource && descriptor.Kind != BlobKindAsset {

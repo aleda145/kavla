@@ -16,6 +16,7 @@ import {
   calculateDataSourceHeight,
   calculateDataSourceWidth,
   ingestLocalDataSourceFile,
+  reimportExcelDataSource,
 } from "./ingestLocalDataSourceFile";
 import { getEngineAppearance, ShapeEngineTabs, type ShapeEngineTab } from "../util/ShapeEngineTabs";
 import { calculateDataSourcePickerHeight, DATA_SOURCE_PICKER_WIDTH } from "./CliSourcesList";
@@ -24,8 +25,12 @@ import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { clearRestoredRemoteQueryMetadata } from "../SQLTextArea/restoreRemoteQueryView";
 
+import { isExcelFile, type ExcelImportConfig } from "./excel-import";
+import { getActiveLocalSession } from "../client/local/localSession";
+
 type SourceChangeOptions = {
   filename: string;
+  excelImport?: ExcelImportConfig | null;
   name?: string;
   fileSize?: number | null;
   sourceName?: string | null;
@@ -63,6 +68,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
       isRunning: false,
       name: "Source",
       filename: null,
+      excelImport: null,
       sourceName: null,
       sourceType: null,
       remoteTableRef: null,
@@ -133,6 +139,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
     const beginSourceChange = ({
       filename,
       name,
+      excelImport = null,
       fileSize = null,
       sourceName = null,
       sourceType = null,
@@ -147,6 +154,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
         props: {
           ...(name ? { name } : {}),
           filename,
+          excelImport,
           fileSize,
           rowCount: null,
           metadata: null,
@@ -282,13 +290,17 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
     const inputRef = useRef<HTMLInputElement | null>(null);
 
     const handleFileSelected = async (file: File) => {
-      beginSourceChange({
-        filename: `Importing ${file.name}...`,
-        fileSize: file.size,
-      });
+      if (!isExcelFile(file)) {
+        beginSourceChange({
+          filename: `Importing ${file.name}...`,
+          fileSize: file.size,
+        });
+      }
 
       try {
         const props = await ingestLocalDataSourceFile(this.editor, shape.id, file);
+        if (!props || !this.editor.getShape(shape.id)) return;
+        setSelectedColumns(new Set());
 
         this.editor.updateShape<DataSourceShape>({
           id: shape.id,
@@ -309,6 +321,27 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
           },
         });
         return;
+      }
+    };
+
+    const handleEditExcel = async () => {
+      if (!shape.props.excelImport) return;
+      try {
+        const props = await reimportExcelDataSource(this.editor, shape.id, shape.props.excelImport);
+        const currentShape = this.editor.getShape<DataSourceShape>(shape.id);
+        if (!props || !currentShape) return;
+        setSelectedColumns(new Set());
+        this.editor.updateShape<DataSourceShape>({
+          id: shape.id,
+          type: "data-source",
+          props: { ...props, name: currentShape.props.name },
+        });
+      } catch (error) {
+        this.editor.updateShape<DataSourceShape>({
+          id: shape.id,
+          type: "data-source",
+          props: { error: error instanceof Error ? error.message : String(error) },
+        });
       }
     };
 
@@ -357,6 +390,10 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
         sourceName,
         sourceType: selectedCliSource?.type ?? null,
         remoteTableRef: table,
+        excelImport:
+          getActiveLocalSession()?.blobs.find(
+            (blob) => blob.tableName && `uploaded_files.main.${blob.tableName}` === table
+          )?.excelImport ?? null,
       });
     };
 
@@ -423,7 +460,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
 
           <input
             type="file"
-            accept=".parquet,.csv,.json,.ndjson"
+            accept=".parquet,.csv,.json,.ndjson,.xlsx,.xlsm"
             style={{ display: "none" }}
             ref={inputRef}
             onChange={handleUpload}
@@ -436,6 +473,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
             onClearSelectedColumns={() => setSelectedColumns(new Set())}
             onColumnClick={handleColumnClick}
             onLocalFilePickerOpen={openLocalFilePicker}
+            onEditExcel={() => void handleEditExcel()}
             onDemoFileSelect={handleDemoFileSelect}
             onRemoteTableSelect={handleRemoteTableSelect}
             remoteSourceInfo={remoteSourceInfo}
@@ -493,7 +531,10 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
     if (prev.props.remoteTableRef !== next.props.remoteTableRef) {
       next = { ...next, props: { ...next.props, samplePercent: 100 } };
     }
-    if ((prev.props.samplePercent ?? 100) !== (next.props.samplePercent ?? 100)) {
+    if (
+      prev.props.remoteTableRef !== next.props.remoteTableRef ||
+      (prev.props.samplePercent ?? 100) !== (next.props.samplePercent ?? 100)
+    ) {
       for (const candidate of this.editor.getCurrentPageShapes()) {
         if (candidate.type !== "sql-text-area") continue;
         const query = candidate as SQLTextAreaShape;

@@ -1,5 +1,5 @@
 import { backendRequest } from "../backendCompute";
-import { forgetUploadedBlob, type KavlaLocalSession } from "./localSession";
+import { forgetUploadedBlob, getActiveLocalSession, type KavlaLocalSession } from "./localSession";
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -193,6 +193,10 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
         sourceName: source.name,
         sourceType: source.type,
         remoteTableRef: table,
+        excelImport:
+          getActiveLocalSession()?.blobs.find(
+            (blob) => blob.tableName && `uploaded_files.main.${blob.tableName}` === table
+          )?.excelImport ?? null,
         metadata,
         rowCount: details.rowCount,
         isRunning: metadata === null,
