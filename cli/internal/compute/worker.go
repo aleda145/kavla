@@ -150,6 +150,19 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 		result.Stats, err = eng.GetSourceStats(ctx, req.Source)
 	case "export-source":
 		err = eng.ExportSourceTable(ctx, req.Source, req.Format, req.Path)
+	case "store-destination":
+		result.StoredTable, err = eng.StoreDestination(ctx, req.Source, req.SchemaName, req.TableName)
+	case "snapshot-query", "store-snapshot":
+		if req.StoredTable == nil {
+			err = fmt.Errorf("Store table metadata is required")
+			break
+		}
+		result.StoredTable = req.StoredTable
+		if req.Op == "snapshot-query" {
+			err = eng.SnapshotQuery(ctx, req.SQL, req.Path, result.StoredTable)
+		} else {
+			err = eng.StoreSnapshot(ctx, req.Path, result.StoredTable)
+		}
 	case "import":
 		err = eng.ImportUploadedFile(ctx, req.ID, req.FileName, req.Path)
 	case "register-upload":
