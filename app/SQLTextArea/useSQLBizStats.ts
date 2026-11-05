@@ -5,7 +5,7 @@ import { useData } from "../client/useLocalServer";
 import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
 import { readBizFilterCounts, type BizFilterCounts, type BizFilterPlan } from "./sqlBizFilterStats";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
-import type { RunRemoteQueryPayload } from "../client/localServer/types";
+import type { QueryScan, RunRemoteQueryPayload } from "../client/localServer/types";
 
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
 import { getRemoteHoverPolicy, setRemoteHoverPolicy, subscribeRemoteHoverPolicy } from "./remote-hover-policy";
@@ -15,7 +15,7 @@ type AnalysisSource = { sourceName: string; sourceType: string | null };
 type StatsState =
   | { status: "idle" | "loading" | "waiting" }
   | { status: "error"; error: string }
-  | { status: "ready"; rows: Record<string, unknown>[] };
+  | { status: "ready"; rows: Record<string, unknown>[]; scan?: QueryScan };
 type Request =
   | { status: "waiting" }
   | { status: "error"; error: string }
@@ -155,7 +155,7 @@ export function useSQLBizStats(shape: SQLTextAreaShape, sql: string | null, erro
     notifyCache();
     void runRemoteQuery({ ...request.payload, shapeId: entry.shapeId })
       .then((result) => {
-        entry.state = { status: "ready", rows: result.sampleRows };
+        entry.state = { status: "ready", rows: result.sampleRows, scan: result.scan };
         // A condition breakdown also contains the total; update its card without another scan.
         if (cacheAlsoKey && cacheAlsoKey !== requestKey) cache.set(cacheAlsoKey, entry);
       })
@@ -196,6 +196,8 @@ export function useSQLBizStats(shape: SQLTextAreaShape, sql: string | null, erro
   };
   return {
     state,
+    hasRun: state.status === "ready",
+    scan: state.status === "ready" ? state.scan : undefined,
     estimateRequest: request.status === "ready" ? request.payload : null,
     estimateUnavailableReason:
       request.status === "ready" &&

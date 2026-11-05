@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FlaskConical, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { useValue } from "tldraw";
 import { backendRevision } from "../client/backendCompute";
 import { getActiveLocalSession } from "../client/local/localSession";
@@ -11,6 +11,8 @@ import {
   type QueryEstimateRequest,
 } from "../client/queryEstimate";
 
+import type { QueryScan } from "../client/localServer/types";
+
 type EstimateState = { key: string; bytes?: string; error?: string };
 const staticEstimates = new Map<string, EstimateState>();
 const staticEstimatesInFlight = new Map<string, Promise<EstimateState>>();
@@ -21,12 +23,16 @@ export function QueryEstimate({
   disabled = false,
   compact = false,
   cacheStatic = false,
+  hasRun = false,
+  scan,
 }: {
   request: QueryEstimateRequest | null;
   unavailableReason?: string;
   disabled?: boolean;
   compact?: boolean;
   cacheStatic?: boolean;
+  hasRun?: boolean;
+  scan?: QueryScan;
 }) {
   const revision = useValue("Query estimate revision", () => backendRevision.get(), []);
   const [refresh, setRefresh] = useState(0);
@@ -35,7 +41,7 @@ export function QueryEstimate({
   const key = JSON.stringify([getActiveLocalSession()?.documentId, supported ? request : null, revision, refresh]);
 
   useEffect(() => {
-    if (!supported || disabled) return;
+    if (!supported || disabled || hasRun) return;
     if (cacheStatic && staticEstimates.has(key)) return;
     let active = true;
     const receive = (pending: Promise<EstimateState>) => {
@@ -67,20 +73,11 @@ export function QueryEstimate({
       // loaded query results. Ignore its response once the inputs change.
       active = false;
     };
-  }, [key, supported, disabled, cacheStatic]);
+  }, [key, supported, disabled, cacheStatic, hasRun]);
 
   if (!supported && !unavailableReason) return null;
   const current = result?.key === key ? result : cacheStatic ? (staticEstimates.get(key) ?? null) : null;
   const loading = supported && !current && !disabled;
-  const label = unavailableReason
-    ? unavailableReason
-    : current?.error
-      ? `Estimate unavailable: ${current.error}`
-      : current?.bytes !== undefined
-        ? `~${formatProcessedBytes(current.bytes)} to process`
-        : disabled
-          ? "Estimate paused while running"
-          : "Estimating bytes…";
 
   if (compact) {
     const compactLabel =
@@ -115,34 +112,17 @@ export function QueryEstimate({
     );
   }
 
+  const bytes = hasRun ? scan?.bytesProcessed : current?.bytes;
+  const prefix = hasRun ? "Scanned" : "Estimate";
+  const error = hasRun ? scan?.error : unavailableReason || current?.error;
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t border-black/20 bg-blue-50 px-2 py-1.5 text-[10px] text-black">
-      <div className="min-w-0 flex-1" aria-live="polite">
-        <div className="font-bold break-words line-clamp-2" title={label}>
-          {label}
-        </div>
-        {current?.bytes !== undefined && (
-          <div
-            className="text-gray-600"
-            title="Decimal units: 1 GB = 1 billion bytes. Estimates can differ from actual processed or billed bytes."
-          >
-            BigQuery dry run · estimated scan, not billed bytes
-          </div>
-        )}
-      </div>
-      {supported && (
-        <button
-          type="button"
-          className="kavla-icon-control flex shrink-0 cursor-pointer items-center gap-1 rounded border-2 border-black bg-blue-100 px-2 py-1 font-bold hover:bg-blue-200 disabled:cursor-default disabled:opacity-50"
-          title="Dry run: validate and estimate bytes without executing the query"
-          disabled={loading || disabled}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => setRefresh((value) => value + 1)}
-        >
-          {loading ? <LoaderCircle size={13} className="animate-spin" /> : <FlaskConical size={13} />}
-          <span className="kavla-control-label">Dry run</span>
-        </button>
-      )}
-    </div>
+    <span
+      className="whitespace-nowrap text-[10px] font-bold text-gray-600"
+      aria-live="polite"
+      aria-label={error}
+      title={bytes !== undefined ? formatEstimatedQueryCost(bytes) : undefined}
+    >
+      {prefix}: {bytes !== undefined ? formatProcessedBytes(bytes) : loading && !hasRun ? "…" : "—"}
+    </span>
   );
 }

@@ -272,10 +272,14 @@ func (s *Session) RunQuery(parent context.Context, client Client, req runner.Que
 	if err := s.mountRemoteFileSources(queryCtx, client, req.MountedFileSources); err != nil {
 		return nil, err
 	}
-	readScan := req.ExecutionEngine == "bigquery" && !req.Transient
+	readScan := req.ExecutionEngine == "bigquery"
 	if readScan {
 		// Stable across reruns so the tracking comment does not bust query caches.
-		tag := sha256.Sum256([]byte(req.ShapeId))
+		tagInput := req.ShapeId
+		if req.Transient {
+			tagInput = req.SourceName + "\x00" + req.SQL
+		}
+		tag := sha256.Sum256([]byte(tagInput))
 		req.SQL = strings.TrimSuffix(strings.TrimSpace(req.SQL), ";") + fmt.Sprintf("\n/* kavla:%x */", tag[:16])
 	}
 	startedAt := time.Now()

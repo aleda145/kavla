@@ -1,5 +1,6 @@
 import { Play, Square } from "lucide-react";
 import { QueryEstimate } from "../util/QueryEstimate";
+import type { QueryScan } from "../client/localServer/types";
 import type { QueryEstimateRequest } from "../client/queryEstimate";
 
 export function SQLBizAnalysisControls({
@@ -12,6 +13,8 @@ export function SQLBizAnalysisControls({
   canStop,
   estimateRequest,
   estimateUnavailableReason,
+  hasRun,
+  scan,
 }: {
   auto: boolean;
   setAuto: (checked: boolean) => void;
@@ -22,21 +25,31 @@ export function SQLBizAnalysisControls({
   canStop: boolean;
   estimateRequest: QueryEstimateRequest | null;
   estimateUnavailableReason?: string;
+  hasRun: boolean;
+  scan?: QueryScan;
 }) {
   return (
     <div className="mt-2">
-      <QueryEstimate request={estimateRequest} unavailableReason={estimateUnavailableReason} disabled={loading} />
       <div className="flex items-center justify-between gap-3 border-t border-gray-200 pt-2 mt-2 text-black">
-        <label className="flex min-w-0 items-center gap-2 text-[11px] font-bold leading-snug cursor-pointer select-none">
-          <input
-            type="checkbox"
-            className="h-4 w-4 shrink-0 cursor-pointer rounded-none border-2 border-black accent-black"
-            checked={auto}
-            disabled={!canRun}
-            onChange={(event) => setAuto(event.target.checked)}
+        <div className="flex min-w-0 flex-col items-start gap-1">
+          <label className="flex min-w-0 items-center gap-2 text-[11px] font-bold leading-snug cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0 cursor-pointer rounded-none border-2 border-black accent-black"
+              checked={auto}
+              disabled={!canRun}
+              onChange={(event) => setAuto(event.target.checked)}
+            />
+            <span>Auto-run</span>
+          </label>
+          <QueryEstimate
+            request={estimateRequest}
+            unavailableReason={estimateUnavailableReason}
+            disabled={loading}
+            hasRun={hasRun}
+            scan={scan}
           />
-          <span>Auto run analysis</span>
-        </label>
+        </div>
         <button
           type="button"
           onClick={loading ? stop : retry}

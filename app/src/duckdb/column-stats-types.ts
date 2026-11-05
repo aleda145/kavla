@@ -1,4 +1,7 @@
+import type { QueryScan } from "../../client/localServer/types";
+
 export type ColumnStats = {
+  scan?: QueryScan;
   type: "numeric" | "text" | "temporal" | "other";
   min?: any;
   max?: any;
