@@ -5,7 +5,23 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: "tldraw-english-only",
+        enforce: "pre",
+        resolveId(source, importer) {
+          // The asset helper imports every locale; resolve them all to the English asset.
+          if (
+            importer?.endsWith("/@tldraw/assets/imports.vite.js") &&
+            /^\.\/translations\/[^/]+\.json\?url$/.test(source)
+          ) {
+            return path.resolve(path.dirname(importer), "translations/en.json") + "?url";
+          }
+        },
+      },
+    ],
     resolve: {
       alias: {
         "@": path.resolve(import.meta.dirname, "./src"),

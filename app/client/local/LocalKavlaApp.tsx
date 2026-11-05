@@ -939,7 +939,7 @@ export default function LocalKavlaApp() {
   const [initializationError, setInitializationError] = useState<string | null>(null);
 
   useEffect(() => {
-    const preferences = { ...getUserPreferences(), colorScheme: "light" as const };
+    const preferences = { ...getUserPreferences(), colorScheme: "light" as const, locale: "en" };
     setUserPreferences(preferences);
     connectCanvas();
   }, []);
