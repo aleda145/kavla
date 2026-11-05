@@ -139,7 +139,35 @@ func (c *Client) ValidateQuery(ctx context.Context, sql string) error {
 }
 
 func (c *Client) EstimateQuery(ctx context.Context, executionEngine, source, sql string) (*sources.QueryEstimate, error) {
-	result, err := c.call(ctx, request{Op: "estimate", ExecutionEngine: executionEngine, Source: source, SQL: sql})
+	req := request{Op: "estimate", ExecutionEngine: executionEngine, Source: source, SQL: sql}
+	c.mu.Lock()
+	p := c.worker
+	ready := false
+	for _, status := range c.statuses {
+		if status.Name == source && status.Type == executionEngine && status.Available {
+			ready = true
+			break
+		}
+	}
+	closed := c.closed
+	c.mu.Unlock()
+	if !closed && ready && p != nil && c.ctx.Err() == nil {
+		select {
+		case <-p.done:
+			// The normal path starts a replacement worker.
+		default:
+			c.logf("Dry run dispatched for %s \n", source)
+			ctx, cancel := context.WithCancel(ctx)
+			stop := context.AfterFunc(c.ctx, cancel)
+			defer func() { stop(); cancel() }()
+			req.Op = "estimate-ready"
+			result, err := c.sendJSON(ctx, p, req)
+			return result.Estimate, err
+		}
+	}
+	// A source that has not loaded yet still needs the serialized startup path.
+	c.logf("Dry run waiting for query gate to initialize %s\n", source)
+	result, err := c.call(ctx, req)
 	return result.Estimate, err
 }
 

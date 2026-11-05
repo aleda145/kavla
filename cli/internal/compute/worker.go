@@ -124,6 +124,8 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 		result.Scan, err = eng.ReadQueryScan(ctx, req.Source, req.SQL, req.StartedAt, req.FinishedAt)
 	case "estimate":
 		result.Estimate, err = eng.EstimateQuery(ctx, req.ExecutionEngine, req.Source, req.SQL)
+	case "estimate-ready":
+		result.Estimate, err = eng.EstimateReadyQuery(ctx, req.ExecutionEngine, req.Source, req.SQL)
 	case "preview":
 		result.SQL, err = eng.PreparePreviewSQLContext(ctx, req.ExecutionEngine, req.Source, req.SQL, req.Limit)
 	case "prepare-mount":
@@ -161,8 +163,10 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 	}
 	// Also return an authoritative snapshot with every response, including
 	// failed operations and Arrow streams, before the caller releases its gate.
-	statuses, _ := json.Marshal(eng.SourceStatuses())
-	w.Header().Set(sourceStatusesHeader, string(statuses))
+	if req.Op != "estimate-ready" {
+		statuses, _ := json.Marshal(eng.SourceStatuses())
+		w.Header().Set(sourceStatusesHeader, string(statuses))
+	}
 	if reader == nil || err != nil {
 		if reader != nil {
 			reader.Release()

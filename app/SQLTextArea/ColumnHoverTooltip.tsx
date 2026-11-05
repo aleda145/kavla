@@ -352,7 +352,7 @@ export const ColumnHoverTooltip: React.FC<ColumnHoverTooltipProps> = ({
         )}
       </div>
 
-      <QueryEstimate request={estimateRequest} unavailableReason={estimateError} disabled={loading} />
+      <QueryEstimate request={estimateRequest} unavailableReason={estimateError} disabled={loading} cacheStatic />
       <div className="p-2 bg-white flex flex-col justify-center min-h-[60px]">
         {loading && (!isRemoteCliSource || !visibleStats) ? (
           isRemoteCliSource ? (

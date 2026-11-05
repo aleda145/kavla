@@ -317,7 +317,9 @@ func (c *Client) send(ctx context.Context, p *process, req request) (*http.Respo
 	httpReq.Header.Set("Content-Type", "application/json")
 	result, err := c.http.Do(httpReq)
 	if err != nil {
-		c.invalidate(p)
+		if req.Op != "estimate-ready" {
+			c.invalidate(p)
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -364,7 +366,9 @@ func (c *Client) sendJSON(ctx context.Context, p *process, req request) (respons
 	defer res.Body.Close()
 	var result response
 	if err := json.NewDecoder(io.LimitReader(res.Body, 16<<20)).Decode(&result); err != nil {
-		c.invalidate(p)
+		if req.Op != "estimate-ready" {
+			c.invalidate(p)
+		}
 		return result, fmt.Errorf("%s: %w", stoppedMessage, err)
 	}
 	if result.Error != "" {
