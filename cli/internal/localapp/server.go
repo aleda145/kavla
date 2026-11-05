@@ -359,6 +359,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/session/validate", s.sameOriginMutation(s.handleCompute))
 	mux.HandleFunc("POST /api/session/widget-query", s.sameOriginMutation(s.handleCompute))
 	mux.HandleFunc("GET /api/session", s.handleSession)
+	mux.HandleFunc("GET /api/session/compute-stats", s.handleComputeStats)
 	mux.HandleFunc("GET /api/runtime/events", s.sameOriginMutation(s.handleRuntimeEvents))
 	mux.HandleFunc("PUT /api/session/document", s.sameOriginMutation(s.handleDocument))
 	mux.HandleFunc("PUT /api/session/undo", s.sameOriginMutation(s.handleUndo))

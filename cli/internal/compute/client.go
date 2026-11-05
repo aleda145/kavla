@@ -34,6 +34,8 @@ type process struct {
 	address string
 	token   string
 	done    chan struct{}
+	started time.Time
+	limits  ready
 }
 
 // Client serializes operations for one document. A streaming Arrow result owns
@@ -137,7 +139,7 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 	}
 	_ = stdoutChild.Close()
 	_ = stderrChild.Close()
-	p := &process{cmd: cmd, control: control, token: config.Token, done: make(chan struct{})}
+	p := &process{cmd: cmd, control: control, token: config.Token, done: make(chan struct{}), started: time.Now()}
 	go func() {
 		defer stderr.Close()
 		scanner := bufio.NewScanner(stderr)
@@ -191,6 +193,7 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 			return nil, ready{}, fmt.Errorf("start DuckDB service: %s", result.Error)
 		}
 		p.address = "http://" + result.Address + "/execute"
+		p.limits = result
 		return p, result, nil
 	case <-ctx.Done():
 		p.kill()
