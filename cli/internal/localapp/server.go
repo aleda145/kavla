@@ -1473,9 +1473,10 @@ func writeArrowResult(w http.ResponseWriter, reader interface {
 	Err() error
 }) {
 	w.Header().Set("Content-Type", "application/vnd.apache.arrow.stream")
-	writer := ipc.NewWriter(w, ipc.WithSchema(reader.Schema()))
+	writer := ipc.NewWriter(resultWriter{w: w}, ipc.WithSchema(reader.Schema()))
 	for reader.Next() {
 		if err := writer.Write(reader.Record()); err != nil {
+			log.Printf("Send query results to browser: %v", err)
 			panic(http.ErrAbortHandler)
 		}
 	}
