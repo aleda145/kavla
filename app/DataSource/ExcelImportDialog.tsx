@@ -64,7 +64,7 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
     if (!config.skipEmptyRows) return Math.max(0, config.endRow - firstRow + 1);
     let count = 0;
     for (let row = firstRow; row <= config.endRow; row++) {
-      if (config.columns.some((col) => (sheet.rows[row]?.[col] ?? "") !== "")) count++;
+      if (config.columns.some((col) => (sheet.rows[row]?.[col] ?? "").trim() !== "")) count++;
     }
     return count;
   }, [config, sheet]);
