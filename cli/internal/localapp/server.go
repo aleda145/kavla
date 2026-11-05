@@ -359,6 +359,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/session/validate", s.sameOriginMutation(s.handleCompute))
 	mux.HandleFunc("POST /api/session/widget-query", s.sameOriginMutation(s.handleCompute))
 	mux.HandleFunc("GET /api/session", s.handleSession)
+	mux.HandleFunc("GET /api/session/compute-stats", s.handleComputeStats)
 	mux.HandleFunc("GET /api/runtime/events", s.sameOriginMutation(s.handleRuntimeEvents))
 	mux.HandleFunc("PUT /api/session/document", s.sameOriginMutation(s.handleDocument))
 	mux.HandleFunc("PUT /api/session/undo", s.sameOriginMutation(s.handleUndo))
@@ -1472,9 +1473,10 @@ func writeArrowResult(w http.ResponseWriter, reader interface {
 	Err() error
 }) {
 	w.Header().Set("Content-Type", "application/vnd.apache.arrow.stream")
-	writer := ipc.NewWriter(w, ipc.WithSchema(reader.Schema()))
+	writer := ipc.NewWriter(resultWriter{w: w}, ipc.WithSchema(reader.Schema()))
 	for reader.Next() {
 		if err := writer.Write(reader.Record()); err != nil {
+			log.Printf("Send query results to browser: %v", err)
 			panic(http.ErrAbortHandler)
 		}
 	}

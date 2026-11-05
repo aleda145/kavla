@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BriefcaseBusiness, Code2, Pin, Terminal } from "lucide-react";
-import { siDuckdb, siGithub } from "simple-icons";
+import { siGithub } from "simple-icons";
 import { createShapeId, useEditor, useValue } from "tldraw";
 import { isBackendComputing } from "../backendCompute";
 import { setBizMode, useBizMode } from "../canvas/bizMode";
 import { getCliTerminalDisplay } from "../cliTerminalDisplay";
 import { useCliOutput, useCliStatus } from "../localServer/runtimeStore";
 import { LocalAssetsDialog } from "./LocalAssetsDialog";
+
+import { DuckDBStatsButton } from "../../DuckDBStats/DuckDBStatsButton";
 
 const DISCORD_INVITE_URL = "https://discord.gg/aeBGuDdhtP";
 const GITHUB_REPOSITORY_URL = "https://github.com/aleda145/kavla";
@@ -305,28 +307,7 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
               )}
           </div>
 
-          <div
-            aria-label={isComputing ? "DuckDB is computing" : "DuckDB is idle"}
-            role="status"
-            style={{
-              ...lightStyle,
-              backgroundColor: isComputing ? "#fef08a" : "#f1f5f9",
-            }}
-            title={isComputing ? "DuckDB is computing" : "DuckDB is idle"}
-          >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              style={{
-                width: 12,
-                height: 12,
-                fill: isComputing ? "#000" : "#94a3b8",
-                transition: "fill 0.2s ease",
-              }}
-            >
-              <path d={siDuckdb.path} />
-            </svg>
-          </div>
+          <DuckDBStatsButton isComputing={isComputing} />
 
           <a
             aria-label="View Kavla on GitHub"

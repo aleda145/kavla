@@ -567,3 +567,11 @@ func (s *Session) OperationContext(parent context.Context) (context.Context, con
 	stop := context.AfterFunc(s.ctx, cancel)
 	return ctx, func() { stop(); cancel() }
 }
+
+// ComputeStats observes the worker without starting it or waiting for SQL.
+func (s *Session) ComputeStats() compute.Stats {
+	if s.engine == nil {
+		return compute.Stats{State: "standby"}
+	}
+	return s.engine.Stats()
+}
