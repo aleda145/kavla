@@ -72,3 +72,47 @@
   border: 2px solid #000;
   box-shadow: none;
 }
+
+.tlui-style-panel .kavla-selection-operations {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 4px;
+}
+
+.tlui-style-panel .kavla-selection-operation {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 4px 8px;
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: #000;
+}
+
+html[data-kavla-just-icons] .tlui-style-panel .kavla-selection-operations {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+html[data-kavla-just-icons] .tlui-style-panel .kavla-selection-operation {
+  padding: 4px;
+  justify-content: center;
+  gap: 0;
+}
+
+.tlui-style-panel .kavla-selection-operation:focus-visible {
+  outline: none !important;
+}
+
+.tlui-style-panel .kavla-selection-operation:focus-visible::after {
+  background: #e2e8f0;
+  opacity: 1;
+}
+
+.tlui-style-panel .kavla-selection-operation:disabled {
+  opacity: 0.4;
+}

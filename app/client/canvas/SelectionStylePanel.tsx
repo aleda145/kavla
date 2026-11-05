@@ -1,15 +1,4 @@
-import {
-  BriefcaseBusiness,
-  CircleMinus,
-  Code2,
-  Columns3,
-  Diff,
-  Layers,
-  LayoutDashboard,
-  Loader2,
-  Merge,
-  Scan,
-} from "lucide-react";
+import { BriefcaseBusiness, Code2, LayoutDashboard, Loader2, Scan } from "lucide-react";
 import {
   createShapeId,
   DefaultStylePanel,
@@ -47,36 +36,89 @@ import { SelectionOperationDialog } from "./SelectionOperationDialog";
 const operations = [
   {
     operation: "UNION ALL",
-    icon: Layers,
-    color: "#ef4444",
+    label: "Union all",
     description: "Stack all rows, keeping duplicates. Columns match by position.",
   },
   {
     operation: "UNION",
-    icon: Merge,
-    color: "#b91c1c",
+    label: "Union",
     description: "Combine rows and remove duplicates. Columns match by position.",
   },
-  { operation: "JOIN", icon: Columns3, color: "#2563eb", description: "Join matching rows using keys you choose." },
+  { operation: "JOIN", label: "Join", description: "Join matching rows using keys you choose." },
   {
     operation: "INTERSECT",
-    icon: Scan,
-    color: "#15803d",
+    label: "Intersect",
     description: "Keep distinct rows present in every input. Columns match by position.",
   },
   {
     operation: "EXCEPT",
-    icon: CircleMinus,
-    color: "#c2410c",
+    label: "Except",
     description: "Keep rows in A that are absent from the other inputs. Choose A before running.",
   },
   {
     operation: "DIFF",
-    icon: Diff,
-    color: "#0e7490",
+    label: "Diff",
     description: "Compare two datasets to find added, removed, or changed records.",
   },
-] satisfies { operation: SelectionOperation; icon: typeof Merge; color: string; description: string }[];
+] satisfies { operation: SelectionOperation; label: string; description: string }[];
+
+function SelectionOperationIcon({ operation }: { operation: SelectionOperation }) {
+  return (
+    <svg
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flexShrink: 0 }}
+      aria-hidden="true"
+      focusable="false"
+    >
+      {operation === "UNION ALL" ? (
+        <>
+          <rect x={3} y={2} width={14} height={5} rx={1} fill="currentColor" fillOpacity={0.2} />
+          <rect x={3} y={10} width={14} height={5} rx={1} fill="currentColor" fillOpacity={0.2} />
+          <path d="M3 18v3h10M19 16v6m-3-3h6" />
+        </>
+      ) : operation === "JOIN" ? (
+        <>
+          <rect x={1} y={4} width={8} height={16} rx={1.5} />
+          <rect x={15} y={4} width={8} height={16} rx={1.5} />
+          <path d="M1 9h8m6 0h8M1 14h8m6 0h8" />
+          <path d="M6 12h12" strokeWidth={3} />
+          <circle cx={6} cy={12} r={1.5} fill="currentColor" stroke="none" />
+          <circle cx={18} cy={12} r={1.5} fill="currentColor" stroke="none" />
+        </>
+      ) : operation === "DIFF" ? (
+        <>
+          <rect x={2} y={3} width={20} height={18} rx={2} />
+          <path d="M2 12h20M5 7.5h4m-2-2v4M5 16.5h4M13 7.5h6m-6 9h6" />
+        </>
+      ) : (
+        <>
+          {/* Highlight the result region while keeping both input sets visible. */}
+          <path
+            d={
+              operation === "INTERSECT"
+                ? "M12 6.255a7 7 0 0 1 0 11.49a7 7 0 0 1 0-11.49Z"
+                : operation === "EXCEPT"
+                  ? "M12 6.255a7 7 0 1 0 0 11.49a7 7 0 0 1 0-11.49Z"
+                  : "M12 6.255a7 7 0 1 0 0 11.49a7 7 0 1 0 0-11.49Z"
+            }
+            fill="currentColor"
+            fillOpacity={0.2}
+            stroke="none"
+          />
+          <circle cx={8} cy={12} r={7} />
+          <circle cx={16} cy={12} r={7} />
+        </>
+      )}
+    </svg>
+  );
+}
 
 function getSelectedInputs(editor: Editor): SQLDependencyShape[] {
   const inputs = new Map<TLShapeId, SQLDependencyShape>();
@@ -290,16 +332,11 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
       )}
       {inputs.length >= 2 && (
         <div
-          className="tlui-style-panel__section"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            padding: 4,
-            backgroundColor: "#fff",
-            borderRadius: 8,
-          }}
+          className="tlui-style-panel__section kavla-selection-operations"
+          role="group"
+          aria-label="Combine selected datasets"
         >
-          {operations.map(({ operation, icon: Icon, color, description }) => {
+          {operations.map(({ operation, label, description }) => {
             const error =
               operation === "DIFF"
                 ? inputs.length !== 2
@@ -316,11 +353,13 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
                 aria-label={`${operation} selected data`}
                 title={`${operation}: ${error || description}`}
                 disabled={Boolean(error)}
-                style={{ width: "100%", minWidth: 0, height: 32, color, opacity: error ? 0.4 : 1 }}
+                className="kavla-selection-operation"
                 onPointerDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
                 onClick={() => selectOperation(operation)}
               >
-                <Icon size={18} aria-hidden="true" />
+                <SelectionOperationIcon operation={operation} />
+                <span className="kavla-control-label">{label}</span>
               </TldrawUiButton>
             );
           })}
