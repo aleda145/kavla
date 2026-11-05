@@ -7,6 +7,11 @@ import {
   getDefaultColorTheme,
   resizeBox,
   TLShapeId,
+  TldrawUiDialogBody,
+  TldrawUiDialogCloseButton,
+  TldrawUiDialogHeader,
+  TldrawUiDialogTitle,
+  useDialogs,
   useToasts,
   useValue,
 } from "tldraw";
@@ -32,9 +37,97 @@ import { getBriefErrorMessage } from "../util/error-message";
 import { confirmLargeTableDownload, estimateTableDownloadBytesFromRows } from "../util/largeTableDownload";
 import { requestSQLShapeRun } from "../SQLTextArea/sqlShapeRun";
 import { getSQLResultSort, toggleSQLResultSort } from "./sql-result-sorting";
+import { SQL_RESULT_BUTTON_CLASS } from "./sql-result-area-styles";
+import "./CopyResultDialog.css";
 
 const TABLE_ROW_HEIGHT = 35;
 const TABLE_PAGE_SIZE = 1000;
+const CLIPBOARD_ROW_LIMIT = 1000;
+const LARGE_CLIPBOARD_ROW_LIMIT = 100_000;
+
+function CopyResultDialog({
+  rowCount,
+  onCopy,
+  onDownload,
+  onClose,
+}: {
+  rowCount: number;
+  onCopy: (limit?: number) => Promise<void>;
+  onDownload: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [confirmLargeCopy, setConfirmLargeCopy] = useState(false);
+
+  const copy = (limit?: number) => {
+    onClose();
+    void onCopy(limit);
+  };
+
+  return (
+    <div className="kavla-copy-result-dialog">
+      <TldrawUiDialogHeader>
+        <TldrawUiDialogTitle>{confirmLargeCopy ? "Copy this many rows?" : "Copy to clipboard"}</TldrawUiDialogTitle>
+        <TldrawUiDialogCloseButton />
+      </TldrawUiDialogHeader>
+      <TldrawUiDialogBody>
+        <p style={{ margin: "0 0 16px" }}>
+          {confirmLargeCopy
+            ? `Copying ${rowCount.toLocaleString()} rows to your clipboard could crash your computer. Are you sure? Download the result as a file instead!`
+            : "This is a lot of rows. How many do you want to load in your clipboard?"}
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 }}>
+          {confirmLargeCopy ? (
+            <>
+              <button className={SQL_RESULT_BUTTON_CLASS} onClick={() => copy()}>
+                Copy all {rowCount.toLocaleString()} rows anyway
+              </button>
+              <button
+                autoFocus
+                className={SQL_RESULT_BUTTON_CLASS}
+                style={{ backgroundColor: "#dcfce7" }}
+                onClick={() => {
+                  onClose();
+                  void onDownload();
+                }}
+              >
+                Download CSV instead
+              </button>
+            </>
+          ) : (
+            <>
+              <button autoFocus className={SQL_RESULT_BUTTON_CLASS} onClick={() => copy(CLIPBOARD_ROW_LIMIT)}>
+                Just 1000 rows
+              </button>
+              <button
+                className={SQL_RESULT_BUTTON_CLASS}
+                style={{ backgroundColor: "#dcfce7" }}
+                onClick={() => {
+                  if (rowCount > LARGE_CLIPBOARD_ROW_LIMIT) {
+                    setConfirmLargeCopy(true);
+                  } else {
+                    copy();
+                  }
+                }}
+              >
+                Load all {rowCount.toLocaleString()} rows
+              </button>
+            </>
+          )}
+        </div>
+      </TldrawUiDialogBody>
+    </div>
+  );
+}
+
+function escapeClipboardCell(value: unknown): string {
+  const text =
+    value === null || value === undefined
+      ? ""
+      : typeof value === "object"
+        ? JSON.stringify(value, (_key, nested) => (typeof nested === "bigint" ? nested.toString() : nested))
+        : String(value);
+  return /[\t\r\n"]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
 
 function startPreparedDownload(download: { downloadUrl: string; fileName: string }): void {
   const anchor = document.createElement("a");
@@ -74,6 +167,7 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
     });
     const { sourceShapeId, scrollTop, scrollLeft, columnSizing } = shape.props;
     const { addToast } = useToasts();
+    const { addDialog } = useDialogs();
     const { getQueryResultPage, prepareQueryResultDownload, runRemoteQuery } = useData();
     const [isCopied, setIsCopied] = useState(false);
     const [isSorting, setIsSorting] = useState(false);
@@ -447,21 +541,40 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
       }
     }, [scrollTop, scrollLeft, rowVirtualizer.getTotalSize(), columnVirtualizer.getTotalSize()]);
 
-    const handleCopyTSV = async () => {
+    const copyTSV = async (limit?: number) => {
       if (!sourceShape) return;
       try {
-        const prepare = () =>
-          prepareQueryResultDownload({ shapeId: sourceShape.id, format: "tsv", fileName: sourceShape.props.name });
-        let download;
+        const loadText = async () => {
+          if (limit !== undefined) {
+            const page = await getQueryResultPage({ shapeId: sourceShape.id, offset: 0, limit });
+            const schema =
+              getRestoredRemoteQueryMetadata(sourceShape.id)?.schema ?? sourceShape.props.outputSchema ?? [];
+            const header = schema.map((column) => escapeClipboardCell(column.name)).join("\t");
+            const rows = page.rows.map((row) =>
+              schema
+                .map((column) => escapeClipboardCell(formatSQLResultCellValue(row[column.name], column.type)))
+                .join("\t")
+            );
+            return [header, ...rows].join("\n") + "\n";
+          }
+
+          const download = await prepareQueryResultDownload({
+            shapeId: sourceShape.id,
+            format: "tsv",
+            fileName: sourceShape.props.name,
+          });
+          const response = await backendRequest(download.downloadUrl);
+          return response.text();
+        };
+        let text;
         try {
-          download = await prepare();
+          text = await loadText();
         } catch (error) {
           if (!(error instanceof MissingQueryResultError)) throw error;
           await restoreRemoteQueryView(this.editor, sourceShape, runRemoteQuery);
-          download = await prepare();
+          text = await loadText();
         }
-        const response = await backendRequest(download.downloadUrl);
-        await navigator.clipboard.writeText(await response.text());
+        await navigator.clipboard.writeText(text);
         setIsCopied(true);
         setTimeout(() => setIsCopied(false), 2000);
       } catch (error) {
@@ -471,6 +584,29 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
           severity: "error",
         });
       }
+    };
+
+    const handleCopyTSV = () => {
+      if (!sourceShape) return;
+      const rowCount =
+        getRestoredRemoteQueryMetadata(sourceShape.id)?.rowCount ??
+        sourceShape.props.lastRunStats?.rowCount ??
+        totalRows;
+      if (rowCount > CLIPBOARD_ROW_LIMIT) {
+        addDialog({
+          id: `copy-result-${shape.id}`,
+          component: ({ onClose }) => (
+            <CopyResultDialog
+              rowCount={rowCount}
+              onCopy={copyTSV}
+              onDownload={() => handleDownload("csv")}
+              onClose={onClose}
+            />
+          ),
+        });
+        return;
+      }
+      void copyTSV();
     };
 
     const handleDownload = async (format: TableDownloadFormat) => {

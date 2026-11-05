@@ -1,0 +1,38 @@
+.tlui-dialog__content:has(> .kavla-copy-result-dialog) {
+  background-color: #fff;
+  border: 3px solid #000;
+  border-radius: 12px;
+  box-shadow: 6px 6px 0 0 #000;
+  color: #000;
+  font-family: Inter, sans-serif;
+  width: min(480px, calc(100vw - 40px));
+  min-width: 0;
+}
+
+.kavla-copy-result-dialog {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.kavla-copy-result-dialog .tlui-dialog__header {
+  background-color: #dcfce7;
+  border-bottom: 3px solid #000;
+  color: #000;
+  flex: 0 0 auto;
+  height: auto;
+  padding: 6px 14px;
+}
+
+.kavla-copy-result-dialog .tlui-dialog__header__title {
+  color: #000;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.kavla-copy-result-dialog .tlui-dialog__body {
+  color: #000;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 14px;
+}
