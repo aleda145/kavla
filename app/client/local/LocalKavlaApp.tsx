@@ -37,6 +37,7 @@ import { ChartUtil } from "../../Chart/ChartUtil";
 import { AgentBlobUtil } from "../../AgentBlob/AgentBlobUtil";
 import { AgentChatUtil } from "../../AgentBlob/AgentChatUtil";
 import { AgentChatLayout } from "../../AgentBlob/AgentChatLayout";
+import { DuckDBStatsUtil } from "../../DuckDBStats/DuckDBStatsUtil";
 import { CLITerminalUtil } from "../../CLITerminal/CLITerminalUtil";
 import { DataSourceUtil } from "../../DataSource/DataSourceUtil";
 import { SQLResultTableUtil } from "../../SQLResultArea/SQLResultAreaUtil";
@@ -86,6 +87,7 @@ const customShapeUtils = [
   LensUtil,
   SummaryShapeUtil,
   CLITerminalUtil,
+  DuckDBStatsUtil,
   AgentChatUtil,
   AgentBlobUtil,
   KavlaArrowShapeUtil,

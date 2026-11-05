@@ -630,3 +630,11 @@ func (s *Session) EstimateQuery(ctx context.Context, executionEngine, sourceName
 	defer cancel()
 	return s.engine.EstimateQuery(ctx, executionEngine, sourceName, sql)
 }
+
+// ComputeStats observes the worker without starting it or waiting for SQL.
+func (s *Session) ComputeStats() compute.Stats {
+	if s.engine == nil {
+		return compute.Stats{State: "standby"}
+	}
+	return s.engine.Stats()
+}
