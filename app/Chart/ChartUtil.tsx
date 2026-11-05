@@ -24,7 +24,6 @@ import { ChartActionBar } from "./ChartActionBar";
 import { ChartBody } from "./ChartBody";
 import { ChartFooter } from "./ChartFooter";
 import { ChartHeader } from "./ChartHeader";
-import { InheritedSourceSample } from "../DataSource/InheritedSourceSample";
 import { buildChartOption, normalizeChartRow } from "./chartOptions";
 import { restoreRemoteQueryView } from "../SQLTextArea/restoreRemoteQueryView";
 import { useData } from "../client/useLocalServer";
@@ -328,9 +327,7 @@ export class ChartUtil extends ShapeUtil<ChartShape> {
         }}
         onPointerDown={() => {}}
       >
-        <ChartHeader sourceName={sourceName || "..."}>
-          <InheritedSourceSample editor={this.editor} shapeId={shape.id} compact />
-        </ChartHeader>
+        <ChartHeader sourceName={sourceName || "..."} />
 
         <div style={{ display: "flex", flex: 1, minHeight: 0, minWidth: 0 }}>
           <ChartBody
