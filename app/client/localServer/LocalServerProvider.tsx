@@ -28,7 +28,12 @@ import {
   type CliOutputLine,
   type KavlaVersionInfo,
 } from "./runtimeStore";
-import { MissingQueryResultError, type LocalServerContextType, type RunRemoteQueryPayload } from "./types";
+import {
+  MissingQueryResultError,
+  type LocalServerContextType,
+  type RunRemoteQueryPayload,
+  type QueryScan,
+} from "./types";
 
 import { prepareRemoteQuery } from "../queryEstimate";
 
@@ -231,6 +236,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
 
         try {
           const result = await postJSON<{
+            scan?: QueryScan;
             rowCount: number;
             schema: { name: string; type: string }[];
           }>(
@@ -245,6 +251,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
               : (await getQueryResultPage({ shapeId: payload.shapeId, offset: 0, limit: 5, signal: controller.signal }))
                   .rows;
           return {
+            scan: result.scan,
             rowCount: Number(result.rowCount ?? 0),
             schema: result.schema,
             sampleRows,

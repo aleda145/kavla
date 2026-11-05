@@ -2,9 +2,11 @@ package session
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aleda145/kavla/cli/internal/compute"
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
@@ -52,8 +54,9 @@ type ResultColumn struct {
 }
 
 type QueryResult struct {
-	RowCount int64          `json:"rowCount"`
-	Schema   []ResultColumn `json:"schema"`
+	Scan     *sources.QueryScan `json:"scan,omitempty"`
+	RowCount int64              `json:"rowCount"`
+	Schema   []ResultColumn     `json:"schema"`
 }
 
 type QueryResultMetadata struct {
@@ -269,6 +272,13 @@ func (s *Session) RunQuery(parent context.Context, client Client, req runner.Que
 	if err := s.mountRemoteFileSources(queryCtx, client, req.MountedFileSources); err != nil {
 		return nil, err
 	}
+	readScan := req.ExecutionEngine == "bigquery" && !req.Transient
+	if readScan {
+		// Stable across reruns so the tracking comment does not bust query caches.
+		tag := sha256.Sum256([]byte(req.ShapeId))
+		req.SQL = strings.TrimSuffix(strings.TrimSpace(req.SQL), ";") + fmt.Sprintf("\n/* kavla:%x */", tag[:16])
+	}
+	startedAt := time.Now()
 	preparedSQL, err := runner.PreparePreviewSQLContext(queryCtx, req, s.engine, 0)
 	if err != nil {
 		return nil, err
@@ -298,7 +308,20 @@ func (s *Session) RunQuery(parent context.Context, client Client, req runner.Que
 	if !req.Restore {
 		s.log("Prepared a %d-row query result for browser access\n", rowCount)
 	}
-	return &QueryResult{RowCount: rowCount, Schema: schema}, nil
+	var scan *sources.QueryScan
+	if readScan {
+		scan, err = s.engine.ReadQueryScan(queryCtx, req.SourceName, req.SQL, startedAt, time.Now())
+		if err != nil {
+			if queryCtx.Err() != nil {
+				return nil, queryCtx.Err()
+			}
+			// Keep successful results usable when metadata permissions are missing,
+			// but expose the failure to the footer instead of reporting zero bytes.
+			scan = &sources.QueryScan{Error: err.Error()}
+			s.log("Read scanned bytes: %v\n", err)
+		}
+	}
+	return &QueryResult{RowCount: rowCount, Schema: schema, Scan: scan}, nil
 }
 
 func (s *Session) QueryResultPage(ctx context.Context, shapeID string, offset, limit int) (array.RecordReader, error) {

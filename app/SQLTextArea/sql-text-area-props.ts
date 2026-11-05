@@ -18,6 +18,10 @@ export const SQLTextAreaProps: RecordProps<SQLTextAreaShape> = {
   showTable: T.boolean,
   runnerName: T.string.nullable(),
   lastRunStats: T.object({
+    scan: T.object({
+      bytesProcessed: T.string.optional(),
+      error: T.string.optional(),
+    }).optional(),
     executionTime: T.number,
     rowCount: T.number,
     runnerName: T.string,

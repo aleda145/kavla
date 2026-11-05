@@ -3,6 +3,8 @@
 package compute
 
 import (
+	"time"
+
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/engine"
 	"github.com/aleda145/kavla/cli/internal/sources"
@@ -30,6 +32,8 @@ type ready struct {
 }
 
 type request struct {
+	StartedAt       time.Time
+	FinishedAt      time.Time
 	Op              string
 	SQL             string
 	ID              string
@@ -45,6 +49,7 @@ type request struct {
 }
 
 type response struct {
+	Scan     *sources.QueryScan
 	Estimate *sources.QueryEstimate
 	Error    string
 	SQL      string

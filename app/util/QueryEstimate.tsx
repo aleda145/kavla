@@ -68,12 +68,12 @@ export function QueryEstimate({
   if (compact) {
     const compactLabel =
       unavailableReason || current?.error
-        ? "Estimate: unavailable"
+        ? "Est.: unavailable"
         : current?.bytes !== undefined
-          ? `Estimate: ${formatProcessedBytes(current.bytes)}`
+          ? `Est.: ${formatProcessedBytes(current.bytes)}`
           : loading
-            ? "Estimate: loading"
-            : "Estimate: —";
+            ? "Est.: loading"
+            : "Est.: —";
     return (
       <span className="min-w-0" aria-live="polite">
         <button
@@ -88,7 +88,7 @@ export function QueryEstimate({
         >
           {loading ? (
             <>
-              Estimate: <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden />
+              Est.: <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden />
             </>
           ) : (
             <span className="truncate">{compactLabel}</span>
