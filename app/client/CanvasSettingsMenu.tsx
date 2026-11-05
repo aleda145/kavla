@@ -15,15 +15,13 @@ import {
   useValue,
 } from "tldraw";
 import { JustIconsMenuItem } from "./justIcons";
-import { getLayoutInProgress } from "./canvas/layoutActions";
+import { getLayoutActionAvailability } from "./canvas/layoutActions";
 
 export function CanvasSettingsMenu() {
   const editor = useEditor();
-  const layoutDisabled = useValue(
-    "Layout actions disabled",
-    () => editor.getIsReadonly() || getLayoutInProgress(editor).get(),
-    [editor]
-  );
+  const { canLayout, canFit } = useValue("Layout selection availability", () => getLayoutActionAvailability(editor), [
+    editor,
+  ]);
   return (
     <TldrawUiDropdownMenuRoot id="main menu">
       <TldrawUiDropdownMenuTrigger>
@@ -54,8 +52,8 @@ export function CanvasSettingsMenu() {
           </TldrawUiMenuGroup>
           <TldrawUiMenuGroup id="settings">
             <JustIconsMenuItem />
-            <TldrawUiMenuActionItem actionId="layout-kavla-nodes" disabled={layoutDisabled} />
-            <TldrawUiMenuActionItem actionId="fit-query-nodes" disabled={layoutDisabled} />
+            <TldrawUiMenuActionItem actionId="layout-kavla-nodes" disabled={!canLayout} />
+            <TldrawUiMenuActionItem actionId="fit-query-nodes" disabled={!canFit} />
             <ToggleDebugModeItem />
           </TldrawUiMenuGroup>
         </TldrawUiMenuContextProvider>
