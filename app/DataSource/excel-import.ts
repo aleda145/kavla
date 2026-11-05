@@ -52,8 +52,8 @@ export function suggestExcelSelection(sheet: ExcelSheet, workbookId = ""): Excel
   let startRow = 0;
   let bestScore = -1;
   sheet.rows.slice(0, 100).forEach((row, index) => {
-    const filled = row.filter((value) => value !== "");
-    const next = sheet.rows[index + 1]?.filter((value) => value !== "").length ?? 0;
+    const filled = row.filter((value) => value.trim() !== "");
+    const next = sheet.rows[index + 1]?.filter((value) => value.trim() !== "").length ?? 0;
     const score = filled.length + Math.min(filled.length, next) * 0.5;
     if (score > bestScore) {
       bestScore = score;

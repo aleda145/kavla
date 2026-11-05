@@ -274,14 +274,14 @@ func excelSelectionCSV(workbook *excelWorkbook, config *ExcelImportConfig) ([]by
 		empty := true
 		for i, col := range config.Columns {
 			values[i] = valueAt(row, col)
-			if values[i] != "" {
+			if strings.TrimSpace(values[i]) != "" {
 				empty = false
 			}
 		}
 		if config.SkipEmptyRows && empty {
 			continue
 		}
-		if empty && len(values) == 1 {
+		if len(values) == 1 && values[0] == "" {
 			// An unquoted blank line is skipped by CSV readers. Preserve this row.
 			writer.Flush()
 			if err := writer.Error(); err != nil {
