@@ -15,10 +15,12 @@ export function QueryEstimate({
   request,
   unavailableReason,
   disabled = false,
+  compact = false,
 }: {
   request: QueryEstimateRequest | null;
   unavailableReason?: string;
   disabled?: boolean;
+  compact?: boolean;
 }) {
   const revision = useValue("Query estimate revision", () => backendRevision.get(), []);
   const [refresh, setRefresh] = useState(0);
@@ -62,6 +64,39 @@ export function QueryEstimate({
         : disabled
           ? "Estimate paused while running"
           : "Estimating bytes…";
+
+  if (compact) {
+    const compactLabel =
+      unavailableReason || current?.error
+        ? "Estimate: unavailable"
+        : current?.bytes !== undefined
+          ? `Estimate: ${formatProcessedBytes(current.bytes)}`
+          : loading
+            ? "Estimate: loading"
+            : "Estimate: —";
+    return (
+      <span className="min-w-0" aria-live="polite">
+        <button
+          type="button"
+          className="flex max-w-full items-center gap-1 cursor-pointer hover:text-black disabled:cursor-default"
+          title="Dry run estimate"
+          aria-label={unavailableReason || current?.error || compactLabel}
+          aria-busy={loading}
+          disabled={!supported || loading || disabled}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => setRefresh((value) => value + 1)}
+        >
+          {loading ? (
+            <>
+              Estimate: <LoaderCircle size={13} className="shrink-0 animate-spin" aria-hidden />
+            </>
+          ) : (
+            <span className="truncate">{compactLabel}</span>
+          )}
+        </button>
+      </span>
+    );
+  }
 
   return (
     <div className="flex shrink-0 items-center gap-2 border-t border-black/20 bg-blue-50 px-2 py-1.5 text-[10px] text-black">
