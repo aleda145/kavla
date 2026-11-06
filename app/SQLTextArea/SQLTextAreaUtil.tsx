@@ -18,6 +18,7 @@ import { useData } from "../client/useLocalServer";
 import { useEffect, useState } from "react";
 import { validateBackendQuery } from "../client/backendCompute";
 import { ShapeEngineTabs } from "../util/ShapeEngineTabs";
+import { InheritedSourceSample } from "../DataSource/InheritedSourceSample";
 import {
   type EditorValidationIssue,
   issueFromMessage,
@@ -465,10 +466,9 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
           fontFamily: "Inter, sans-serif",
         }}
       >
-        <ShapeEngineTabs
-          tabs={queryExecutionState.tabs}
-          style={{ position: "absolute", top: -46, left: 0, right: 0 }}
-        />
+        <ShapeEngineTabs tabs={queryExecutionState.tabs} style={{ position: "absolute", top: -46, left: 0, right: 0 }}>
+          <InheritedSourceSample editor={this.editor} shapeId={shape.id} />
+        </ShapeEngineTabs>
         <div
           style={{
             display: "flex",

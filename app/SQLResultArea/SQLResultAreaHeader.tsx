@@ -1,8 +1,11 @@
+import type { ReactNode } from "react";
+
 interface SQLResultAreaHeaderProps {
   resultName: string;
+  children?: ReactNode;
 }
 
-export function SQLResultAreaHeader({ resultName }: SQLResultAreaHeaderProps) {
+export function SQLResultAreaHeader({ resultName, children }: SQLResultAreaHeaderProps) {
   return (
     <div
       style={{
@@ -14,12 +17,14 @@ export function SQLResultAreaHeader({ resultName }: SQLResultAreaHeaderProps) {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
+        gap: 8,
         flexShrink: 0, // Header shouldn't shrink
       }}
     >
-      <span>
+      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         <span style={{ fontSize: 15 }}>{resultName}</span>
       </span>
+      {children}
     </div>
   );
 }
