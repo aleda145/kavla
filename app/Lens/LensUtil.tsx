@@ -5,6 +5,7 @@ import type { LensShape } from "./lens-shape-types";
 import { LensShapeProps } from "./lens-shape-props";
 import { LensShapeMigrations } from "./lens-shape-migrations";
 import { LensHeader } from "./LensHeader";
+import { InheritedSourceSample } from "../DataSource/InheritedSourceSample";
 import { LensBody } from "./LensBody";
 import type { LensViewMode } from "./lens-view-mode";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
@@ -134,7 +135,9 @@ export class LensUtil extends ShapeUtil<LensShape> {
           title={shape.props.title || shape.props.name}
           description={shape.props.description}
           hasRetryStatus={generating}
-        />
+        >
+          <InheritedSourceSample editor={editor} shapeId={shape.id} compact />
+        </LensHeader>
         <LensBody
           isSampled={rows.isTruncated}
           code={shape.props.code}

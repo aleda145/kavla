@@ -1,12 +1,14 @@
 import { Info, RefreshCw } from "lucide-react";
+import type { ReactNode } from "react";
 
 interface LensHeaderProps {
   description: string | null;
   hasRetryStatus: boolean;
   title: string;
+  children?: ReactNode;
 }
 
-export function LensHeader({ description, hasRetryStatus, title }: LensHeaderProps) {
+export function LensHeader({ description, hasRetryStatus, title, children }: LensHeaderProps) {
   return (
     <div
       style={{
@@ -25,6 +27,7 @@ export function LensHeader({ description, hasRetryStatus, title }: LensHeaderPro
         <div style={{ fontSize: 13, fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        {children}
         {description && (
           <span
             aria-label="Lens info"

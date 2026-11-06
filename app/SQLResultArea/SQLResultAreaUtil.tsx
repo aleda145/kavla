@@ -29,6 +29,7 @@ import { formatSQLResultCellValue, SQLResultAreaBody, type SQLResultFocusedCell 
 import { SQLResultAreaActionBar } from "./SQLResultAreaActionBar";
 import { SQLResultAreaFooter } from "./SQLResultAreaFooter";
 import { SQLResultAreaHeader } from "./SQLResultAreaHeader";
+import { InheritedSourceSample } from "../DataSource/InheritedSourceSample";
 import { useData } from "../client/useLocalServer";
 import { MissingQueryResultError } from "../client/localServer/types";
 import { SQL_RESULT_TABLE_FEATURES, type SQLResultRow } from "./sql-result-table-features";
@@ -683,7 +684,9 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
           fontFamily: "Inter, sans-serif",
         }}
       >
-        <SQLResultAreaHeader resultName={sourceShape?.props.name || "Result"} />
+        <SQLResultAreaHeader resultName={sourceShape?.props.name || "Result"}>
+          <InheritedSourceSample editor={this.editor} shapeId={shape.id} compact />
+        </SQLResultAreaHeader>
 
         <div style={{ display: "flex", flex: 1, flexDirection: "row", minHeight: 0 }}>
           <SQLResultAreaBody

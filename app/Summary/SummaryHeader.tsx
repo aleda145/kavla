@@ -1,13 +1,15 @@
 import { FileText } from "lucide-react";
+import type { ReactNode } from "react";
 
 const SUMMARY_HEADER_COLOR = "#ccfbf1";
 const SUMMARY_ACCENT_COLOR = "#14b8a6";
 
 interface SummaryHeaderProps {
   name: string;
+  children?: ReactNode;
 }
 
-export function SummaryHeader({ name }: SummaryHeaderProps) {
+export function SummaryHeader({ name, children }: SummaryHeaderProps) {
   return (
     <div
       style={{
@@ -26,6 +28,7 @@ export function SummaryHeader({ name }: SummaryHeaderProps) {
         title={name}
         style={{
           minWidth: 0,
+          flex: 1,
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
@@ -38,6 +41,7 @@ export function SummaryHeader({ name }: SummaryHeaderProps) {
       >
         {name}
       </span>
+      {children}
     </div>
   );
 }

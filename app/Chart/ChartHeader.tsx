@@ -1,8 +1,11 @@
+import type { ReactNode } from "react";
+
 interface ChartHeaderProps {
   sourceName: string;
+  children?: ReactNode;
 }
 
-export function ChartHeader({ sourceName }: ChartHeaderProps) {
+export function ChartHeader({ sourceName, children }: ChartHeaderProps) {
   return (
     <div
       style={{
@@ -12,6 +15,7 @@ export function ChartHeader({ sourceName }: ChartHeaderProps) {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
+        gap: 8,
         backgroundColor: "#fce7f3", // Pink-100
         padding: "0 12px",
         fontSize: 14,
@@ -21,6 +25,7 @@ export function ChartHeader({ sourceName }: ChartHeaderProps) {
       }}
     >
       <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sourceName}</span>
+      {children}
     </div>
   );
 }
