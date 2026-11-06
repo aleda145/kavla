@@ -31,6 +31,7 @@ export type DataSourceShape = TLBaseShape<
     sourceType: string | null;
     remoteTableRef: string | null;
     rowCount: number | null;
+    samplePercent?: number;
     downstreamShapeIds: string[] | null;
     upstreamShapeIds: string[] | null;
     metadata: ColumnMetadata[] | null;

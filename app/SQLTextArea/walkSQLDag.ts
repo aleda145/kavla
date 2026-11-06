@@ -203,12 +203,21 @@ export function buildRemoteSQLFromDag(
   orderedDependencies: SQLDependencyShape[],
   editor: Editor
 ): string {
+  const execution = describeQueryExecution(orderedDependencies);
   const ctes = orderedDependencies.map((dependency) => {
     if (dependency.type === "sql-text-area")
       return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(resolveKnobSQL(editor, dependency.props.text))})`;
     const source = getRemoteSourceMetadata(dependency);
     if (!source) throw new Error(`Source "${dependency.props.name}" is unavailable.`);
-    return `${quoteIdentifier(dependency.props.name)} AS (SELECT * FROM ${quoteDottedIdentifier(source.remoteTableRef)})`;
+    const percent = dependency.props.samplePercent ?? 100;
+    if (!Number.isFinite(percent) || percent < 0.01 || percent > 100) {
+      throw new Error(`Source "${dependency.props.name}" has an invalid sample percentage.`);
+    }
+    // The SQL transpiler preserves TABLESAMPLE arguments. Postgres requires the
+    // percentage without the PERCENT keyword; DuckDB and BigQuery require it.
+    const unit = execution.sourceNativePreview && execution.sourceType === "postgres" ? "" : " PERCENT";
+    const sample = percent < 100 ? ` TABLESAMPLE SYSTEM (${percent}${unit})` : "";
+    return `${quoteIdentifier(dependency.props.name)} AS (SELECT * FROM ${quoteDottedIdentifier(source.remoteTableRef)}${sample})`;
   });
   const query = stripTrailingSemicolons(resolveKnobSQL(editor, sqlText));
   return ctes.length ? `WITH ${ctes.join(",\n")} SELECT * FROM (${query}) AS kavla_query` : query;
