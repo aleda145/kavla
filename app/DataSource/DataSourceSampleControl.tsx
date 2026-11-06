@@ -68,7 +68,7 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
         }}
       >
         <Pipette size={18} aria-hidden />
-        <span>{percent}%</span>
+        {percent < 100 && <span>{percent}%</span>}
       </button>
       {tooltipRect &&
         !open &&
