@@ -6,8 +6,16 @@ import type { DataSourceShape } from "./data-source-types";
 import { getRemoteSourceMetadata, type RemoteSourceMetadata } from "./remote-source-metadata";
 
 export function getSampleTable(shape: DataSourceShape): string | undefined {
+  // Postgres samples run natively, including documents with older saved samples.
+  if (getRemoteSourceMetadata(shape)?.sourceType === "postgres") return undefined;
   const percent = shape.props.samplePercent ?? 100;
   return percent > 0 && percent < 100 ? shape.props.sampleTables?.[String(percent)] : undefined;
+}
+
+export function needsSavedSourceSample(shape: DataSourceShape): boolean {
+  if (getRemoteSourceMetadata(shape)?.sourceType === "postgres") return false;
+  const percent = shape.props.samplePercent ?? 100;
+  return percent > 0 && percent < 100 && !getSampleTable(shape);
 }
 
 export function getDataSourceExecutionMetadata(shape: DataSourceShape): RemoteSourceMetadata | null {
@@ -25,7 +33,7 @@ export async function selectSourceSample(
 ): Promise<void> {
   const tableRef = shape.props.remoteTableRef;
   if (!tableRef) throw new Error("The data source is unavailable.");
-  if (percent === 100 || percent === 0) {
+  if (percent === 100 || percent === 0 || getRemoteSourceMetadata(shape)?.sourceType === "postgres") {
     editor.updateShape<DataSourceShape>({ id: shape.id, type: "data-source", props: { samplePercent: percent } });
     return;
   }
@@ -65,7 +73,7 @@ export async function ensureQuerySamples(editor: Editor, sql: string, signal?: A
   for (const dependency of getOrderedDependenciesForSQL(editor, sql).orderedDependencies) {
     if (dependency.type !== "data-source") continue;
     const percent = dependency.props.samplePercent ?? 100;
-    if (percent > 0 && percent < 100 && !getSampleTable(dependency)) {
+    if (needsSavedSourceSample(dependency)) {
       await selectSourceSample(editor, dependency, percent, signal);
     }
   }
