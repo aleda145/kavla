@@ -33,18 +33,7 @@ func (e *Engine) ExportSourceSample(ctx context.Context, tableRef string, percen
 	query := fmt.Sprintf("SELECT * FROM %s USING SAMPLE %g PERCENT (bernoulli)", strings.Join(quoted, "."), percent)
 	sourceType := e.sourceConfigs[sourceName].Type
 	if sourceType == "postgres" || sourceType == "bigquery" {
-		nativeTable := strings.Join(quoted[1:], ".")
-		random := "random()"
-		if sourceType == "bigquery" {
-			nativeTable = "`" + strings.ReplaceAll(strings.Join(parts[1:], "."), "`", "\\`") + "`"
-			random = "RAND()"
-		}
-		nativeSQL := fmt.Sprintf("SELECT * FROM %s WHERE %s < %g", nativeTable, random, percent/100)
-		var err error
-		query, err = e.PreparePreviewSQLContext(ctx, sourceType, sourceName, nativeSQL, 0)
-		if err != nil {
-			return err
-		}
+		return fmt.Errorf("%s sampling runs natively; saved samples are not created", sourceType)
 	}
 	if err := e.ensureDeferredTables(ctx, query); err != nil {
 		return err

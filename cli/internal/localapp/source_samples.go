@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 func (s *Server) handleSourceSample(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +28,6 @@ func (s *Server) handleSourceSample(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("a source table and sample percentage between 0 and 100 are required"))
 		return
 	}
-	started := time.Now()
 	s.logCLIOutput("Sample requested: source=%s percent=%g dry_run=%t\n", request.TableRef, request.Percent, request.DryRun)
 	querySession, done, err := s.beginQueryOperation()
 	if err != nil {
@@ -43,23 +41,13 @@ func (s *Server) handleSourceSample(w http.ResponseWriter, r *http.Request) {
 
 	manifest := s.document.Manifest()
 	sourceName := strings.Split(request.TableRef, ".")[0]
-	if querySession.Sources()[sourceName].Type == "bigquery" {
-		sample, err := querySession.PrepareBigQuerySample(ctx, request.TableRef, request.Percent, request.DryRun)
-		if err != nil {
-			s.logCLIOutput("BigQuery sample failed for %s after %s (percent=%g dry_run=%t): %v\n", request.TableRef, time.Since(started).Round(time.Millisecond), request.Percent, request.DryRun, err)
-			writeAPIError(w, http.StatusUnprocessableEntity, err)
-			return
-		}
-		if sample.Estimate != nil {
-			s.logCLIOutput("BigQuery sample dry run finished for %s: %d estimated bytes (%s)\n", request.TableRef, sample.Estimate.BytesProcessed, time.Since(started).Round(time.Millisecond))
-		} else {
-			s.logCLIOutput("BigQuery sample ready: %s (%s)\n", sample.TableRef, time.Since(started).Round(time.Millisecond))
-		}
-		writeJSON(w, http.StatusOK, sample)
+	sourceType := querySession.Sources()[sourceName].Type
+	if sourceType == "bigquery" || sourceType == "postgres" {
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("%s sampling runs natively; saved samples are not created", sourceType))
 		return
 	}
 	if request.DryRun {
-		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("sample estimates are only available for BigQuery"))
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("use the query-estimate endpoint for native sample estimates"))
 		return
 	}
 	config, err := json.Marshal(querySession.Sources()[sourceName])

@@ -110,11 +110,6 @@ func (c *Client) ExportSourceSample(ctx context.Context, source string, percent 
 	return err
 }
 
-func (c *Client) PrepareBigQuerySample(ctx context.Context, source string, percent float64, dryRun bool) (*engine.SourceSample, error) {
-	result, err := c.call(ctx, request{Op: "bigquery-sample", Source: source, SamplePercent: percent, DryRun: dryRun})
-	return result.Sample, err
-}
-
 func (c *Client) ImportUploadedFile(ctx context.Context, name, fileName, path string) error {
 	_, err := c.call(ctx, request{Op: "import", ID: name, FileName: fileName, Path: path})
 	return err
