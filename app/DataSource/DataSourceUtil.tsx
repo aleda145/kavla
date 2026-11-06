@@ -10,6 +10,7 @@ import { quoteDottedIdentifier } from "../src/duckdb/sql";
 import { useTldrawScrollArea } from "./useTldrawScrollArea";
 import { getRemoteSourceMetadata, getRemoteTableDisplayName } from "./remote-source-metadata";
 import { DataSourceHeader } from "./DataSourceHeader";
+import { DataSourceSampleControl } from "./DataSourceSampleControl";
 import { LocalDataSourceBody as DataSourceBody } from "./LocalDataSourceBody";
 import {
   calculateDataSourceHeight,
@@ -384,7 +385,11 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
             left: 0,
             right: 0,
           }}
-        />
+        >
+          {shape.props.remoteTableRef && (
+            <DataSourceSampleControl key={shape.props.remoteTableRef} editor={this.editor} shape={shape} />
+          )}
+        </ShapeEngineTabs>
         <div
           style={{
             backgroundColor: "#000",

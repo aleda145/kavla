@@ -16,8 +16,8 @@ export const DataSourceProps = {
   rowCount: T.number.nullable(),
   samplePercent: T.number
     .check((value) => {
-      if (!Number.isFinite(value) || value < 0.01 || value > 100) {
-        throw new Error("Sample percentage must be between 0.01 and 100.");
+      if (!Number.isFinite(value) || value < 0 || value > 100) {
+        throw new Error("Sample percentage must be between 0 and 100.");
       }
     })
     .optional(),
