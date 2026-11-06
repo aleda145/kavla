@@ -223,6 +223,16 @@ export function buildRemoteSQLFromDag(
       throw new Error(`Run the query to create the saved sample for "${dependency.props.name}".`);
     }
     let sourceSQL = `SELECT * FROM ${table}${percent === 0 ? " WHERE FALSE" : ""}`;
+    if (source.sourceType === "bigquery" && percent > 0 && percent < 100 && !sourceNativePreview) {
+      const nativeTable = source.remoteTableRef
+        .split(".")
+        .slice(1)
+        .join(".")
+        .replace(/\\/g, "\\\\")
+        .replace(/`/g, "\\`");
+      const nativeSQL = `SELECT * FROM \`${nativeTable}\``;
+      sourceSQL = `SELECT * FROM bigquery_query(${quoteSqlString(source.sourceName)}, ${quoteSqlString(nativeSQL)})`;
+    }
     if (source.sourceType === "postgres" && percent > 0 && percent < 100) {
       const sample = `TABLESAMPLE SYSTEM (${percent}) REPEATABLE (42)`;
       if (sourceNativePreview) {

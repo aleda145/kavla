@@ -4,6 +4,7 @@ import { Loader2, Pipette } from "lucide-react";
 import { type Editor, useToasts, useValue } from "tldraw";
 import type { DataSourceShape } from "./data-source-types";
 import { selectSourceSample } from "./source-samples";
+import { SourceSampleEstimate } from "./SourceSampleEstimate";
 import "./data-source-sample.css";
 
 export function DataSourceSampleControl({ editor, shape }: { editor: Editor; shape: DataSourceShape }) {
@@ -13,6 +14,7 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
   const pending = useRef(false);
   const { addToast } = useToasts();
   const [tooltipRect, setTooltipRect] = useState<DOMRect | null>(null);
+  const [presetHover, setPresetHover] = useState<{ percent: number; rect: DOMRect } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelId = useId();
@@ -34,6 +36,7 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
   const update = async (samplePercent: number) => {
     if (disabled || pending.current) return;
     pending.current = true;
+    setPresetHover(null);
     setPendingPercent(samplePercent);
     try {
       await selectSourceSample(editor, shape, samplePercent);
@@ -114,6 +117,19 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
               aria-pressed={percent === preset}
               disabled={disabled || pendingPercent !== null}
               aria-busy={pendingPercent === preset}
+              aria-describedby={presetHover?.percent === preset ? `${tooltipId}-estimate` : undefined}
+              onMouseEnter={(event) => {
+                if (preset < 100 && shape.props.sourceType === "bigquery") {
+                  setPresetHover({ percent: preset, rect: event.currentTarget.getBoundingClientRect() });
+                }
+              }}
+              onMouseLeave={() => setPresetHover(null)}
+              onFocus={(event) => {
+                if (preset < 100 && shape.props.sourceType === "bigquery") {
+                  setPresetHover({ percent: preset, rect: event.currentTarget.getBoundingClientRect() });
+                }
+              }}
+              onBlur={() => setPresetHover(null)}
               onClick={() => void update(preset)}
             >
               {preset}%
@@ -121,6 +137,20 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
           ))}
         </div>
       )}
+      {open &&
+        presetHover &&
+        shape.props.remoteTableRef &&
+        createPortal(
+          <div
+            id={`${tooltipId}-estimate`}
+            role="tooltip"
+            className="kavla-source-sample-tooltip"
+            style={{ left: presetHover.rect.left + presetHover.rect.width / 2, top: presetHover.rect.top - 12 }}
+          >
+            <SourceSampleEstimate tableRef={shape.props.remoteTableRef} percent={presetHover.percent} />
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

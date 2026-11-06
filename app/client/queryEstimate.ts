@@ -58,7 +58,7 @@ export function formatProcessedBytes(value: string): string {
 }
 
 export function formatEstimatedQueryCost(value: string): string {
-  const dollars = (Number(value) / 1e9) * 0.00625;
+  const dollars = (Number(value) / 2 ** 40) * 6.25;
   if (dollars > 0 && dollars < 0.000001) return "<$0.000001";
   return `$${dollars.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`;
 }
