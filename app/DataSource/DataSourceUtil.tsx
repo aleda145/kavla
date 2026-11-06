@@ -19,6 +19,9 @@ import {
 import { getEngineAppearance, ShapeEngineTabs, type ShapeEngineTab } from "../util/ShapeEngineTabs";
 import { calculateDataSourcePickerHeight, DATA_SOURCE_PICKER_WIDTH } from "./CliSourcesList";
 import type { DemoFileRecord } from "./DemoDatasetBrowser";
+import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
+import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
+import { clearRestoredRemoteQueryMetadata } from "../SQLTextArea/restoreRemoteQueryView";
 
 type SourceChangeOptions = {
   filename: string;
@@ -63,6 +66,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
       sourceType: null,
       remoteTableRef: null,
       rowCount: null,
+      samplePercent: 100,
       downstreamShapeIds: null,
       upstreamShapeIds: null,
       metadata: null,
@@ -146,6 +150,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
           rowCount: null,
           metadata: null,
           columnStats: null,
+          samplePercent: 100,
           error: null,
           isRunning: true,
           sourceName,
@@ -480,6 +485,20 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
   }
 
   override onBeforeUpdate(prev: DataSourceShape, next: DataSourceShape): void {
+    if ((prev.props.samplePercent ?? 100) !== (next.props.samplePercent ?? 100)) {
+      for (const candidate of this.editor.getCurrentPageShapes()) {
+        if (candidate.type !== "sql-text-area") continue;
+        const query = candidate as SQLTextAreaShape;
+        const { orderedDependencies } = getOrderedDependenciesForSQL(this.editor, query.props.text);
+        if (!orderedDependencies.some((dependency) => dependency.id === next.id)) continue;
+        clearRestoredRemoteQueryMetadata(query.id);
+        this.editor.updateShape<SQLTextAreaShape>({
+          id: query.id,
+          type: "sql-text-area",
+          props: { stale: true, isDirty: true, columnStats: null },
+        });
+      }
+    }
     const prevName = prev.props.name;
     const nextName = next.props.name;
 

@@ -1,5 +1,5 @@
 import { createShapeId, type Editor, useToasts } from "tldraw";
-import { RefreshCw, Search } from "lucide-react";
+import { RefreshCw, Search, Shuffle } from "lucide-react";
 import { connectShapes } from "../util/shapeConnections";
 import { type TableDownloadFormat } from "../util/downloadTable";
 import { TableDownloadButtons } from "@/components/TableDownloadButtons";
@@ -14,6 +14,8 @@ interface DataSourceActionBarProps {
   onClearSelectedColumns: () => void;
   onKeepCurrentSource: () => void;
   onOpenSourcePicker: () => void;
+  onToggleSample: () => void;
+  isSamplingOpen: boolean;
   selectedColumns: Set<string>;
   shape: DataSourceShape;
 }
@@ -25,6 +27,8 @@ export function DataSourceActionBar({
   onClearSelectedColumns,
   onKeepCurrentSource,
   onOpenSourcePicker,
+  onToggleSample,
+  isSamplingOpen,
   selectedColumns,
   shape,
 }: DataSourceActionBarProps) {
@@ -135,6 +139,28 @@ export function DataSourceActionBar({
       }}
     >
       {shape.props.filename && <TableDownloadButtons buttonClassName={buttonClassName} onDownload={handleDownload} />}
+
+      <button
+        type="button"
+        onClick={onToggleSample}
+        onPointerDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
+        disabled={isSelectingSource || shape.props.isRunning || !shape.props.remoteTableRef}
+        aria-label="Sample downstream data"
+        aria-expanded={isSamplingOpen}
+        title={`Downstream sample: ${shape.props.samplePercent ?? 100}%`}
+        className={buttonClassName}
+        style={{
+          width: "100%",
+          justifyContent: "center",
+          backgroundColor: (shape.props.samplePercent ?? 100) < 100 ? "#fde047" : "#fff",
+        }}
+      >
+        <Shuffle size={16} />
+        <span className="kavla-control-label">
+          {(shape.props.samplePercent ?? 100) < 100 ? `${shape.props.samplePercent}%` : "Sample"}
+        </span>
+      </button>
 
       <button
         onClick={handleSourceSelection}
