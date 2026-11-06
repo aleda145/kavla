@@ -4,12 +4,17 @@ import { rememberUploadedBlob, type KavlaBlobDescriptor } from "../client/local/
 import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
 import type { DataSourceShape } from "./data-source-types";
 import { getRemoteSourceMetadata, type RemoteSourceMetadata } from "./remote-source-metadata";
+import type { QueryEstimate } from "../client/queryEstimate";
 
 export function getSampleTable(shape: DataSourceShape): string | undefined {
   // Postgres samples run natively, including documents with older saved samples.
-  if (getRemoteSourceMetadata(shape)?.sourceType === "postgres") return undefined;
+  const source = getRemoteSourceMetadata(shape);
+  if (source?.sourceType === "postgres") return undefined;
   const percent = shape.props.samplePercent ?? 100;
-  return percent > 0 && percent < 100 ? shape.props.sampleTables?.[String(percent)] : undefined;
+  const table = percent > 0 && percent < 100 ? shape.props.sampleTables?.[String(percent)] : undefined;
+  // Ignore local BigQuery samples saved by older versions.
+  if (source?.sourceType === "bigquery" && !table?.startsWith(`${source.sourceName}.kavla_cache.`)) return undefined;
+  return table;
 }
 
 export function needsSavedSourceSample(shape: DataSourceShape): boolean {
@@ -20,9 +25,24 @@ export function needsSavedSourceSample(shape: DataSourceShape): boolean {
 
 export function getDataSourceExecutionMetadata(shape: DataSourceShape): RemoteSourceMetadata | null {
   const table = getSampleTable(shape);
-  return table
-    ? { sourceName: "uploaded_files", sourceType: "duckdb", remoteTableRef: table }
-    : getRemoteSourceMetadata(shape);
+  const source = getRemoteSourceMetadata(shape);
+  if (table && source?.sourceType === "bigquery") return { ...source, remoteTableRef: table };
+  return table ? { sourceName: "uploaded_files", sourceType: "duckdb", remoteTableRef: table } : source;
+}
+
+export async function estimateSourceSample(tableRef: string, percent: number): Promise<QueryEstimate> {
+  return withBackendActivity(async () => {
+    const response = await backendRequest("/api/session/source-sample", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tableRef, percent, dryRun: true }),
+    });
+    const { estimate } = (await response.json()) as { estimate?: QueryEstimate };
+    if (!estimate || typeof estimate.bytesProcessed !== "string" || !/^\d+$/.test(estimate.bytesProcessed)) {
+      throw new Error("The server did not return a sample creation estimate.");
+    }
+    return estimate;
+  });
 }
 
 export async function selectSourceSample(
@@ -45,10 +65,10 @@ export async function selectSourceSample(
       body: JSON.stringify({ tableRef, percent }),
       signal,
     });
-    return (await response.json()) as { tableRef: string; blob: KavlaBlobDescriptor };
+    return (await response.json()) as { tableRef: string; blob?: KavlaBlobDescriptor };
   });
   if (backendRevision.get() !== revision) throw new Error("The document changed while creating the sample.");
-  rememberUploadedBlob(result.blob);
+  if (result.blob) rememberUploadedBlob(result.blob);
   const current = editor.getShape<DataSourceShape>(shape.id);
   if (
     !current ||
@@ -73,7 +93,11 @@ export async function ensureQuerySamples(editor: Editor, sql: string, signal?: A
   for (const dependency of getOrderedDependenciesForSQL(editor, sql).orderedDependencies) {
     if (dependency.type !== "data-source") continue;
     const percent = dependency.props.samplePercent ?? 100;
-    if (needsSavedSourceSample(dependency)) {
+    const bigQuerySample =
+      getRemoteSourceMetadata(dependency)?.sourceType === "bigquery" && percent > 0 && percent < 100;
+    // BigQuery removes expired tables. An explicit run ensures the table exists
+    // again; IF NOT EXISTS reuses it without resampling or extending its lifetime.
+    if (bigQuerySample || needsSavedSourceSample(dependency)) {
       await selectSourceSample(editor, dependency, percent, signal);
     }
   }
