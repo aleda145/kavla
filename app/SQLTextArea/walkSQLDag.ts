@@ -210,13 +210,13 @@ export function buildRemoteSQLFromDag(
     const source = getRemoteSourceMetadata(dependency);
     if (!source) throw new Error(`Source "${dependency.props.name}" is unavailable.`);
     const percent = dependency.props.samplePercent ?? 100;
-    if (!Number.isFinite(percent) || percent < 0.01 || percent > 100) {
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
       throw new Error(`Source "${dependency.props.name}" has an invalid sample percentage.`);
     }
     // The SQL transpiler preserves TABLESAMPLE arguments. Postgres requires the
     // percentage without the PERCENT keyword; DuckDB and BigQuery require it.
     const unit = execution.sourceNativePreview && execution.sourceType === "postgres" ? "" : " PERCENT";
-    const sample = percent < 100 ? ` TABLESAMPLE SYSTEM (${percent}${unit})` : "";
+    const sample = percent === 0 ? " WHERE FALSE" : percent < 100 ? ` TABLESAMPLE SYSTEM (${percent}${unit})` : "";
     return `${quoteIdentifier(dependency.props.name)} AS (SELECT * FROM ${quoteDottedIdentifier(source.remoteTableRef)}${sample})`;
   });
   const query = stripTrailingSemicolons(resolveKnobSQL(editor, sqlText));

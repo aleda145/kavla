@@ -11,7 +11,6 @@ import type { RemoteSourceMetadata } from "./remote-source-metadata";
 import type { DataSourceShape } from "./data-source-types";
 import type { useTldrawScrollArea } from "./useTldrawScrollArea";
 import { TldrawScrollAreaIndicator } from "./TldrawScrollAreaIndicator";
-import { DataSourceSampleControl } from "./DataSourceSampleControl";
 
 const buttonClass =
   "h-9 px-3 border-2 border-black text-black font-bold text-xs flex items-center justify-center gap-2 rounded cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all active:translate-y-[1px]";
@@ -62,7 +61,6 @@ export function LocalDataSourceBody({
   const [tableError, setTableError] = useState<string | null>(null);
   const [loadingTables, setLoadingTables] = useState(false);
   const [isSelectingSource, setIsSelectingSource] = useState(false);
-  const [isSamplingOpen, setIsSamplingOpen] = useState(false);
   const { getSourceTables } = useData();
   const hasSource = Boolean(shape.props.filename);
   const showSourcePicker = isSelectingSource || !hasSource;
@@ -76,7 +74,6 @@ export function LocalDataSourceBody({
 
   useEffect(() => {
     setIsSelectingSource(false);
-    setIsSamplingOpen(false);
     resetPicker();
   }, [shape.props.filename, shape.props.remoteTableRef, shape.props.sourceName]);
 
@@ -143,11 +140,6 @@ export function LocalDataSourceBody({
                   <strong>Rows:</strong> {shape.props.rowCount.toLocaleString()}
                 </div>
               )}
-              {(shape.props.samplePercent ?? 100) < 100 && (
-                <div className="mt-2 rounded border-2 border-black bg-yellow-100 px-2 py-1 font-bold">
-                  Downstream: ~{shape.props.samplePercent}% sample
-                </div>
-              )}
               {shape.props.metadata && (
                 <div>
                   <strong>Columns:</strong> {shape.props.metadata.length.toLocaleString()}
@@ -159,9 +151,6 @@ export function LocalDataSourceBody({
                 </div>
               )}
             </div>
-            {isSamplingOpen && (
-              <DataSourceSampleControl editor={editor} shape={shape} onClose={() => setIsSamplingOpen(false)} />
-            )}
             {shape.props.isRunning ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 font-bold">
                 <Loader2 className="animate-spin" size={24} /> Loading data…
@@ -206,8 +195,6 @@ export function LocalDataSourceBody({
           buttonClassName={buttonClass}
           editor={editor}
           isSelectingSource={isSelectingSource}
-          isSamplingOpen={isSamplingOpen}
-          onToggleSample={() => setIsSamplingOpen((open) => !open)}
           onClearSelectedColumns={onClearSelectedColumns}
           onKeepCurrentSource={() => {
             setIsSelectingSource(false);

@@ -1,0 +1,107 @@
+.kavla-source-sample {
+  position: relative;
+  z-index: 3;
+  color: #000;
+  font-family: Inter, sans-serif;
+}
+
+.kavla-source-sample-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 10px;
+  border: 2px solid #000;
+  border-radius: 10px 10px 0 0;
+  border-bottom-color: #fff;
+  background: #fff;
+  color: #000;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.kavla-source-sample-tab[data-sampling="true"],
+.kavla-source-sample-tab[aria-expanded="true"],
+.kavla-source-sample-tab:hover {
+  background: var(--color-teal-100, #ccfbf1);
+  border-bottom-color: var(--color-teal-100, #ccfbf1);
+}
+
+.kavla-source-sample-tab:focus-visible {
+  outline: 2px solid #0d9488;
+  outline-offset: 3px;
+}
+
+.kavla-source-sample-tab:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.kavla-source-sample-panel {
+  position: absolute;
+  left: 0;
+  top: 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 200px;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 2px solid #000;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 4px 4px 0 #000;
+}
+
+.kavla-source-sample-value {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.kavla-source-sample-value > .kavla-knob-input {
+  width: 76px;
+  text-align: center;
+}
+
+.kavla-source-sample-panel > .kavla-knob-slider {
+  flex: none;
+}
+
+.kavla-source-sample-tooltip {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  z-index: 999999;
+  padding: 10px 12px;
+  border: 2px solid #000;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 4px 4px 0 #000;
+  color: #000;
+  font-family: Inter, sans-serif;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  pointer-events: none;
+}
+
+.kavla-source-sample-tooltip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  width: 14px;
+  height: 14px;
+  transform: translateX(-50%) rotate(45deg);
+  background: #fff;
+  border-right: 2px solid #000;
+  border-bottom: 2px solid #000;
+}

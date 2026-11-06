@@ -113,17 +113,25 @@ function ShapeEngineTabIcon({ type }: { type: string | null | undefined }) {
   return <IconComponent size={18} aria-hidden="true" />;
 }
 
-export function ShapeEngineTabs({ tabs, style }: { tabs: ShapeEngineTab[]; style?: React.CSSProperties }) {
-  if (!tabs.length) {
-    return null;
-  }
-
+export function ShapeEngineTabs({
+  tabs,
+  style,
+  children,
+}: {
+  tabs: ShapeEngineTab[];
+  style?: React.CSSProperties;
+  children?: React.ReactNode;
+}) {
   const [openTabPopover, setOpenTabPopover] = React.useState<{
     key: string;
     rect: DOMRect;
     title: string;
     details?: string[];
   } | null>(null);
+
+  if (!tabs.length && !children) {
+    return null;
+  }
 
   const openPopover = (
     event: React.MouseEvent<HTMLDivElement> | React.FocusEvent<HTMLDivElement>,
@@ -198,6 +206,7 @@ export function ShapeEngineTabs({ tabs, style }: { tabs: ShapeEngineTab[]; style
             </div>
           );
         })}
+        {children}
       </div>
       {openTabPopover &&
         createPortal(
