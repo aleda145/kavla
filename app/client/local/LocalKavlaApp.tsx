@@ -47,7 +47,11 @@ import { KnobRuntime } from "../../Knob/KnobRuntime";
 import source from "../../util/source.svg";
 import sql from "../../util/sql.svg";
 import { SourceTextAreaTool } from "../../DataSource/DataSourceTool";
-import { KavlaArrowBindingUtil, KavlaArrowShapeUtil } from "../KavlaArrowShapeUtil";
+import {
+  excludeKavlaConnectorsFromSelection,
+  KavlaArrowBindingUtil,
+  KavlaArrowShapeUtil,
+} from "../KavlaArrowShapeUtil";
 import { getBookmarkAsset } from "../getBookmarkAsset";
 import { enableRightClickDragPan } from "../canvas/enableRightClickDragPan";
 import { useCanvasFileDrop } from "../canvas/useCanvasFileDrop";
@@ -651,6 +655,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
 
       for (const cleanup of shapeSideEffectCleanupRef.current) cleanup();
       shapeSideEffectCleanupRef.current = [
+        excludeKavlaConnectorsFromSelection(editor),
         editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
           if (loadingDocumentRef.current || !loadedRef.current) return;
           handleLocalShapeDeleted(editor, shape, deleteShapes);

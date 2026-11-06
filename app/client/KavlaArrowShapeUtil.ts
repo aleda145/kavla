@@ -37,6 +37,22 @@ export const KavlaArrowShapeUtil = ArrowShapeUtil.configure({
   },
 });
 
+export function excludeKavlaConnectorsFromSelection(editor: Editor) {
+  const isSelectable = (id: TLShape["id"]) => {
+    const shape = editor.getShape(id);
+    return shape?.type !== "arrow" || shape.meta?.kavlaConnector !== true;
+  };
+
+  const cleanup = editor.sideEffects.registerBeforeChangeHandler("instance_page_state", (previous, next) => {
+    if (previous.selectedShapeIds === next.selectedShapeIds) return next;
+    const selectedShapeIds = next.selectedShapeIds.filter(isSelectable);
+    return selectedShapeIds.length === next.selectedShapeIds.length ? next : { ...next, selectedShapeIds };
+  });
+
+  editor.setSelectedShapes(editor.getSelectedShapeIds().filter(isSelectable));
+  return cleanup;
+}
+
 export class KavlaArrowBindingUtil extends ArrowBindingUtil {
   override onAfterCreate(options: BindingOnCreateOptions<TLArrowBinding>): void {
     if (this.removeInvalidKnobBinding(options.binding)) return;
