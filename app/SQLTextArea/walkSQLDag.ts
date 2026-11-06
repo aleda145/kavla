@@ -1,6 +1,7 @@
 import type { Editor } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
+import { getDataSourceExecutionMetadata, getSampleTable } from "../DataSource/source-samples";
 import { quoteDottedIdentifier, quoteIdentifier, stripTrailingSemicolons } from "../src/duckdb/sql";
 import { getEngineAppearance, type ShapeEngineTab } from "../util/ShapeEngineTabs";
 import { getOrderedDependenciesForSQL, type SQLDependencyShape } from "./sqlDependencies";
@@ -36,14 +37,22 @@ export function getMissingSourceMessage(orderedDependencies: SQLDependencyShape[
   const missing = orderedDependencies.find(
     (dependency) => dependency.type === "data-source" && !getRemoteSourceMetadata(dependency)
   );
-  return missing ? `Source "${missing.props.name}" is missing its uploaded table. Upload the file again.` : null;
+  if (missing) return `Source "${missing.props.name}" is missing its uploaded table. Upload the file again.`;
+  const uncached = orderedDependencies.find(
+    (dependency) =>
+      dependency.type === "data-source" &&
+      (dependency.props.samplePercent ?? 100) > 0 &&
+      (dependency.props.samplePercent ?? 100) < 100 &&
+      !getSampleTable(dependency)
+  );
+  return uncached ? `Run the query to create the saved sample for "${uncached.props.name}".` : null;
 }
 
 export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]): QueryExecutionState {
   const remoteSources = orderedDependencies
     .filter((dependency): dependency is DataSourceShape => dependency.type === "data-source")
     .flatMap((dependency) => {
-      const remoteSource = getRemoteSourceMetadata(dependency);
+      const remoteSource = getDataSourceExecutionMetadata(dependency);
       return remoteSource ? [remoteSource] : [];
     });
 
@@ -87,7 +96,7 @@ export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]
         return true;
       }
 
-      const remoteSource = getRemoteSourceMetadata(dependency);
+      const remoteSource = getDataSourceExecutionMetadata(dependency);
       if (!remoteSource) {
         return false;
       }
@@ -203,21 +212,21 @@ export function buildRemoteSQLFromDag(
   orderedDependencies: SQLDependencyShape[],
   editor: Editor
 ): string {
-  const execution = describeQueryExecution(orderedDependencies);
   const ctes = orderedDependencies.map((dependency) => {
     if (dependency.type === "sql-text-area")
       return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(resolveKnobSQL(editor, dependency.props.text))})`;
-    const source = getRemoteSourceMetadata(dependency);
+    const source = getDataSourceExecutionMetadata(dependency);
     if (!source) throw new Error(`Source "${dependency.props.name}" is unavailable.`);
     const percent = dependency.props.samplePercent ?? 100;
     if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
       throw new Error(`Source "${dependency.props.name}" has an invalid sample percentage.`);
     }
-    // The SQL transpiler preserves TABLESAMPLE arguments. Postgres requires the
-    // percentage without the PERCENT keyword; DuckDB and BigQuery require it.
-    const unit = execution.sourceNativePreview && execution.sourceType === "postgres" ? "" : " PERCENT";
-    const sample = percent === 0 ? " WHERE FALSE" : percent < 100 ? ` TABLESAMPLE SYSTEM (${percent}${unit})` : "";
-    return `${quoteIdentifier(dependency.props.name)} AS (SELECT * FROM ${quoteDottedIdentifier(source.remoteTableRef)}${sample})`;
+    const table = quoteDottedIdentifier(source.remoteTableRef);
+    if (percent > 0 && percent < 100 && !getSampleTable(dependency)) {
+      throw new Error(`Run the query to create the saved sample for "${dependency.props.name}".`);
+    }
+    const sourceSQL = `SELECT * FROM ${table}${percent === 0 ? " WHERE FALSE" : ""}`;
+    return `${quoteIdentifier(dependency.props.name)} AS (${sourceSQL})`;
   });
   const query = stripTrailingSemicolons(resolveKnobSQL(editor, sqlText));
   return ctes.length ? `WITH ${ctes.join(",\n")} SELECT * FROM (${query}) AS kavla_query` : query;

@@ -150,6 +150,8 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 		result.Stats, err = eng.GetSourceStats(ctx, req.Source)
 	case "export-source":
 		err = eng.ExportSourceTable(ctx, req.Source, req.Format, req.Path)
+	case "export-sample":
+		err = eng.ExportSourceSample(ctx, req.Source, req.SamplePercent, req.Path)
 	case "import":
 		err = eng.ImportUploadedFile(ctx, req.ID, req.FileName, req.Path)
 	case "register-upload":

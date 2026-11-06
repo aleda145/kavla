@@ -6,6 +6,7 @@ import { walkSQLDag, buildRemoteSQLFromDag } from "./walkSQLDag";
 import { connectShapes, setShapeUpstreamConnections } from "../util/shapeConnections";
 import { dispatchSQLShapeRunStarted, dispatchSQLShapeRunFinished, type SQLShapeRunResult } from "./sqlShapeRun";
 import { ensureQueryKnobs } from "../Knob/createKnobs";
+import { ensureQuerySamples } from "../DataSource/source-samples";
 
 export async function executeSQLShape(
   editor: Editor,
@@ -19,6 +20,8 @@ export async function executeSQLShape(
   const shape = editor.getShape<SQLTextAreaShape>(id);
   if (!shape || shape.type !== "sql-text-area") throw new Error("The query shape is unavailable.");
   if (shape.props.isRunning) throw new Error("This query is already running.");
+  await ensureQuerySamples(editor, sql, signal);
+  signal.throwIfAborted();
   if (options.createMissingKnobs !== false) ensureQueryKnobs(editor, shape, sql);
   clearRestoredRemoteQueryMetadata(id);
   const started = Date.now();

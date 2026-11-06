@@ -1,13 +1,17 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Pipette } from "lucide-react";
-import { type Editor, useValue } from "tldraw";
+import { Loader2, Pipette } from "lucide-react";
+import { type Editor, useToasts, useValue } from "tldraw";
 import type { DataSourceShape } from "./data-source-types";
+import { selectSourceSample } from "./source-samples";
 import "./data-source-sample.css";
 
 export function DataSourceSampleControl({ editor, shape }: { editor: Editor; shape: DataSourceShape }) {
   const percent = shape.props.samplePercent ?? 100;
   const [open, setOpen] = useState(false);
+  const [pendingPercent, setPendingPercent] = useState<number | null>(null);
+  const pending = useRef(false);
+  const { addToast } = useToasts();
   const [tooltipRect, setTooltipRect] = useState<DOMRect | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -27,9 +31,22 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
     return () => document.removeEventListener("pointerdown", closeOutside, true);
   }, [open]);
 
-  const update = (samplePercent: number) => {
-    if (disabled) return;
-    editor.updateShape<DataSourceShape>({ id: shape.id, type: "data-source", props: { samplePercent } });
+  const update = async (samplePercent: number) => {
+    if (disabled || pending.current) return;
+    pending.current = true;
+    setPendingPercent(samplePercent);
+    try {
+      await selectSourceSample(editor, shape, samplePercent);
+    } catch (error) {
+      addToast({
+        title: "Sample failed",
+        description: error instanceof Error ? error.message : String(error),
+        severity: "error",
+      });
+    } finally {
+      pending.current = false;
+      setPendingPercent(null);
+    }
   };
 
   return (
@@ -67,7 +84,11 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
           setOpen((current) => !current);
         }}
       >
-        <Pipette size={18} aria-hidden />
+        {pendingPercent !== null ? (
+          <Loader2 size={18} className="animate-spin" aria-label="Preparing sample" />
+        ) : (
+          <Pipette size={18} aria-hidden />
+        )}
         {percent < 100 && <span>{percent}%</span>}
       </button>
       {tooltipRect &&
@@ -91,8 +112,9 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
               type="button"
               className="kavla-source-sample-preset"
               aria-pressed={percent === preset}
-              disabled={disabled}
-              onClick={() => update(preset)}
+              disabled={disabled || pendingPercent !== null}
+              aria-busy={pendingPercent === preset}
+              onClick={() => void update(preset)}
             >
               {preset}%
             </button>
