@@ -2,7 +2,7 @@ import { backendRevision } from "../client/backendCompute";
 import type { Editor } from "tldraw";
 import type { LocalServerContextType } from "../client/localServer/types";
 import { MissingQueryResultError } from "../client/localServer/types";
-import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
+import { getDataSourceExecutionMetadata } from "../DataSource/source-samples";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
 
@@ -52,7 +52,7 @@ export function restoreRemoteQueryView(
     const readsBigQuery = orderedDependencies.some(
       (dependency) =>
         dependency.type === "data-source" &&
-        getRemoteSourceMetadata(dependency)?.sourceType?.toLowerCase() === "bigquery"
+        getDataSourceExecutionMetadata(dependency)?.sourceType?.toLowerCase() === "bigquery"
     );
     if (readsBigQuery) {
       throw new MissingQueryResultError(

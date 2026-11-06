@@ -42,6 +42,7 @@ type request struct {
 	FileName        string
 	Path            string
 	Format          string
+	SamplePercent   float64
 	Offset          int
 	Limit           int
 	Columns         []engine.WidgetColumn
