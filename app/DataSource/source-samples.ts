@@ -4,21 +4,24 @@ import { rememberUploadedBlob, type KavlaBlobDescriptor } from "../client/local/
 import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
 import type { DataSourceShape } from "./data-source-types";
 import { getRemoteSourceMetadata, type RemoteSourceMetadata } from "./remote-source-metadata";
-import type { QueryEstimate } from "../client/queryEstimate";
+import { estimateQuery, type QueryEstimate } from "../client/queryEstimate";
+import { quoteDottedIdentifier } from "../src/duckdb/sql";
+
+function usesNativeSampling(shape: DataSourceShape): boolean {
+  const type = getRemoteSourceMetadata(shape)?.sourceType;
+  return type === "postgres" || type === "bigquery";
+}
 
 export function getSampleTable(shape: DataSourceShape): string | undefined {
-  // Postgres samples run natively, including documents with older saved samples.
-  const source = getRemoteSourceMetadata(shape);
-  if (source?.sourceType === "postgres") return undefined;
+  // Remote sources run natively, including documents with older saved samples.
+  if (usesNativeSampling(shape)) return undefined;
   const percent = shape.props.samplePercent ?? 100;
   const table = percent > 0 && percent < 100 ? shape.props.sampleTables?.[String(percent)] : undefined;
-  // Ignore local BigQuery samples saved by older versions.
-  if (source?.sourceType === "bigquery" && !table?.startsWith(`${source.sourceName}.kavla_cache.`)) return undefined;
   return table;
 }
 
 export function needsSavedSourceSample(shape: DataSourceShape): boolean {
-  if (getRemoteSourceMetadata(shape)?.sourceType === "postgres") return false;
+  if (usesNativeSampling(shape)) return false;
   const percent = shape.props.samplePercent ?? 100;
   return percent > 0 && percent < 100 && !getSampleTable(shape);
 }
@@ -26,22 +29,19 @@ export function needsSavedSourceSample(shape: DataSourceShape): boolean {
 export function getDataSourceExecutionMetadata(shape: DataSourceShape): RemoteSourceMetadata | null {
   const table = getSampleTable(shape);
   const source = getRemoteSourceMetadata(shape);
-  if (table && source?.sourceType === "bigquery") return { ...source, remoteTableRef: table };
   return table ? { sourceName: "uploaded_files", sourceType: "duckdb", remoteTableRef: table } : source;
 }
 
-export async function estimateSourceSample(tableRef: string, percent: number): Promise<QueryEstimate> {
-  return withBackendActivity(async () => {
-    const response = await backendRequest("/api/session/source-sample", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tableRef, percent, dryRun: true }),
-    });
-    const { estimate } = (await response.json()) as { estimate?: QueryEstimate };
-    if (!estimate || typeof estimate.bytesProcessed !== "string" || !/^\d+$/.test(estimate.bytesProcessed)) {
-      throw new Error("The server did not return a sample creation estimate.");
-    }
-    return estimate;
+export function buildBigQuerySampleSQL(tableRef: string, percent: number): string {
+  return `SELECT * FROM ${quoteDottedIdentifier(tableRef)} TABLESAMPLE SYSTEM (${percent} PERCENT)`;
+}
+
+export function estimateSourceSample(tableRef: string, percent: number): Promise<QueryEstimate> {
+  return estimateQuery({
+    sql: buildBigQuerySampleSQL(tableRef, percent),
+    sourceName: tableRef.split(".")[0],
+    sourceType: "bigquery",
+    sourceNative: true,
   });
 }
 
@@ -53,7 +53,7 @@ export async function selectSourceSample(
 ): Promise<void> {
   const tableRef = shape.props.remoteTableRef;
   if (!tableRef) throw new Error("The data source is unavailable.");
-  if (percent === 100 || percent === 0 || getRemoteSourceMetadata(shape)?.sourceType === "postgres") {
+  if (percent === 100 || percent === 0 || usesNativeSampling(shape)) {
     editor.updateShape<DataSourceShape>({ id: shape.id, type: "data-source", props: { samplePercent: percent } });
     return;
   }
@@ -93,11 +93,7 @@ export async function ensureQuerySamples(editor: Editor, sql: string, signal?: A
   for (const dependency of getOrderedDependenciesForSQL(editor, sql).orderedDependencies) {
     if (dependency.type !== "data-source") continue;
     const percent = dependency.props.samplePercent ?? 100;
-    const bigQuerySample =
-      getRemoteSourceMetadata(dependency)?.sourceType === "bigquery" && percent > 0 && percent < 100;
-    // BigQuery removes expired tables. An explicit run ensures the table exists
-    // again; IF NOT EXISTS reuses it without resampling or extending its lifetime.
-    if (bigQuerySample || needsSavedSourceSample(dependency)) {
+    if (needsSavedSourceSample(dependency)) {
       await selectSourceSample(editor, dependency, percent, signal);
     }
   }

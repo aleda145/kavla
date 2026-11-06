@@ -450,12 +450,6 @@ func (s *Session) ExportSourceSample(ctx context.Context, tableRef string, perce
 	return s.engine.ExportSourceSample(ctx, tableRef, percent, outputPath)
 }
 
-func (s *Session) PrepareBigQuerySample(ctx context.Context, tableRef string, percent float64, dryRun bool) (*engine.SourceSample, error) {
-	ctx, cancel := s.OperationContext(ctx)
-	defer cancel()
-	return s.engine.PrepareBigQuerySample(ctx, tableRef, percent, dryRun)
-}
-
 func (s *Session) HandleGetTables(client Client, requestID, sourceName string) {
 	if strings.TrimSpace(sourceName) == "" {
 		_ = client.SendJSON(map[string]interface{}{

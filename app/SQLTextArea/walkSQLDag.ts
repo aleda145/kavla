@@ -1,7 +1,11 @@
 import type { Editor } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
-import { getDataSourceExecutionMetadata, needsSavedSourceSample } from "../DataSource/source-samples";
+import {
+  buildBigQuerySampleSQL,
+  getDataSourceExecutionMetadata,
+  needsSavedSourceSample,
+} from "../DataSource/source-samples";
 import { quoteDottedIdentifier, quoteIdentifier, quoteSqlString, stripTrailingSemicolons } from "../src/duckdb/sql";
 import { getEngineAppearance, type ShapeEngineTab } from "../util/ShapeEngineTabs";
 import { getOrderedDependenciesForSQL, type SQLDependencyShape } from "./sqlDependencies";
@@ -223,15 +227,19 @@ export function buildRemoteSQLFromDag(
       throw new Error(`Run the query to create the saved sample for "${dependency.props.name}".`);
     }
     let sourceSQL = `SELECT * FROM ${table}${percent === 0 ? " WHERE FALSE" : ""}`;
-    if (source.sourceType === "bigquery" && percent > 0 && percent < 100 && !sourceNativePreview) {
-      const nativeTable = source.remoteTableRef
-        .split(".")
-        .slice(1)
-        .join(".")
-        .replace(/\\/g, "\\\\")
-        .replace(/`/g, "\\`");
-      const nativeSQL = `SELECT * FROM \`${nativeTable}\``;
-      sourceSQL = `SELECT * FROM bigquery_query(${quoteSqlString(source.sourceName)}, ${quoteSqlString(nativeSQL)})`;
+    if (source.sourceType === "bigquery" && percent > 0 && percent < 100) {
+      if (sourceNativePreview) {
+        sourceSQL = buildBigQuerySampleSQL(source.remoteTableRef, percent);
+      } else {
+        const nativeTable = source.remoteTableRef
+          .split(".")
+          .slice(1)
+          .join(".")
+          .replace(/\\/g, "\\\\")
+          .replace(/`/g, "\\`");
+        const nativeSQL = `SELECT * FROM \`${nativeTable}\` TABLESAMPLE SYSTEM (${percent} PERCENT)`;
+        sourceSQL = `SELECT * FROM bigquery_query(${quoteSqlString(source.sourceName)}, ${quoteSqlString(nativeSQL)})`;
+      }
     }
     if (source.sourceType === "postgres" && percent > 0 && percent < 100) {
       const sample = `TABLESAMPLE SYSTEM (${percent}) REPEATABLE (42)`;

@@ -43,7 +43,6 @@ type request struct {
 	Path            string
 	Format          string
 	SamplePercent   float64
-	DryRun          bool
 	Offset          int
 	Limit           int
 	Columns         []engine.WidgetColumn
@@ -51,7 +50,6 @@ type request struct {
 }
 
 type response struct {
-	Sample   *engine.SourceSample
 	Scan     *sources.QueryScan
 	Estimate *sources.QueryEstimate
 	Error    string

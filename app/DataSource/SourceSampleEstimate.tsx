@@ -43,18 +43,18 @@ export function SourceSampleEstimate({ tableRef, percent }: { tableRef: string; 
     <span aria-live="polite">
       {estimate?.error ? (
         <>
-          <span>Creation estimate unavailable</span>
+          <span>Sample estimate unavailable</span>
           <span className="kavla-source-sample-tooltip-details block">{estimate.error}</span>
         </>
       ) : estimate?.bytes !== undefined ? (
         <>
-          <span>Create: ≈{formatEstimatedQueryCost(estimate.bytes)}</span>
+          <span>Scan: ≈{formatEstimatedQueryCost(estimate.bytes)}</span>
           <span className="kavla-source-sample-tooltip-details block">
-            {formatProcessedBytes(estimate.bytes)} · on-demand, storage extra
+            {formatProcessedBytes(estimate.bytes)} · on-demand
           </span>
         </>
       ) : (
-        "Estimating creation…"
+        "Estimating scan…"
       )}
     </span>
   );

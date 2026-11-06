@@ -152,8 +152,6 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 		err = eng.ExportSourceTable(ctx, req.Source, req.Format, req.Path)
 	case "export-sample":
 		err = eng.ExportSourceSample(ctx, req.Source, req.SamplePercent, req.Path)
-	case "bigquery-sample":
-		result.Sample, err = eng.PrepareBigQuerySample(ctx, req.Source, req.SamplePercent, req.DryRun)
 	case "import":
 		err = eng.ImportUploadedFile(ctx, req.ID, req.FileName, req.Path)
 	case "register-upload":
