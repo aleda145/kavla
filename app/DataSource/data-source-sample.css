@@ -46,34 +46,53 @@
   position: absolute;
   left: 0;
   top: 48px;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(48px, 1fr));
   gap: 6px;
-  width: 200px;
+  width: max-content;
   box-sizing: border-box;
-  padding: 12px;
+  padding: 8px;
   border: 2px solid #000;
   border-radius: 10px;
   background: #fff;
   box-shadow: 4px 4px 0 #000;
 }
 
-.kavla-source-sample-value {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
+.kavla-source-sample-preset {
+  height: 32px;
+  padding: 0 8px;
+  border: 2px solid #000;
+  border-radius: 4px;
+  background: #fff;
+  color: #000;
+  box-shadow: 2px 2px 0 rgb(0 0 0 / 20%);
+  font-family: inherit;
   font-size: 12px;
   font-weight: 800;
+  cursor: pointer;
 }
 
-.kavla-source-sample-value > .kavla-knob-input {
-  width: 76px;
-  text-align: center;
+.kavla-source-sample-preset[aria-pressed="true"] {
+  background: var(--color-teal-100, #ccfbf1);
+  box-shadow: none;
 }
 
-.kavla-source-sample-panel > .kavla-knob-slider {
-  flex: none;
+.kavla-source-sample-preset:hover {
+  box-shadow: 3px 3px 0 #000;
+}
+
+.kavla-source-sample-preset:active {
+  transform: translateY(1px);
+}
+
+.kavla-source-sample-preset:focus-visible {
+  outline: 2px solid #0d9488;
+  outline-offset: 3px;
+}
+
+.kavla-source-sample-preset:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .kavla-source-sample-tooltip {
