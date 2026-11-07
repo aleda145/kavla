@@ -68,6 +68,12 @@
   box-shadow: 4px 4px 0 #000;
 }
 
+.kavla-source-sample-title {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .kavla-source-sample-preset {
   height: 32px;
   padding: 0 8px;

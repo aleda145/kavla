@@ -11,6 +11,8 @@ import "./data-source-sample.css";
 export function DataSourceSampleControl({ editor, shape }: { editor: Editor; shape: DataSourceShape }) {
   const percent = shape.props.samplePercent ?? 100;
   const [open, setOpen] = useState(false);
+  const pinned = useRef(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pendingPercent, setPendingPercent] = useState<number | null>(null);
   const pending = useRef(false);
   const { runRemoteQuery } = useData();
@@ -32,10 +34,33 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
     () => editor.getInstanceState().isReadonly || shape.isLocked || shape.props.isRunning,
     [editor, shape.isLocked, shape.props.isRunning]
   );
+  const cancelClose = () => {
+    if (closeTimer.current !== null) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  const closePanel = () => {
+    cancelClose();
+    pinned.current = false;
+    setOpen(false);
+    setPresetHover(null);
+  };
+  const pinPanel = () => {
+    cancelClose();
+    pinned.current = true;
+    setTooltipRect(null);
+    setOpen(true);
+  };
+  useEffect(() => {
+    return () => {
+      if (closeTimer.current !== null) clearTimeout(closeTimer.current);
+    };
+  }, []);
   useEffect(() => {
     if (!open) return;
     const closeOutside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false);
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) closePanel();
     };
     document.addEventListener("pointerdown", closeOutside, true);
     return () => document.removeEventListener("pointerdown", closeOutside, true);
@@ -43,6 +68,7 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
 
   const update = async (samplePercent: number) => {
     if (disabled || pending.current || getSampleRowCount(editor, shape)?.status === "loading") return;
+    pinPanel();
     pending.current = true;
     setPresetHover(null);
     setPendingPercent(samplePercent);
@@ -74,16 +100,26 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
     <div
       ref={rootRef}
       className="kavla-source-sample"
+      onMouseEnter={() => {
+        cancelClose();
+        if (disabled || busy) return;
+        setTooltipRect(null);
+        setOpen(true);
+      }}
+      onMouseLeave={() => {
+        cancelClose();
+        if (!pinned.current) closeTimer.current = setTimeout(closePanel, 200);
+      }}
       onPointerDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === "Escape") {
-          setOpen(false);
+          closePanel();
           buttonRef.current?.focus();
         }
       }}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+        if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) closePanel();
       }}
     >
       <button
@@ -97,14 +133,9 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
         data-sampling={percent < 100}
         disabled={disabled || busy}
         aria-busy={busy}
-        onMouseEnter={(event) => setTooltipRect(event.currentTarget.getBoundingClientRect())}
-        onMouseLeave={() => setTooltipRect(null)}
         onFocus={(event) => setTooltipRect(event.currentTarget.getBoundingClientRect())}
         onBlur={() => setTooltipRect(null)}
-        onClick={() => {
-          setTooltipRect(null);
-          setOpen((current) => !current);
-        }}
+        onClick={pinPanel}
       >
         {busy ? (
           <Loader2 size={18} className="animate-spin" aria-label="Preparing sample" />
@@ -127,7 +158,10 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
           document.body
         )}
       {open && (
-        <div id={panelId} className="kavla-source-sample-panel" role="group" aria-label="Sample percentage">
+        <div id={panelId} className="kavla-source-sample-panel" role="group" aria-labelledby={`${panelId}-title`}>
+          <div id={`${panelId}-title`} className="kavla-source-sample-title">
+            Set Sampling percentage
+          </div>
           {[0.1, 1, 10, 100].map((preset) => (
             <button
               key={preset}
