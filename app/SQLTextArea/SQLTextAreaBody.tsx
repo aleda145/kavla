@@ -15,6 +15,7 @@ interface SQLTextAreaBodyProps {
   onCreateChart: () => void;
   onFormat: (value?: string) => void;
   onRun: () => void;
+  onStore: () => void;
   onTextChange: (value: string) => void;
   onToggleTable: () => void;
   validator: (sql: string) => Promise<EditorValidationIssue | null>;
@@ -31,6 +32,7 @@ export function SQLTextAreaBody({
   onCreateChart,
   onFormat,
   onRun,
+  onStore,
   onTextChange,
   onToggleTable,
   validator,
@@ -76,6 +78,7 @@ export function SQLTextAreaBody({
         onChainQuery={onChainQuery}
         onCreateChart={onCreateChart}
         onRun={onRun}
+        onStore={onStore}
         onToggleTable={onToggleTable}
       />
     </div>

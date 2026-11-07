@@ -2,6 +2,7 @@ package compute
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -103,6 +104,51 @@ func (c *Client) GetSourceStats(ctx context.Context, source string) (map[string]
 func (c *Client) ExportSourceTable(ctx context.Context, source, format, path string) error {
 	_, err := c.call(ctx, request{Op: "export-source", Source: source, Format: format, Path: path})
 	return err
+}
+
+func (c *Client) GetSourceSchemas(ctx context.Context, source string) ([]string, error) {
+	result, err := c.call(ctx, request{Op: "source-schemas", Source: source})
+	return result.Schemas, err
+}
+
+func (c *Client) CreateSourceSchema(ctx context.Context, source, schemaName string) ([]string, error) {
+	result, err := c.call(ctx, request{Op: "create-source-schema", Source: source, SchemaName: schemaName})
+	return result.Schemas, err
+}
+
+func (c *Client) StoreDestination(ctx context.Context, source, schemaName, tableName string) (*engine.StoredTable, error) {
+	result, err := c.call(ctx, request{Op: "store-destination", Source: source, SchemaName: schemaName, TableName: tableName})
+	if err != nil {
+		return nil, err
+	}
+	if result.StoredTable == nil {
+		return nil, fmt.Errorf("compute service returned no Store destination")
+	}
+	return result.StoredTable, nil
+}
+
+func (c *Client) SnapshotQuery(ctx context.Context, sql, path string, table *engine.StoredTable) error {
+	result, err := c.call(ctx, request{Op: "snapshot-query", SQL: sql, Path: path, StoredTable: table})
+	if err != nil {
+		return err
+	}
+	if result.StoredTable == nil {
+		return fmt.Errorf("compute service returned no snapshot metadata")
+	}
+	*table = *result.StoredTable
+	return nil
+}
+
+func (c *Client) StoreSnapshot(ctx context.Context, path string, table *engine.StoredTable) error {
+	result, err := c.call(ctx, request{Op: "store-snapshot", Path: path, StoredTable: table})
+	if err != nil {
+		return err
+	}
+	if result.StoredTable == nil {
+		return fmt.Errorf("compute service returned no stored table metadata")
+	}
+	*table = *result.StoredTable
+	return nil
 }
 
 func (c *Client) ImportUploadedFile(ctx context.Context, name, fileName, path string) error {

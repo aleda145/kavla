@@ -38,6 +38,9 @@ type request struct {
 	SQL             string
 	ID              string
 	Source          string
+	SchemaName      string
+	TableName       string
+	StoredTable     *engine.StoredTable
 	ExecutionEngine string
 	FileName        string
 	Path            string
@@ -49,13 +52,15 @@ type request struct {
 }
 
 type response struct {
-	Scan     *sources.QueryScan
-	Estimate *sources.QueryEstimate
-	Error    string
-	SQL      string
-	Tables   []string
-	Columns  []map[string]string
-	Stats    map[string]int64
-	Count    int64
-	Schema   []engine.ResultColumn
+	Schemas     []string
+	StoredTable *engine.StoredTable
+	Scan        *sources.QueryScan
+	Estimate    *sources.QueryEstimate
+	Error       string
+	SQL         string
+	Tables      []string
+	Columns     []map[string]string
+	Stats       map[string]int64
+	Count       int64
+	Schema      []engine.ResultColumn
 }

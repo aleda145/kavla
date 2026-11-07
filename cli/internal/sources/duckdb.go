@@ -18,6 +18,14 @@ func (duckDBAdapter) Type() string {
 	return "duckdb"
 }
 
+func (d *duckDBAdapter) AttachSQL(catalogName string, readOnly bool) string {
+	mode := "READ_WRITE"
+	if readOnly {
+		mode = "READ_ONLY"
+	}
+	return fmt.Sprintf("ATTACH %s AS %s (%s)", sqlSingleQuoted(d.connection), doubleQuotedQualified([]string{catalogName}), mode)
+}
+
 func (duckDBAdapter) StartupRequirements(src kavlaconfig.SourceConfig) (*StartupRequirements, error) {
 	absPath, err := filepath.Abs(src.Connection)
 	if err != nil {
