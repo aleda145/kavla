@@ -10,6 +10,7 @@ import { quoteDottedIdentifier } from "../src/duckdb/sql";
 import { useTldrawScrollArea } from "./useTldrawScrollArea";
 import { getRemoteSourceMetadata, getRemoteTableDisplayName } from "./remote-source-metadata";
 import { DataSourceHeader } from "./DataSourceHeader";
+import { DataSourceSampleControl } from "./DataSourceSampleControl";
 import { LocalDataSourceBody as DataSourceBody } from "./LocalDataSourceBody";
 import {
   calculateDataSourceHeight,
@@ -19,6 +20,9 @@ import {
 import { getEngineAppearance, ShapeEngineTabs, type ShapeEngineTab } from "../util/ShapeEngineTabs";
 import { calculateDataSourcePickerHeight, DATA_SOURCE_PICKER_WIDTH } from "./CliSourcesList";
 import type { DemoFileRecord } from "./DemoDatasetBrowser";
+import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
+import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
+import { clearRestoredRemoteQueryMetadata } from "../SQLTextArea/restoreRemoteQueryView";
 
 type SourceChangeOptions = {
   filename: string;
@@ -63,6 +67,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
       sourceType: null,
       remoteTableRef: null,
       rowCount: null,
+      samplePercent: 100,
       downstreamShapeIds: null,
       upstreamShapeIds: null,
       metadata: null,
@@ -146,6 +151,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
           rowCount: null,
           metadata: null,
           columnStats: null,
+          samplePercent: 100,
           error: null,
           isRunning: true,
           sourceName,
@@ -379,7 +385,11 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
             left: 0,
             right: 0,
           }}
-        />
+        >
+          {shape.props.remoteTableRef && (
+            <DataSourceSampleControl key={shape.props.remoteTableRef} editor={this.editor} shape={shape} />
+          )}
+        </ShapeEngineTabs>
         <div
           style={{
             backgroundColor: "#000",
@@ -479,12 +489,29 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
     return resizeBox(shape, info);
   }
 
-  override onBeforeUpdate(prev: DataSourceShape, next: DataSourceShape): void {
+  override onBeforeUpdate(prev: DataSourceShape, next: DataSourceShape): DataSourceShape | void {
+    if (prev.props.remoteTableRef !== next.props.remoteTableRef) {
+      next = { ...next, props: { ...next.props, samplePercent: 100 } };
+    }
+    if ((prev.props.samplePercent ?? 100) !== (next.props.samplePercent ?? 100)) {
+      for (const candidate of this.editor.getCurrentPageShapes()) {
+        if (candidate.type !== "sql-text-area") continue;
+        const query = candidate as SQLTextAreaShape;
+        const { orderedDependencies } = getOrderedDependenciesForSQL(this.editor, query.props.text);
+        if (!orderedDependencies.some((dependency) => dependency.id === next.id)) continue;
+        clearRestoredRemoteQueryMetadata(query.id);
+        this.editor.updateShape<SQLTextAreaShape>({
+          id: query.id,
+          type: "sql-text-area",
+          props: { stale: true, isDirty: true, columnStats: null },
+        });
+      }
+    }
     const prevName = prev.props.name;
     const nextName = next.props.name;
 
     if (prevName === nextName) {
-      return;
+      return next;
     }
 
     if (this.updateSourceName) {
@@ -492,5 +519,6 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
     } else {
       console.error("updateSourceName function not initialized");
     }
+    return next;
   }
 }

@@ -1,7 +1,8 @@
 import type { Editor } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
-import { quoteDottedIdentifier, quoteIdentifier, stripTrailingSemicolons } from "../src/duckdb/sql";
+import { buildBigQuerySampleSQL } from "../DataSource/source-samples";
+import { quoteDottedIdentifier, quoteIdentifier, quoteSqlString, stripTrailingSemicolons } from "../src/duckdb/sql";
 import { getEngineAppearance, type ShapeEngineTab } from "../util/ShapeEngineTabs";
 import { getOrderedDependenciesForSQL, type SQLDependencyShape } from "./sqlDependencies";
 import { getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
@@ -36,7 +37,8 @@ export function getMissingSourceMessage(orderedDependencies: SQLDependencyShape[
   const missing = orderedDependencies.find(
     (dependency) => dependency.type === "data-source" && !getRemoteSourceMetadata(dependency)
   );
-  return missing ? `Source "${missing.props.name}" is missing its uploaded table. Upload the file again.` : null;
+  if (missing) return `Source "${missing.props.name}" is missing its uploaded table. Upload the file again.`;
+  return null;
 }
 
 export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]): QueryExecutionState {
@@ -203,12 +205,47 @@ export function buildRemoteSQLFromDag(
   orderedDependencies: SQLDependencyShape[],
   editor: Editor
 ): string {
+  const { sourceNativePreview } = describeQueryExecution(orderedDependencies);
   const ctes = orderedDependencies.map((dependency) => {
     if (dependency.type === "sql-text-area")
       return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(resolveKnobSQL(editor, dependency.props.text))})`;
     const source = getRemoteSourceMetadata(dependency);
     if (!source) throw new Error(`Source "${dependency.props.name}" is unavailable.`);
-    return `${quoteIdentifier(dependency.props.name)} AS (SELECT * FROM ${quoteDottedIdentifier(source.remoteTableRef)})`;
+    const percent = dependency.props.samplePercent ?? 100;
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      throw new Error(`Source "${dependency.props.name}" has an invalid sample percentage.`);
+    }
+    const table = quoteDottedIdentifier(source.remoteTableRef);
+    let sourceSQL = `SELECT * FROM ${table}${percent === 0 ? " WHERE FALSE" : ""}`;
+    if (source.sourceType === "bigquery" && percent > 0 && percent < 100) {
+      if (sourceNativePreview) {
+        sourceSQL = buildBigQuerySampleSQL(source.remoteTableRef, percent);
+      } else {
+        const nativeTable = source.remoteTableRef
+          .split(".")
+          .slice(1)
+          .join(".")
+          .replace(/\\/g, "\\\\")
+          .replace(/`/g, "\\`");
+        const nativeSQL = `SELECT * FROM \`${nativeTable}\` TABLESAMPLE SYSTEM (${percent} PERCENT)`;
+        sourceSQL = `SELECT * FROM bigquery_query(${quoteSqlString(source.sourceName)}, ${quoteSqlString(nativeSQL)})`;
+      }
+    }
+    if (source.sourceType === "postgres" && percent > 0 && percent < 100) {
+      const sample = `TABLESAMPLE SYSTEM (${percent}) REPEATABLE (42)`;
+      if (sourceNativePreview) {
+        sourceSQL = `SELECT * FROM ${table} ${sample}`;
+      } else {
+        // Sample in Postgres even when the downstream query joins other sources.
+        const nativeTable = quoteDottedIdentifier(source.remoteTableRef.split(".").slice(1).join("."));
+        const nativeSQL = `SELECT * FROM ${nativeTable} ${sample}`;
+        sourceSQL = `SELECT * FROM postgres_query(${quoteSqlString(source.sourceName)}, ${quoteSqlString(nativeSQL)})`;
+      }
+    }
+    if (source.sourceType !== "postgres" && source.sourceType !== "bigquery" && percent > 0 && percent < 100) {
+      sourceSQL = `SELECT * FROM ${table} USING SAMPLE ${percent} PERCENT (bernoulli)`;
+    }
+    return `${quoteIdentifier(dependency.props.name)} AS (${sourceSQL})`;
   });
   const query = stripTrailingSemicolons(resolveKnobSQL(editor, sqlText));
   return ctes.length ? `WITH ${ctes.join(",\n")} SELECT * FROM (${query}) AS kavla_query` : query;
