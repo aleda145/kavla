@@ -5,6 +5,8 @@ import { type Editor, useToasts, useValue } from "tldraw";
 import type { DataSourceShape } from "./data-source-types";
 import { selectSourceSample } from "./source-samples";
 import { SourceSampleEstimate } from "./SourceSampleEstimate";
+import { useData } from "../client/useLocalServer";
+import { getSampleRowCount, loadSampleRowCount } from "./sample-row-count";
 import "./data-source-sample.css";
 
 export function DataSourceSampleControl({ editor, shape }: { editor: Editor; shape: DataSourceShape }) {
@@ -12,6 +14,13 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
   const [open, setOpen] = useState(false);
   const [pendingPercent, setPendingPercent] = useState<number | null>(null);
   const pending = useRef(false);
+  const { runRemoteQuery } = useData();
+  const countLoading = useValue(
+    "Sample configuration loading",
+    () => percent < 100 && getSampleRowCount(editor, shape)?.status === "loading",
+    [editor, shape, percent]
+  );
+  const busy = pendingPercent !== null || countLoading;
   const { addToast } = useToasts();
   const [tooltipRect, setTooltipRect] = useState<DOMRect | null>(null);
   const [presetHover, setPresetHover] = useState<{ percent: number; rect: DOMRect } | null>(null);
@@ -34,12 +43,21 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
   }, [open]);
 
   const update = async (samplePercent: number) => {
-    if (disabled || pending.current) return;
+    if (disabled || pending.current || getSampleRowCount(editor, shape)?.status === "loading") return;
     pending.current = true;
     setPresetHover(null);
     setPendingPercent(samplePercent);
     try {
       await selectSourceSample(editor, shape, samplePercent);
+      const current = editor.getShape<DataSourceShape>(shape.id);
+      if (
+        !current ||
+        current.props.remoteTableRef !== shape.props.remoteTableRef ||
+        (current.props.samplePercent ?? 100) !== samplePercent
+      ) {
+        throw new Error("The data source changed while configuring the sample.");
+      }
+      if (samplePercent < 100) await loadSampleRowCount(editor, current, runRemoteQuery, true);
     } catch (error) {
       addToast({
         title: "Sample failed",
@@ -72,12 +90,13 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
         ref={buttonRef}
         type="button"
         className="kavla-source-sample-tab"
-        aria-label={`Sample: ${percent}%`}
+        aria-label={busy ? `Preparing ${pendingPercent ?? percent}% sample` : `Sample: ${percent}%`}
         aria-expanded={open}
         aria-controls={panelId}
         aria-describedby={tooltipRect && !open ? tooltipId : undefined}
         data-sampling={percent < 100}
-        disabled={disabled}
+        disabled={disabled || busy}
+        aria-busy={busy}
         onMouseEnter={(event) => setTooltipRect(event.currentTarget.getBoundingClientRect())}
         onMouseLeave={() => setTooltipRect(null)}
         onFocus={(event) => setTooltipRect(event.currentTarget.getBoundingClientRect())}
@@ -87,7 +106,7 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
           setOpen((current) => !current);
         }}
       >
-        {pendingPercent !== null ? (
+        {busy ? (
           <Loader2 size={18} className="animate-spin" aria-label="Preparing sample" />
         ) : (
           <Pipette size={18} aria-hidden />
@@ -115,8 +134,8 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
               type="button"
               className="kavla-source-sample-preset"
               aria-pressed={percent === preset}
-              disabled={disabled || pendingPercent !== null}
-              aria-busy={pendingPercent === preset}
+              disabled={disabled || busy}
+              aria-busy={busy && (pendingPercent ?? percent) === preset}
               aria-describedby={presetHover?.percent === preset ? `${tooltipId}-estimate` : undefined}
               onMouseEnter={(event) => {
                 if (preset < 100 && shape.props.sourceType === "bigquery") {
