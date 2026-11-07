@@ -363,7 +363,6 @@ func (s *Server) documentRequests(next http.Handler) http.Handler {
 		// Only mutations that replace/remove query inputs need the exclusive gate.
 		exclusive := r.Method != http.MethodGet && (strings.HasPrefix(r.URL.Path, "/api/session/uploads") || strings.HasPrefix(r.URL.Path, "/api/cli/sources") || strings.HasPrefix(r.URL.Path, "/api/session/blobs") || r.URL.Path == "/api/session/transfer" || r.URL.Path == "/api/session/save-as" || r.URL.Path == "/api/session/rename" || r.URL.Path == "/api/session/load-path" || r.URL.Path == "/api/session/new")
 		exclusive = exclusive || (r.Method != http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/session/snapshots/") && strings.HasSuffix(r.URL.Path, "/restore"))
-		exclusive = exclusive || r.URL.Path == "/api/session/source-sample"
 		if exclusive {
 			s.documentGate.Lock()
 			defer s.documentGate.Unlock()

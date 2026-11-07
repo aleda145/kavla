@@ -105,11 +105,6 @@ func (c *Client) ExportSourceTable(ctx context.Context, source, format, path str
 	return err
 }
 
-func (c *Client) ExportSourceSample(ctx context.Context, source string, percent float64, path string) error {
-	_, err := c.call(ctx, request{Op: "export-sample", Source: source, SamplePercent: percent, Path: path})
-	return err
-}
-
 func (c *Client) ImportUploadedFile(ctx context.Context, name, fileName, path string) error {
 	_, err := c.call(ctx, request{Op: "import", ID: name, FileName: fileName, Path: path})
 	return err

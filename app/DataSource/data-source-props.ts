@@ -14,7 +14,6 @@ export const DataSourceProps = {
   sourceType: T.string.nullable(),
   remoteTableRef: T.string.nullable(),
   rowCount: T.number.nullable(),
-  sampleTables: T.dict(T.string, T.string).optional(),
   samplePercent: T.number
     .check((value) => {
       if (!Number.isFinite(value) || value < 0 || value > 100) {

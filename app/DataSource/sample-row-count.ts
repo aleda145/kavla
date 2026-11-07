@@ -5,7 +5,7 @@ import { buildRemoteSQLFromDag } from "../SQLTextArea/walkSQLDag";
 import { quoteIdentifier } from "../src/duckdb/sql";
 import { randomUUID } from "../util/randomUUID";
 import type { DataSourceShape } from "./data-source-types";
-import { getDataSourceExecutionMetadata } from "./source-samples";
+import { getRemoteSourceMetadata } from "./remote-source-metadata";
 
 type SampleRowCount = {
   key: string;
@@ -33,7 +33,7 @@ export function sampleRowCountKey(shape: DataSourceShape): string {
     backendRevision.get(),
     shape.id,
     shape.props.name,
-    getDataSourceExecutionMetadata(shape),
+    getRemoteSourceMetadata(shape),
     shape.props.samplePercent ?? 100,
   ]);
 }
@@ -56,7 +56,7 @@ export function loadSampleRowCount(
   const promise = (async () => {
     const percent = shape.props.samplePercent ?? 100;
     if (percent === 0) return 0n;
-    const source = getDataSourceExecutionMetadata(shape);
+    const source = getRemoteSourceMetadata(shape);
     if (!source) throw new Error("The sampled source is unavailable.");
     // Use the same sampling SQL and execution engine as downstream queries.
     const sql = buildRemoteSQLFromDag(

@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { Eye, Files, Loader2, Trash2, X } from "lucide-react";
 import { useEditor, useValue, type Editor, type TLAsset, type TLShapeId } from "tldraw";
 import type { DataSourceShape } from "../../DataSource/data-source-types";
-import { forgetSourceSample } from "../../DataSource/source-samples";
 import { backendRequest, withBackendActivity } from "../backendCompute";
 import { deleteSessionBlob, type KavlaBlobDescriptor, type KavlaLocalSession } from "./localSession";
 
@@ -37,11 +36,7 @@ function getCanvasAssets(editor: Editor, blobs: KavlaBlobDescriptor[]): CanvasAs
     return {
       id: blob.id,
       name: blob.fileName,
-      kind: blob.id.startsWith("sample:")
-        ? "Source sample"
-        : blob.kind === "source"
-          ? "Uploaded file"
-          : (asset?.type ?? blob.mimeType ?? "Asset"),
+      kind: blob.kind === "source" ? "Uploaded file" : (asset?.type ?? blob.mimeType ?? "Asset"),
       size: blob.size,
       blob,
       asset,
@@ -152,7 +147,6 @@ export function LocalAssetsDialog({ onClose }: { onClose: () => void }) {
         editor.run(
           () => {
             editor.deleteShapes(current?.shapeIds ?? []);
-            if (row.blob?.tableName) forgetSourceSample(editor, `uploaded_files.main.${row.blob.tableName}`);
             // The bundled file has already been deleted and its errors handled above.
             // deleteAssets would start another, unawaited asset-store deletion.
             if (row.asset) editor.store.remove([row.asset.id]);

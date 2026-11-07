@@ -1,11 +1,7 @@
 import type { Editor } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
-import {
-  buildBigQuerySampleSQL,
-  getDataSourceExecutionMetadata,
-  needsSavedSourceSample,
-} from "../DataSource/source-samples";
+import { buildBigQuerySampleSQL } from "../DataSource/source-samples";
 import { quoteDottedIdentifier, quoteIdentifier, quoteSqlString, stripTrailingSemicolons } from "../src/duckdb/sql";
 import { getEngineAppearance, type ShapeEngineTab } from "../util/ShapeEngineTabs";
 import { getOrderedDependenciesForSQL, type SQLDependencyShape } from "./sqlDependencies";
@@ -42,17 +38,14 @@ export function getMissingSourceMessage(orderedDependencies: SQLDependencyShape[
     (dependency) => dependency.type === "data-source" && !getRemoteSourceMetadata(dependency)
   );
   if (missing) return `Source "${missing.props.name}" is missing its uploaded table. Upload the file again.`;
-  const uncached = orderedDependencies.find(
-    (dependency) => dependency.type === "data-source" && needsSavedSourceSample(dependency)
-  );
-  return uncached ? `Run the query to create the saved sample for "${uncached.props.name}".` : null;
+  return null;
 }
 
 export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]): QueryExecutionState {
   const remoteSources = orderedDependencies
     .filter((dependency): dependency is DataSourceShape => dependency.type === "data-source")
     .flatMap((dependency) => {
-      const remoteSource = getDataSourceExecutionMetadata(dependency);
+      const remoteSource = getRemoteSourceMetadata(dependency);
       return remoteSource ? [remoteSource] : [];
     });
 
@@ -96,7 +89,7 @@ export function describeQueryExecution(orderedDependencies: SQLDependencyShape[]
         return true;
       }
 
-      const remoteSource = getDataSourceExecutionMetadata(dependency);
+      const remoteSource = getRemoteSourceMetadata(dependency);
       if (!remoteSource) {
         return false;
       }
@@ -216,16 +209,13 @@ export function buildRemoteSQLFromDag(
   const ctes = orderedDependencies.map((dependency) => {
     if (dependency.type === "sql-text-area")
       return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(resolveKnobSQL(editor, dependency.props.text))})`;
-    const source = getDataSourceExecutionMetadata(dependency);
+    const source = getRemoteSourceMetadata(dependency);
     if (!source) throw new Error(`Source "${dependency.props.name}" is unavailable.`);
     const percent = dependency.props.samplePercent ?? 100;
     if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
       throw new Error(`Source "${dependency.props.name}" has an invalid sample percentage.`);
     }
     const table = quoteDottedIdentifier(source.remoteTableRef);
-    if (needsSavedSourceSample(dependency)) {
-      throw new Error(`Run the query to create the saved sample for "${dependency.props.name}".`);
-    }
     let sourceSQL = `SELECT * FROM ${table}${percent === 0 ? " WHERE FALSE" : ""}`;
     if (source.sourceType === "bigquery" && percent > 0 && percent < 100) {
       if (sourceNativePreview) {
@@ -251,6 +241,9 @@ export function buildRemoteSQLFromDag(
         const nativeSQL = `SELECT * FROM ${nativeTable} ${sample}`;
         sourceSQL = `SELECT * FROM postgres_query(${quoteSqlString(source.sourceName)}, ${quoteSqlString(nativeSQL)})`;
       }
+    }
+    if (source.sourceType !== "postgres" && source.sourceType !== "bigquery" && percent > 0 && percent < 100) {
+      sourceSQL = `SELECT * FROM ${table} USING SAMPLE ${percent} PERCENT (bernoulli)`;
     }
     return `${quoteIdentifier(dependency.props.name)} AS (${sourceSQL})`;
   });

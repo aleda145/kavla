@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { Loader2, Pipette } from "lucide-react";
 import { type Editor, useToasts, useValue } from "tldraw";
 import type { DataSourceShape } from "./data-source-types";
-import { selectSourceSample } from "./source-samples";
 import { SourceSampleEstimate } from "./SourceSampleEstimate";
 import { useData } from "../client/useLocalServer";
 import { getSampleRowCount, loadSampleRowCount } from "./sample-row-count";
@@ -48,7 +47,8 @@ export function DataSourceSampleControl({ editor, shape }: { editor: Editor; sha
     setPresetHover(null);
     setPendingPercent(samplePercent);
     try {
-      await selectSourceSample(editor, shape, samplePercent);
+      if (!shape.props.remoteTableRef) throw new Error("The data source is unavailable.");
+      editor.updateShape<DataSourceShape>({ id: shape.id, type: "data-source", props: { samplePercent } });
       const current = editor.getShape<DataSourceShape>(shape.id);
       if (
         !current ||

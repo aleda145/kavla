@@ -22,7 +22,6 @@ import {
 } from "lucide-react";
 import { createShapeId, useEditor, useToasts } from "tldraw";
 import type { ColumnMetadata, DataSourceShape } from "../../DataSource/data-source-types";
-import { forgetSourceSample } from "../../DataSource/source-samples";
 import { CliSourceIcon, getCliSourceAppearance } from "../../DataSource/CliSourcesList";
 import { calculateDataSourceHeight, calculateDataSourceWidth } from "../../DataSource/ingestLocalDataSourceFile";
 import { getRemoteTableDisplayName } from "../../DataSource/remote-source-metadata";
@@ -723,7 +722,6 @@ function SourceTablesBrowser({
       if (!blob) throw new Error("The uploaded table no longer exists.");
       await backendRequest(`/api/session/uploads/${encodeURIComponent(blob.id)}`, { method: "DELETE" });
       forgetUploadedBlob(blob.id);
-      forgetSourceSample(editor, selectedTable);
       for (const record of Object.values(editor.store.serialize("document"))) {
         if (
           record.typeName === "shape" &&
