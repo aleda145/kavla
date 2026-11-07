@@ -19,7 +19,6 @@ import { useEffect, useState } from "react";
 import { validateBackendQuery } from "../client/backendCompute";
 import { ShapeEngineTabs } from "../util/ShapeEngineTabs";
 import { InheritedSourceSample } from "../DataSource/InheritedSourceSample";
-import { ensureQuerySamples } from "../DataSource/source-samples";
 import {
   type EditorValidationIssue,
   issueFromMessage,
@@ -225,13 +224,6 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       }
       const startTime = Date.now();
       clearRestoredRemoteQueryMetadata(shape.id);
-      try {
-        await ensureQuerySamples(this.editor, sqlText);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        update({ error: message, isDirty: true });
-        return { success: false, error: message };
-      }
       ensureQueryKnobs(this.editor, shape, sqlText);
 
       const dagWalk = walkSQLDag(this.editor, sqlText);

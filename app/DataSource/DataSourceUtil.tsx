@@ -68,7 +68,6 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
       remoteTableRef: null,
       rowCount: null,
       samplePercent: 100,
-      sampleTables: {},
       downstreamShapeIds: null,
       upstreamShapeIds: null,
       metadata: null,
@@ -153,7 +152,6 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
           metadata: null,
           columnStats: null,
           samplePercent: 100,
-          sampleTables: {},
           error: null,
           isRunning: true,
           sourceName,
@@ -493,13 +491,9 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
 
   override onBeforeUpdate(prev: DataSourceShape, next: DataSourceShape): DataSourceShape | void {
     if (prev.props.remoteTableRef !== next.props.remoteTableRef) {
-      next = { ...next, props: { ...next.props, samplePercent: 100, sampleTables: {} } };
+      next = { ...next, props: { ...next.props, samplePercent: 100 } };
     }
-    if (
-      (prev.props.samplePercent ?? 100) !== (next.props.samplePercent ?? 100) ||
-      prev.props.sampleTables?.[String(prev.props.samplePercent)] !==
-        next.props.sampleTables?.[String(next.props.samplePercent)]
-    ) {
+    if ((prev.props.samplePercent ?? 100) !== (next.props.samplePercent ?? 100)) {
       for (const candidate of this.editor.getCurrentPageShapes()) {
         if (candidate.type !== "sql-text-area") continue;
         const query = candidate as SQLTextAreaShape;

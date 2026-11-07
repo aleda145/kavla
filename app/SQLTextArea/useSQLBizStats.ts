@@ -7,7 +7,7 @@ import { readBizFilterCounts, type BizFilterCounts, type BizFilterPlan } from ".
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import type { QueryScan, RunRemoteQueryPayload } from "../client/localServer/types";
 
-import { getDataSourceExecutionMetadata } from "../DataSource/source-samples";
+import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
 import { getRemoteHoverPolicy, setRemoteHoverPolicy, subscribeRemoteHoverPolicy } from "./remote-hover-policy";
 
 type AnalysisSource = { sourceName: string; sourceType: string | null };
@@ -93,7 +93,7 @@ export function useSQLBizStats(shape: SQLTextAreaShape, sql: string | null, erro
           const execution = dag.plan.executionState;
           const sources = dag.plan.orderedDependencies.flatMap((dependency) => {
             if (dependency.type !== "data-source") return [];
-            const source = getDataSourceExecutionMetadata(dependency);
+            const source = getRemoteSourceMetadata(dependency);
             return source ? [{ sourceName: source.sourceName, sourceType: source.sourceType }] : [];
           });
           return {

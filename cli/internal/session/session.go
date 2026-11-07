@@ -444,12 +444,6 @@ func (s *Session) ExportSourceTable(ctx context.Context, tableRef, format, outpu
 	return s.engine.ExportSourceTable(ctx, tableRef, format, outputPath)
 }
 
-func (s *Session) ExportSourceSample(ctx context.Context, tableRef string, percent float64, outputPath string) error {
-	ctx, cancel := s.OperationContext(ctx)
-	defer cancel()
-	return s.engine.ExportSourceSample(ctx, tableRef, percent, outputPath)
-}
-
 func (s *Session) HandleGetTables(client Client, requestID, sourceName string) {
 	if strings.TrimSpace(sourceName) == "" {
 		_ = client.SendJSON(map[string]interface{}{
