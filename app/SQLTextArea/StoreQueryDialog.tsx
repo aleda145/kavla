@@ -1,4 +1,4 @@
-import { Database, Loader2, X } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, Database, Loader2, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useCliSources } from "../client/useLocalServer";
@@ -24,6 +24,11 @@ const buttonClass =
 
 export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQueryDialogProps) {
   const sources = useCliSources();
+  const sortedSources = [...sources].sort((a, b) => {
+    if (a.name === "uploaded_files") return -1;
+    if (b.name === "uploaded_files") return 1;
+    return a.name.localeCompare(b.name);
+  });
   const [sourceName, setSourceName] = useState(
     () =>
       sources.find((source) => source.builtin && source.available !== false)?.name ??
@@ -72,7 +77,10 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
     void backendRequest(`/api/cli/sources/${encodeURIComponent(sourceName)}/schemas`)
       .then(async (response) => {
         const result = (await response.json()) as { schemas: string[] };
-        if (active) setSourceLoad({ sourceName, schemas: result.schemas, error: null, loading: false });
+        if (active) {
+          setSourceLoad({ sourceName, schemas: result.schemas, error: null, loading: false });
+          setSchemaName((current) => (result.schemas.includes(current) ? current : (result.schemas[0] ?? "")));
+        }
       })
       .catch((cause: unknown) => {
         if (active) {
@@ -96,7 +104,7 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
     !loadingSource &&
     !sourceError &&
     validName.test(tableName.trim()) &&
-    (!needsSchema || validName.test(schemaName.trim()));
+    (!needsSchema || (validName.test(schemaName.trim()) && schemas.includes(schemaName.trim())));
 
   return createPortal(
     <dialog
@@ -112,8 +120,9 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
       style={{
         margin: "auto",
         padding: 0,
-        width: "min(520px, calc(100vw - 40px))",
-        maxHeight: "calc(100vh - 40px)",
+        width: "min(680px, calc(100vw - 40px))",
+        minHeight: "min(340px, calc(100vh - 40px))",
+        maxHeight: "min(720px, calc(100vh - 40px))",
         overflowY: "auto",
         border: "3px solid #000",
         borderRadius: 12,
@@ -169,79 +178,46 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
             setStoring(false);
           }
         }}
-        style={{ display: "flex", flexDirection: "column", gap: 16, padding: 16 }}
+        style={{ display: "flex", flexDirection: "column", gap: 14, padding: 16 }}
       >
         <fieldset style={{ margin: 0, padding: 0, border: 0, minWidth: 0 }} disabled={storing}>
           <legend className="mb-2 text-[11px] font-black">SOURCE</legend>
           <div
             style={{
-              background: "#f8fafc",
+              backgroundColor: "#f8fafc",
               border: "2px solid #000",
               borderRadius: 8,
-              maxHeight: 240,
+              minHeight: 220,
+              maxHeight: 320,
               overflowY: "auto",
             }}
           >
-            {sources.map((candidate) => {
+            {sortedSources.map((candidate) => {
               const appearance = getCliSourceAppearance(candidate);
               const selected = candidate.name === sourceName;
               const loading = candidate.loading || (selected && loadingSource);
               const connectionError = selected ? sourceError : candidate.error;
-              const status = loading
-                ? "Connecting…"
+              const label = candidate.name === "uploaded_files" ? "Files" : candidate.name;
+              const title = loading
+                ? `${label} · Connecting…`
                 : connectionError
-                  ? "Connection error"
-                  : candidate.available === false
-                    ? "Not connected"
-                    : "";
+                  ? `${label}\n${connectionError}`
+                  : `${label} (${candidate.type})`;
               return (
                 <label
                   key={candidate.name}
-                  className="hover:bg-blue-50"
-                  title={connectionError || candidate.name}
+                  className="relative block min-w-0 border-b border-slate-300 last:border-b-0"
+                  title={title}
                   aria-busy={loading}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 9,
-                    padding: "10px 11px",
-                    borderBottom: "1px solid #cbd5e1",
-                    cursor: storing ? "not-allowed" : "pointer",
-                    backgroundColor: selected ? "#eff6ff" : undefined,
-                  }}
                 >
-                  <span
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                      width: 36,
-                      height: 36,
-                      padding: 6,
-                      border: "2px solid #000",
-                      borderRadius: 6,
-                      backgroundColor: appearance.backgroundColor,
-                    }}
-                  >
-                    <CliSourceIcon source={{ ...candidate, loading }} size={20} />
-                  </span>
-                  <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 }}>
-                    <strong className="truncate text-[13px]">
-                      {candidate.name === "uploaded_files" ? "Files" : candidate.name}
-                    </strong>
-                    <span className="text-[11px] text-slate-600">
-                      {candidate.type}
-                      {status ? ` · ${status}` : ""}
-                    </span>
-                  </span>
                   <input
                     type="radio"
                     name={`${id}-source`}
                     value={candidate.name}
                     checked={selected}
                     autoFocus={selected}
-                    style={{ accentColor: "#000", width: 16, height: 16 }}
+                    className="peer sr-only"
+                    aria-label={title}
                     onChange={() => {
                       setSourceName(candidate.name);
                       setSourceLoad(null);
@@ -251,38 +227,88 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
                       setError(null);
                     }}
                   />
+                  <span
+                    className={`flex min-w-0 cursor-pointer items-center gap-2.5 px-2.5 py-2 text-black peer-focus-visible:outline-2 peer-focus-visible:-outline-offset-2 peer-focus-visible:outline-black peer-disabled:cursor-not-allowed peer-disabled:opacity-50 ${selected ? "bg-blue-50" : "hover:bg-slate-100"}`}
+                  >
+                    <span
+                      className="flex h-9 min-w-9 shrink-0 items-center justify-center gap-1 rounded-md border-2 border-black p-1.5"
+                      style={{ backgroundColor: appearance.backgroundColor }}
+                    >
+                      <CliSourceIcon source={{ ...candidate, loading: false }} size={18} />
+                      {connectionError && !loading && <AlertCircle aria-hidden="true" color="#b91c1c" size={14} />}
+                    </span>
+                    <span className="min-w-0 flex-1 text-left">
+                      <strong className="block truncate text-xs">{label}</strong>
+                      <span className="block truncate text-[10px] text-slate-600">
+                        {candidate.builtin ? "Files stored in this document" : candidate.type}
+                      </span>
+                      {loading ? (
+                        <span role="status" className="sr-only">
+                          Connecting…
+                        </span>
+                      ) : connectionError ? (
+                        <span className="block truncate text-[10px] font-bold text-red-700">{connectionError}</span>
+                      ) : null}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className={`flex shrink-0 items-center justify-center gap-1.5 rounded-[7px] border-2 border-black px-2 py-1.5 text-[10px] font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] ${selected ? "bg-blue-100" : "bg-white"}`}
+                    >
+                      {loading ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : selected ? (
+                        <Check size={13} strokeWidth={3} />
+                      ) : (
+                        <Database size={13} />
+                      )}
+                      <span className="kavla-control-label">{selected ? "Selected" : "Select"}</span>
+                    </span>
+                  </span>
                 </label>
               );
             })}
           </div>
         </fieldset>
         {sourceError && (
-          <div role="alert" className="rounded border-2 border-red-700 bg-red-50 p-3 text-sm break-words">
+          <div
+            role="alert"
+            className="rounded-[7px] border-2 border-black bg-red-100 px-2.5 py-2 text-[11px] font-bold text-red-900 break-words"
+          >
             {sourceError}
           </div>
         )}
         {needsSchema && (
           <label className="flex flex-col gap-1 text-[11px] font-black">
-            <span className="flex items-center gap-2">
-              {source.type === "bigquery" ? "DATASET" : "SCHEMA"}
-              {loadingSource && <Loader2 size={12} className="animate-spin" aria-label="Loading schemas" />}
+            {source.type === "bigquery" ? "DATASET" : "SCHEMA"}
+            <span className="relative">
+              <select
+                required
+                value={loadingSource ? "" : schemaName}
+                onChange={(event) => setSchemaName(event.target.value)}
+                disabled={storing || loadingSource || Boolean(sourceError) || schemas.length === 0}
+                className="h-9 w-full min-w-0 cursor-pointer appearance-none rounded border-2 border-black bg-white py-1 px-2 pr-8 text-xs font-bold text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="" disabled>
+                  {loadingSource
+                    ? "Loading…"
+                    : schemas.length
+                      ? "Select…"
+                      : source.type === "bigquery"
+                        ? "No datasets available"
+                        : "No schemas available"}
+                </option>
+                {schemas.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                aria-hidden="true"
+                size={14}
+                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2"
+              />
             </span>
-            <input
-              required
-              value={schemaName}
-              onChange={(event) => setSchemaName(event.target.value)}
-              disabled={storing}
-              className={inputClass}
-              list={`${id}-schemas`}
-              autoComplete="off"
-              spellCheck={false}
-              pattern="[a-zA-Z_][a-zA-Z0-9_]*"
-            />
-            <datalist id={`${id}-schemas`}>
-              {schemas.map((name) => (
-                <option key={name} value={name} />
-              ))}
-            </datalist>
           </label>
         )}
         <label className="flex flex-col gap-1 text-[11px] font-black">
@@ -297,7 +323,10 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
           />
         </label>
         {error && (
-          <div role="alert" className="rounded border-2 border-red-700 bg-red-50 p-3 text-sm break-words">
+          <div
+            role="alert"
+            className="rounded-[7px] border-2 border-black bg-red-100 px-2.5 py-2 text-[11px] font-bold text-red-900 break-words"
+          >
             {error}
           </div>
         )}
