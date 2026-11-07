@@ -14,8 +14,10 @@ import (
 var storeIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 func (e *Engine) GetSourceSchemas(ctx context.Context, sourceName string) ([]string, error) {
-	if err := e.ensureSourceAvailable(sourceName); err != nil {
-		return nil, err
+	if sourceName != UploadedFilesSource {
+		if err := e.ensureSourceAvailable(ctx, sourceName); err != nil {
+			return nil, err
+		}
 	}
 	if e.sourceStatuses[sourceName].Type == "directory" {
 		return []string{}, nil

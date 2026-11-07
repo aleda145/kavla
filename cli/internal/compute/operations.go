@@ -106,6 +106,11 @@ func (c *Client) ExportSourceTable(ctx context.Context, source, format, path str
 	return err
 }
 
+func (c *Client) GetSourceSchemas(ctx context.Context, source string) ([]string, error) {
+	result, err := c.call(ctx, request{Op: "source-schemas", Source: source})
+	return result.Schemas, err
+}
+
 func (c *Client) StoreDestination(ctx context.Context, source, schemaName, tableName string) (*engine.StoredTable, error) {
 	result, err := c.call(ctx, request{Op: "store-destination", Source: source, SchemaName: schemaName, TableName: tableName})
 	if err != nil {

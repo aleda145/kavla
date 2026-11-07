@@ -52,6 +52,7 @@ type request struct {
 }
 
 type response struct {
+	Schemas     []string
 	StoredTable *engine.StoredTable
 	Scan        *sources.QueryScan
 	Estimate    *sources.QueryEstimate

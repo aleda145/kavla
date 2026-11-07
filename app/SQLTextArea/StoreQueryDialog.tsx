@@ -28,6 +28,7 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
     () =>
       sources.find((source) => source.builtin && source.available !== false)?.name ??
       sources.find((source) => source.available !== false)?.name ??
+      sources[0]?.name ??
       ""
   );
   const source = sources.find((candidate) => candidate.name === sourceName);
@@ -37,9 +38,12 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
   const [tableName, setTableName] = useState(defaultTableName);
   const [storing, setStoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [schemas, setSchemas] = useState<string[]>([]);
-  const [loadingSchemas, setLoadingSchemas] = useState(false);
-  const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [sourceLoad, setSourceLoad] = useState<{
+    sourceName: string;
+    schemas: string[];
+    error: string | null;
+    loading: boolean;
+  } | null>(null);
   const busy = useRef(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const id = useId();
@@ -52,34 +56,45 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
 
   const isDirectory = source?.type === "directory";
   const needsSchema = source && !source.builtin && !isDirectory;
+  const shouldLoadSource = Boolean(source && !source.builtin);
+  const currentLoad = sourceLoad?.sourceName === sourceName ? sourceLoad : null;
+  const loadingSource = shouldLoadSource && (!currentLoad || currentLoad.loading || source?.loading === true);
+  const sourceError = currentLoad?.error ?? (!loadingSource ? source?.error : null);
+  const schemas = currentLoad?.schemas ?? [];
 
   useEffect(() => {
-    setSchemas([]);
-    setSchemaError(null);
-    if (!needsSchema || source?.available === false) {
-      setLoadingSchemas(false);
+    if (!shouldLoadSource) {
+      setSourceLoad(null);
       return;
     }
-    const controller = new AbortController();
-    setLoadingSchemas(true);
-    void backendRequest(`/api/cli/sources/${encodeURIComponent(sourceName)}/schemas`, { signal: controller.signal })
+    let active = true;
+    setSourceLoad({ sourceName, schemas: [], error: null, loading: true });
+    void backendRequest(`/api/cli/sources/${encodeURIComponent(sourceName)}/schemas`)
       .then(async (response) => {
         const result = (await response.json()) as { schemas: string[] };
-        if (!controller.signal.aborted) setSchemas(result.schemas);
+        if (active) setSourceLoad({ sourceName, schemas: result.schemas, error: null, loading: false });
       })
       .catch((cause: unknown) => {
-        if (!controller.signal.aborted) setSchemaError(cause instanceof Error ? cause.message : String(cause));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoadingSchemas(false);
+        if (active) {
+          setSourceLoad({
+            sourceName,
+            schemas: [],
+            error: cause instanceof Error ? cause.message : String(cause),
+            loading: false,
+          });
+        }
       });
-    return () => controller.abort();
-  }, [sourceName, needsSchema, source?.available]);
+    // Let initialization finish if the selection changes; cancelling it also stops the shared compute worker.
+    return () => {
+      active = false;
+    };
+  }, [sourceName, shouldLoadSource]);
 
   const validName = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
   const canStore =
     source &&
-    source.available !== false &&
+    !loadingSource &&
+    !sourceError &&
     validName.test(tableName.trim()) &&
     (!needsSchema || validName.test(schemaName.trim()));
 
@@ -170,21 +185,29 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
             {sources.map((candidate) => {
               const appearance = getCliSourceAppearance(candidate);
               const selected = candidate.name === sourceName;
-              const unavailable = candidate.available === false;
+              const loading = candidate.loading || (selected && loadingSource);
+              const connectionError = selected ? sourceError : candidate.error;
+              const status = loading
+                ? "Connecting…"
+                : connectionError
+                  ? "Connection error"
+                  : candidate.available === false
+                    ? "Not connected"
+                    : "";
               return (
                 <label
                   key={candidate.name}
                   className="hover:bg-blue-50"
-                  title={unavailable ? (candidate.error ?? "Source unavailable") : candidate.name}
+                  title={connectionError || candidate.name}
+                  aria-busy={loading}
                   style={{
                     display: "flex",
                     alignItems: "center",
                     gap: 9,
                     padding: "10px 11px",
                     borderBottom: "1px solid #cbd5e1",
-                    cursor: storing || unavailable ? "not-allowed" : "pointer",
+                    cursor: storing ? "not-allowed" : "pointer",
                     backgroundColor: selected ? "#eff6ff" : undefined,
-                    opacity: unavailable ? 0.45 : 1,
                   }}
                 >
                   <span
@@ -201,7 +224,7 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
                       backgroundColor: appearance.backgroundColor,
                     }}
                   >
-                    <CliSourceIcon source={candidate} size={20} />
+                    <CliSourceIcon source={{ ...candidate, loading }} size={20} />
                   </span>
                   <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 }}>
                     <strong className="truncate text-[13px]">
@@ -209,7 +232,7 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
                     </strong>
                     <span className="text-[11px] text-slate-600">
                       {candidate.type}
-                      {unavailable ? " · Unavailable" : ""}
+                      {status ? ` · ${status}` : ""}
                     </span>
                   </span>
                   <input
@@ -218,10 +241,10 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
                     value={candidate.name}
                     checked={selected}
                     autoFocus={selected}
-                    disabled={unavailable}
                     style={{ accentColor: "#000", width: 16, height: 16 }}
                     onChange={() => {
                       setSourceName(candidate.name);
+                      setSourceLoad(null);
                       setSchemaName(
                         candidate.type === "postgres" ? "public" : candidate.type === "duckdb" ? "main" : ""
                       );
@@ -233,11 +256,16 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
             })}
           </div>
         </fieldset>
+        {sourceError && (
+          <div role="alert" className="rounded border-2 border-red-700 bg-red-50 p-3 text-sm break-words">
+            {sourceError}
+          </div>
+        )}
         {needsSchema && (
           <label className="flex flex-col gap-1 text-[11px] font-black">
             <span className="flex items-center gap-2">
               {source.type === "bigquery" ? "DATASET" : "SCHEMA"}
-              {loadingSchemas && <Loader2 size={12} className="animate-spin" aria-label="Loading schemas" />}
+              {loadingSource && <Loader2 size={12} className="animate-spin" aria-label="Loading schemas" />}
             </span>
             <input
               required
@@ -255,11 +283,6 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
                 <option key={name} value={name} />
               ))}
             </datalist>
-            {schemaError && (
-              <span role="alert" className="text-xs font-normal text-red-700">
-                {schemaError}
-              </span>
-            )}
           </label>
         )}
         <label className="flex flex-col gap-1 text-[11px] font-black">
