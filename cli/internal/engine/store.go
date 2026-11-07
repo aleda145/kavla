@@ -51,13 +51,17 @@ type StoredTable struct {
 }
 
 func (e *Engine) StoreDestination(ctx context.Context, sourceName, schemaName, tableName string) (*StoredTable, error) {
-	if err := e.ensureSourceAvailable(ctx, sourceName); err != nil {
-		return nil, err
+	// The document catalog is attached at startup, independently of configured sources.
+	sourceType := "duckdb"
+	if sourceName != UploadedFilesSource {
+		if err := e.ensureSourceAvailable(ctx, sourceName); err != nil {
+			return nil, err
+		}
+		sourceType = e.sourceStatuses[sourceName].Type
 	}
 	if !storeIdentifier.MatchString(tableName) {
 		return nil, fmt.Errorf("table name must start with a letter or underscore and contain only letters, numbers, and underscores")
 	}
-	sourceType := e.sourceStatuses[sourceName].Type
 	if sourceType == "postgres" && len(tableName) > 63 {
 		return nil, fmt.Errorf("Postgres table names must be at most 63 characters")
 	}
