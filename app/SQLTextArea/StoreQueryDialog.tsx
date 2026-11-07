@@ -1,9 +1,10 @@
-import { AlertCircle, Check, ChevronDown, Database, Loader2, X } from "lucide-react";
+import { AlertCircle, Check, Database, Loader2, Plus, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useCliSources } from "../client/useLocalServer";
-import { backendRequest } from "../client/backendCompute";
+import { backendRequest, withBackendActivity } from "../client/backendCompute";
 import { CliSourceIcon, getCliSourceAppearance } from "../DataSource/CliSourcesList";
+import { StoreSchemaSelect } from "./StoreSchemaSelect";
 
 export interface StoreDestination {
   sourceName: string;
@@ -42,6 +43,10 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
   );
   const [tableName, setTableName] = useState(defaultTableName);
   const [storing, setStoring] = useState(false);
+  const [createSchemaOpen, setCreateSchemaOpen] = useState(false);
+  const [newSchemaName, setNewSchemaName] = useState("");
+  const [creatingSchema, setCreatingSchema] = useState(false);
+  const [schemaCreateError, setSchemaCreateError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sourceLoad, setSourceLoad] = useState<{
     sourceName: string;
@@ -51,7 +56,10 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
   } | null>(null);
   const busy = useRef(false);
   const dialog = useRef<HTMLDialogElement>(null);
+  const tableNameInput = useRef<HTMLInputElement>(null);
   const id = useId();
+  const isBusy = storing || creatingSchema;
+  const schemaLabel = source?.type === "bigquery" ? "Dataset" : "Schema";
 
   useEffect(() => {
     const element = dialog.current;
@@ -99,8 +107,48 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
   }, [sourceName, shouldLoadSource]);
 
   const validName = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+  const maxSchemaLength = source?.type === "postgres" ? 63 : source?.type === "bigquery" ? 1024 : undefined;
+  const canCreateSchema =
+    needsSchema &&
+    !loadingSource &&
+    !sourceError &&
+    validName.test(newSchemaName.trim()) &&
+    (maxSchemaLength === undefined || newSchemaName.trim().length <= maxSchemaLength);
+
+  const handleCreateSchema = async () => {
+    if (!canCreateSchema || busy.current) return;
+    busy.current = true;
+    setCreatingSchema(true);
+    setSchemaCreateError(null);
+    const name = newSchemaName.trim();
+    try {
+      const result = await withBackendActivity(async () => {
+        const response = await backendRequest(`/api/cli/sources/${encodeURIComponent(sourceName)}/schemas`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ schemaName: name }),
+        });
+        return (await response.json()) as { schemas: string[] };
+      });
+      if (!result.schemas.includes(name))
+        throw new Error(`The new ${schemaLabel.toLowerCase()} is not visible yet. Refresh the source before storing.`);
+      setSourceLoad({ sourceName, schemas: result.schemas, error: null, loading: false });
+      setSchemaName(name);
+      setCreateSchemaOpen(false);
+      setNewSchemaName("");
+      window.requestAnimationFrame(() => tableNameInput.current?.focus());
+    } catch (cause) {
+      setSchemaCreateError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      busy.current = false;
+      setCreatingSchema(false);
+    }
+  };
+
   const canStore =
     source &&
+    !isBusy &&
+    !createSchemaOpen &&
     !loadingSource &&
     !sourceError &&
     validName.test(tableName.trim()) &&
@@ -150,7 +198,7 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
         <button
           type="button"
           aria-label="Close Store dialog"
-          disabled={storing}
+          disabled={isBusy}
           onClick={onClose}
           className="cursor-pointer disabled:opacity-50"
         >
@@ -180,7 +228,7 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
         }}
         style={{ display: "flex", flexDirection: "column", gap: 14, padding: 16 }}
       >
-        <fieldset style={{ margin: 0, padding: 0, border: 0, minWidth: 0 }} disabled={storing}>
+        <fieldset style={{ margin: 0, padding: 0, border: 0, minWidth: 0 }} disabled={isBusy}>
           <legend className="mb-2 text-[11px] font-black">SOURCE</legend>
           <div
             style={{
@@ -221,6 +269,9 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
                     onChange={() => {
                       setSourceName(candidate.name);
                       setSourceLoad(null);
+                      setCreateSchemaOpen(false);
+                      setNewSchemaName("");
+                      setSchemaCreateError(null);
                       setSchemaName(
                         candidate.type === "postgres" ? "public" : candidate.type === "duckdb" ? "main" : ""
                       );
@@ -278,46 +329,94 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
           </div>
         )}
         {needsSchema && (
-          <label className="flex flex-col gap-1 text-[11px] font-black">
-            {source.type === "bigquery" ? "DATASET" : "SCHEMA"}
-            <span className="relative">
-              <select
-                required
+          <div className="flex flex-col gap-2">
+            {createSchemaOpen ? (
+              <>
+                <label className="flex flex-col gap-1 text-[11px] font-black">
+                  NEW {schemaLabel.toUpperCase()}
+                  <input
+                    autoFocus
+                    value={newSchemaName}
+                    onChange={(event) => {
+                      setNewSchemaName(event.target.value);
+                      setSchemaCreateError(null);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void handleCreateSchema();
+                      }
+                    }}
+                    disabled={isBusy}
+                    className={inputClass}
+                    placeholder={source.type === "bigquery" ? "my_dataset" : "my_schema"}
+                    autoComplete="off"
+                    spellCheck={false}
+                    maxLength={maxSchemaLength}
+                  />
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isBusy || !canCreateSchema}
+                    onClick={() => void handleCreateSchema()}
+                    className={`${buttonClass} bg-blue-100 hover:bg-blue-200`}
+                    aria-busy={creatingSchema}
+                  >
+                    {creatingSchema ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                    <span role={creatingSchema ? "status" : undefined}>
+                      {creatingSchema
+                        ? `Creating ${schemaLabel.toLowerCase()}…`
+                        : `Create ${schemaLabel.toLowerCase()}`}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => {
+                      setCreateSchemaOpen(false);
+                      setSchemaCreateError(null);
+                    }}
+                    className={`${buttonClass} bg-white`}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                {schemaCreateError && (
+                  <div
+                    role="alert"
+                    className="rounded-[7px] border-2 border-black bg-red-100 px-2.5 py-2 text-[11px] font-bold text-red-900 break-words"
+                  >
+                    {schemaCreateError}
+                  </div>
+                )}
+              </>
+            ) : (
+              <StoreSchemaSelect
+                key={sourceName}
+                title={schemaLabel}
+                options={schemas}
                 value={loadingSource ? "" : schemaName}
-                onChange={(event) => setSchemaName(event.target.value)}
-                disabled={storing || loadingSource || Boolean(sourceError) || schemas.length === 0}
-                className="h-9 w-full min-w-0 cursor-pointer appearance-none rounded border-2 border-black bg-white py-1 px-2 pr-8 text-xs font-bold text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value="" disabled>
-                  {loadingSource
-                    ? "Loading…"
-                    : schemas.length
-                      ? "Select…"
-                      : source.type === "bigquery"
-                        ? "No datasets available"
-                        : "No schemas available"}
-                </option>
-                {schemas.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                aria-hidden="true"
-                size={14}
-                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2"
+                onSelect={setSchemaName}
+                onCreate={() => {
+                  setCreateSchemaOpen(true);
+                  setNewSchemaName("");
+                  setSchemaCreateError(null);
+                }}
+                disabled={isBusy || loadingSource || Boolean(sourceError)}
+                placeholder={loadingSource ? "Loading…" : `Select or create a ${schemaLabel.toLowerCase()}…`}
               />
-            </span>
-          </label>
+            )}
+          </div>
         )}
         <label className="flex flex-col gap-1 text-[11px] font-black">
           TABLE NAME
           <input
             required
+            ref={tableNameInput}
             value={tableName}
             onChange={(event) => setTableName(event.target.value)}
-            disabled={storing}
+            disabled={isBusy}
             className={inputClass}
             pattern="[a-zA-Z_][a-zA-Z0-9_]*"
           />
@@ -331,14 +430,10 @@ export function StoreQueryDialog({ defaultTableName, onClose, onStore }: StoreQu
           </div>
         )}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button type="button" onClick={onClose} disabled={storing} className={`${buttonClass} bg-white`}>
+          <button type="button" onClick={onClose} disabled={isBusy} className={`${buttonClass} bg-white`}>
             Cancel
           </button>
-          <button
-            type="submit"
-            disabled={!canStore || storing}
-            className={`${buttonClass} bg-blue-100 hover:bg-blue-200`}
-          >
+          <button type="submit" disabled={!canStore} className={`${buttonClass} bg-blue-100 hover:bg-blue-200`}>
             {storing ? <Loader2 size={16} className="animate-spin" /> : <Database size={16} />}
             {storing ? "Storing…" : "Store"}
           </button>

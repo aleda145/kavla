@@ -111,6 +111,11 @@ func (c *Client) GetSourceSchemas(ctx context.Context, source string) ([]string,
 	return result.Schemas, err
 }
 
+func (c *Client) CreateSourceSchema(ctx context.Context, source, schemaName string) ([]string, error) {
+	result, err := c.call(ctx, request{Op: "create-source-schema", Source: source, SchemaName: schemaName})
+	return result.Schemas, err
+}
+
 func (c *Client) StoreDestination(ctx context.Context, source, schemaName, tableName string) (*engine.StoredTable, error) {
 	result, err := c.call(ctx, request{Op: "store-destination", Source: source, SchemaName: schemaName, TableName: tableName})
 	if err != nil {

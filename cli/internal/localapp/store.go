@@ -30,6 +30,30 @@ func (s *Server) handleGetSourceSchemas(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"schemas": schemas})
 }
 
+func (s *Server) handleCreateSourceSchema(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	var request struct {
+		SchemaName string `json:"schemaName"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("invalid schema request: %w", err))
+		return
+	}
+	querySession, done, err := s.beginQueryOperation()
+	if err != nil {
+		writeAPIError(w, http.StatusServiceUnavailable, err)
+		return
+	}
+	defer done()
+	schemas, err := querySession.CreateSourceSchema(r.Context(), r.PathValue("name"), strings.TrimSpace(request.SchemaName))
+	if err != nil {
+		writeAPIError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	s.broadcastCLISources()
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"schemas": schemas})
+}
+
 func (s *Server) handleStoreQuery(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Query      runner.QueryRequest `json:"query"`

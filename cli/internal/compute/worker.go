@@ -154,6 +154,8 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 		result.StoredTable, err = eng.StoreDestination(ctx, req.Source, req.SchemaName, req.TableName)
 	case "source-schemas":
 		result.Schemas, err = eng.GetSourceSchemas(ctx, req.Source)
+	case "create-source-schema":
+		result.Schemas, err = eng.CreateSourceSchema(ctx, req.Source, req.SchemaName)
 	case "snapshot-query", "store-snapshot":
 		if req.StoredTable == nil {
 			err = fmt.Errorf("Store table metadata is required")

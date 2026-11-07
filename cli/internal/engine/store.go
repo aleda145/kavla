@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,6 +13,79 @@ import (
 )
 
 var storeIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// CreateSourceSchema requires the same exclusive document gate as StoreSnapshot.
+func (e *Engine) CreateSourceSchema(ctx context.Context, sourceName, schemaName string) ([]string, error) {
+	if sourceName == UploadedFilesSource {
+		return nil, fmt.Errorf("uploaded_files uses the main schema")
+	}
+	if !storeIdentifier.MatchString(schemaName) {
+		return nil, fmt.Errorf("schema or dataset name must start with a letter or underscore and contain only letters, numbers, and underscores")
+	}
+	if err := e.ensureSourceAvailable(ctx, sourceName); err != nil {
+		return nil, err
+	}
+	sourceType := e.sourceStatuses[sourceName].Type
+	if sourceType == "postgres" && len(schemaName) > 63 {
+		return nil, fmt.Errorf("Postgres schema names must be at most 63 characters")
+	}
+	if sourceType == "bigquery" && len(schemaName) > 1024 {
+		return nil, fmt.Errorf("BigQuery dataset names must be at most 1024 characters")
+	}
+	writer, ok := e.adapters[sourceName].(sources.WritableCatalog)
+	if !ok {
+		return nil, fmt.Errorf("source %q does not support creating schemas", sourceName)
+	}
+	err := func() (err error) {
+		detachSQL := "DETACH " + quoteIdentifier(sourceName)
+		if _, err := e.db.ExecContext(ctx, detachSQL); err != nil {
+			return fmt.Errorf("release read-only source: %w", err)
+		}
+		writable := false
+		created := false
+		defer func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			var restoreErr error
+			if writable {
+				_, restoreErr = e.db.ExecContext(cleanupCtx, detachSQL)
+				if restoreErr != nil {
+					_ = e.db.Close()
+				}
+			}
+			if restoreErr == nil {
+				_, restoreErr = e.db.ExecContext(cleanupCtx, writer.AttachSQL(sourceName, true))
+			}
+			if restoreErr != nil {
+				message := "could not restore read-only source; reconnect the canvas"
+				if created {
+					message = "Schema or dataset was created, but " + message
+				}
+				err = errors.Join(err, fmt.Errorf("%s: %w", message, restoreErr))
+			}
+		}()
+		if _, err := e.db.ExecContext(ctx, writer.AttachSQL(sourceName, false)); err != nil {
+			return fmt.Errorf("open source to create schema (write permissions and exclusive DuckDB file access are required): %w", err)
+		}
+		writable = true
+		if _, err := e.db.ExecContext(ctx, "CREATE SCHEMA "+quoteIdentifier(sourceName)+"."+quoteIdentifier(schemaName)); err != nil {
+			return fmt.Errorf("create schema or dataset: %w", err)
+		}
+		created = true
+		return nil
+	}()
+	if err != nil {
+		return nil, err
+	}
+	schemas, err := e.GetSourceSchemas(ctx, sourceName)
+	if err != nil {
+		return nil, fmt.Errorf("schema or dataset was created, but confirming it failed: %w", err)
+	}
+	if !slices.Contains(schemas, schemaName) {
+		return nil, fmt.Errorf("created schema or dataset %q is not visible in this source; refresh the source before storing", schemaName)
+	}
+	return schemas, nil
+}
 
 func (e *Engine) GetSourceSchemas(ctx context.Context, sourceName string) ([]string, error) {
 	if sourceName != UploadedFilesSource {
