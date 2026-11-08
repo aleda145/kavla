@@ -470,6 +470,43 @@ func (s *Server) acceptAgentToolResult(request agentToolResultRequest) error {
 		value = map[string]interface{}{"error": request.Error}
 	}
 	call.Result, call.Success, call.Error, call.Status = value, request.Success, request.Error, "completed"
+	if call.Tool == "propose_exploration" && request.Success {
+		// A crossroads is a durable stopping point, not an outstanding tool call
+		// with a timeout. The analyst resumes through a normal follow-up turn.
+		run.Status, run.Activity = "awaiting_decision", "Your move"
+		run.Text = "Choose a path on the canvas, add context, or park this question."
+		if result, ok := value.(map[string]interface{}); ok {
+			if shapeID, ok := result["shapeId"].(string); ok {
+				run.Text = "Choose a path at [Crossroads](" + shapeID + "), add context, or park this question."
+			}
+		}
+		run.Revision++
+		if run.cancel != nil {
+			run.cancel()
+		}
+		for _, pending := range run.Tools {
+			if pending.Status == "pending" || pending.Status == "running" {
+				pending.Status = "cancelled"
+			}
+		}
+		s.agentActiveThread, s.agentActiveTurn = "", ""
+		requestID, threadID, turnID := call.RequestID, run.ThreadID, run.TurnID
+		s.agentMu.Unlock()
+		// Respond before interrupting so both transports retain the tool result
+		// in their conversation history. No further canvas tools can be claimed.
+		if err := client.RespondToTool(requestID, true, value); err != nil {
+			s.logCLIOutput("Could not deliver crossroads result: %v\n", err)
+		}
+		if threadID != "" && turnID != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := client.InterruptTurn(ctx, threadID, turnID); err != nil {
+				s.logCLIOutput("Could not pause agent at crossroads: %v\n", err)
+			}
+		}
+		s.publishAgentRuns(true)
+		return nil
+	}
 	run.Status, run.Activity = "running", "Thinking…"
 	run.Revision++
 	requestID := call.RequestID

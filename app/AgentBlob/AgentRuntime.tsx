@@ -11,7 +11,7 @@ import {
   useAgentRuns,
 } from "../client/localServer/agentRuns";
 import { stageCanvas } from "../client/local/localSession";
-import { ensureAgentFinalQueryTable, executeAgentCanvasTool } from "./agentCanvasTools";
+import { executeAgentCanvasTool } from "./agentCanvasTools";
 import { appendAgentChatEntry, createOrFocusAgentChat, getAgentChat, updateAgentChat } from "./agent-chat-store";
 import { getShapeCitations, isContextShape } from "./agent-shape-references";
 import type { LensShape } from "../Lens/lens-shape-types";
@@ -31,7 +31,6 @@ export function AgentRuntime() {
   const runs = useAgentRuns();
   const controllers = useRef(new Map<string, AbortController>());
   const handled = useRef(new Set<string>());
-  const observedActiveRuns = useRef(new Set<string>());
   const blobRunId = useRef<string | null>(null);
   const onActivityShape = useCallback(
     (shapeId: string) => {
@@ -91,7 +90,6 @@ export function AgentRuntime() {
 
   useEffect(() => {
     const active = runs.find(isAgentRunActive);
-    if (active?.clientId === agentClientId) observedActiveRuns.current.add(active.id);
     for (const [id, controller] of controllers.current) {
       if (active?.id !== id) {
         controller.abort();
@@ -141,24 +139,6 @@ export function AgentRuntime() {
         });
       }
       if (!isAgentRunActive(run)) {
-        // Only finish runs seen live in their owning tab; never modify replayed history.
-        if (observedActiveRuns.current.delete(run.id) && run.status === "completed") {
-          try {
-            if (ensureAgentFinalQueryTable(editor, run)) {
-              void stageCanvas(editor).catch((error) =>
-                appendOnce(run.id, "final-result-table", {
-                  role: "error",
-                  text: `Could not save the final result table: ${error instanceof Error ? error.message : String(error)}`,
-                })
-              );
-            }
-          } catch (error) {
-            appendOnce(run.id, "final-result-table", {
-              role: "error",
-              text: `Could not show the final result table: ${error instanceof Error ? error.message : String(error)}`,
-            });
-          }
-        }
         for (const shape of editor.getCurrentPageShapes()) {
           if (shape.type !== "lens-shape") continue;
           const lens = shape as LensShape;
@@ -186,9 +166,9 @@ export function AgentRuntime() {
           run.status === "completed" && summary?.type === "summary-shape"
             ? `${(summary as SummaryShape).props.answer.trim()} [Summary](${summary.id})`
             : run.text || "Done.";
-        if (run.text || run.status === "completed")
+        if (run.text || run.status === "completed" || run.status === "awaiting_decision")
           appendOnce(run.id, undefined, { role: "assistant", text, shapeIds });
-        if (run.status !== "completed")
+        if (run.status !== "completed" && run.status !== "awaiting_decision")
           appendOnce(run.id, undefined, {
             role: run.status === "failed" ? "error" : "event",
             text: run.error || `Agent ${run.status}.`,
@@ -223,7 +203,13 @@ export function AgentRuntime() {
             active.activity
           );
         } else if (latest && getAgentBlob(editor)?.props.currentJobId === latest.id) {
-          if (latest.status === "completed") setAgentBlobStatus(editor, "done", latest.id, "Done");
+          if (latest.status === "completed" || latest.status === "awaiting_decision")
+            setAgentBlobStatus(
+              editor,
+              "done",
+              latest.id,
+              latest.status === "awaiting_decision" ? "Your move" : "Exploration paused"
+            );
           else removeAgentBlob(editor);
         }
       },

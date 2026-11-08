@@ -34,6 +34,7 @@ import { LensUtil } from "../../Lens/LensUtil";
 import { SummaryShapeUtil } from "../../Summary/SummaryShapeUtil";
 import { ChartUtil } from "../../Chart/ChartUtil";
 import { AgentBlobUtil } from "../../AgentBlob/AgentBlobUtil";
+import { ExplorationUtil } from "../../AgentBlob/ExplorationUtil";
 import { AgentChatUtil } from "../../AgentBlob/AgentChatUtil";
 import { AgentChatLayout } from "../../AgentBlob/AgentChatLayout";
 import { CLITerminalUtil } from "../../CLITerminal/CLITerminalUtil";
@@ -86,6 +87,7 @@ const customShapeUtils = [
   SummaryShapeUtil,
   CLITerminalUtil,
   AgentChatUtil,
+  ExplorationUtil,
   AgentBlobUtil,
   KavlaArrowShapeUtil,
 ];

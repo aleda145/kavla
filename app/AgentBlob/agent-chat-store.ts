@@ -75,6 +75,7 @@ export function getAgentContextShapeIds(editor: Editor): TLShapeId[] {
         "note",
         "lens-shape",
         "summary-shape",
+        "exploration",
         "sql-result-table",
         "knob",
       ].includes(shape.type)

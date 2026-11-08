@@ -1,3 +1,5 @@
+import { describeExploration, getExplorations, proposeExploration } from "./exploration-store";
+import type { ExplorationShape } from "./exploration-types";
 import type { AgentRun, AgentToolEnvironment } from "../client/localServer/agentRuns";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
 import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
@@ -81,7 +83,7 @@ function sanitizeValue(value: unknown, depth = 0, key = ""): unknown {
   if (depth > 10) return "[nested value omitted]";
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "string") {
-    const limit = key === "sql" || key === "code" ? 24000 : 1000;
+    const limit = key === "sql" || key === "code" ? 24000 : key === "analystContext" ? 4000 : 1000;
     return value.length > limit ? `${value.slice(0, limit)}…` : value;
   }
   if (value instanceof Date) return value.toISOString();
@@ -138,6 +140,7 @@ function compactColumnStats(stats: Record<string, unknown> | null | undefined) {
 }
 
 function describeShape(editor: Editor, shape: TLShape): Record<string, unknown> | null {
+  if (shape.type === "exploration") return describeExploration(shape as ExplorationShape);
   if (shape.type === "knob") return describeAgentKnob(shape as KnobShape);
   if (shape.type === "data-source") {
     const source = shape as DataSourceShape;
@@ -240,6 +243,11 @@ export function buildPromptCanvasContext(editor: Editor, explicitShapeIds?: stri
     if (!shape) continue;
     if ("sourceShapeId" in shape.props && typeof shape.props.sourceShapeId === "string")
       includedIds.add(shape.props.sourceShapeId as TLShapeId);
+    if (shape.type === "exploration") {
+      const exploration = shape as ExplorationShape;
+      if (exploration.props.anchorShapeId) includedIds.add(exploration.props.anchorShapeId as TLShapeId);
+      if (exploration.props.queryShapeId) includedIds.add(exploration.props.queryShapeId as TLShapeId);
+    }
     if (shape.type === "sql-text-area") {
       for (const knob of getSQLKnobs(editor, (shape as SQLTextAreaShape).props.text)) includedIds.add(knob.id);
       for (const dep of getOrderedDependenciesForSQL(editor, (shape as SQLTextAreaShape).props.text)
@@ -252,6 +260,7 @@ export function buildPromptCanvasContext(editor: Editor, explicitShapeIds?: stri
   }
   return {
     selectedShapeIds,
+    explorationDecisions: getExplorations(editor).map(describeExploration),
     shapes: Array.from(includedIds)
       .map((id) => editor.getShape(id))
       .filter((shape): shape is TLShape => Boolean(shape))
@@ -585,6 +594,8 @@ async function dispatchAgentCanvasTool(
 ): Promise<ToolResult> {
   env.signal.throwIfAborted();
   switch (tool) {
+    case "propose_exploration":
+      return proposeExploration(editor, args, env.runId);
     case "get_canvas_context": {
       const requestedIds = Array.isArray(args.shapeIds)
         ? args.shapeIds.filter((id): id is string => typeof id === "string")
@@ -599,6 +610,7 @@ async function dispatchAgentCanvasTool(
                 "note",
                 "lens-shape",
                 "summary-shape",
+                "exploration",
                 "knob",
               ].includes(shape.type)
             )

@@ -22,7 +22,15 @@ export type AgentRun = {
   threadId: string;
   turnId: string;
   model: string;
-  status: "planning" | "running" | "waiting_for_tool" | "completed" | "failed" | "cancelled" | "interrupted";
+  status:
+    | "planning"
+    | "running"
+    | "waiting_for_tool"
+    | "awaiting_decision"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "interrupted";
   prompt: string;
   text: string;
   error?: string;

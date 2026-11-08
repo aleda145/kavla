@@ -16,6 +16,7 @@ export function isContextShape(shape: TLShape) {
     "note",
     "lens-shape",
     "summary-shape",
+    "exploration",
     "knob",
   ].includes(shape.type);
 }

@@ -9,13 +9,25 @@ func dynamicTools() []map[string]interface{} {
 			},
 			"additionalProperties": false,
 		}),
+		tool("propose_exploration", "Pause the investigation at a meaningful analytical decision. Create a crossroads beside evidence with two or three distinct proposed paths. Nothing in these paths executes until the analyst chooses or edits one. This ends the current turn. Use for missing domain knowledge, competing explanations, population/metric choices, or priorities; not routine inspection or repairs.", objectSchema(map[string]interface{}{
+			"anchorShapeId": map[string]string{"type": "string"},
+			"observation":   map[string]interface{}{"type": "string", "maxLength": 800, "description": "What the evidence shows and what remains uncertain. Do not present a hypothesis as a fact."},
+			"question":      map[string]interface{}{"type": "string", "maxLength": 300, "description": "A specific question for the analyst whose answer changes the investigation."},
+			"paths": map[string]interface{}{"type": "array", "minItems": 2, "maxItems": 3, "items": objectSchema(map[string]interface{}{
+				"title":         map[string]interface{}{"type": "string", "maxLength": 100},
+				"intent":        map[string]interface{}{"type": "string", "maxLength": 500, "description": "What this path would check and why; include the interpretation or assumption it explores."},
+				"sourceShapeId": map[string]string{"type": "string", "description": "Existing query/source for proposed SQL. Omit for an investigation direction without SQL."},
+				"sql":           map[string]interface{}{"type": "string", "maxLength": 24000, "description": "Optional preview of ONE read-only analytical operation, using exact known upstream names. Not executed until chosen. Omit when domain knowledge is needed to write it."},
+			}, "title", "intent")},
+			"layout": layoutSchema(),
+		}, "anchorShapeId", "observation", "question", "paths")),
 		tool("create_knob", "Create a configured interactive knob. Use sparingly for a meaningful exploration, or whenever the user requests/mentions a knob. Supply a real initial value and complete ranges/options. Then connect it using the returned unquoted {name} parameter in create_query/update_query SQL. anchorShapeId controls placement only, not connections. Reuse existing knobs instead of duplicating them.", knobSchema(false)),
 		tool("update_knob", "Configure an existing knob in place, preserving its name and connections. Supply its kind, value, and complete range/step or category options. This applies manual settings; connected queries rerun automatically when the value changes.", knobSchema(true)),
 		tool("create_query", "Create and execute ONE analytical operation reading the immediate sourceShapeId's table. No CTEs or subqueries. Use HAVING/QUALIFY sparingly for simple result filters. Split combined operations into chained nodes; reuse cleaned inputs. To add an interactive parameter, create/configure its knob first and reference its exact unquoted {name} in SQL.", objectSchema(map[string]interface{}{
 			"sourceShapeId": map[string]string{"type": "string"},
 			"name":          map[string]string{"type": "string"},
 			"sql":           map[string]string{"type": "string"},
-			"showTable":     map[string]interface{}{"type": "boolean", "description": "Show a result table for this step. Defaults to false; enable for final answer-producing queries and useful checks, including repeated questions."},
+			"showTable":     map[string]interface{}{"type": "boolean", "description": "Show a result table for this step. Defaults to false; enable for evidence the analyst should inspect, including checks leading to a crossroads."},
 			"layout":        layoutSchema(),
 		}, "sourceShapeId", "sql")),
 		tool("run_query", "Execute an SQL query shape that already exists visibly on the Kavla canvas. This cannot accept new SQL; use create_query for new work and update_query to correct existing SQL.", objectSchema(map[string]interface{}{
@@ -74,7 +86,7 @@ func dynamicTools() []map[string]interface{} {
 		tool("update_lens", "Edit or repair an existing Lens in place using its current code, data, and error. Use for visual or presentational changes. Do not create unrelated query shapes for a Lens edit.", objectSchema(map[string]interface{}{
 			"shapeId": map[string]string{"type": "string"}, "visualPrompt": map[string]string{"type": "string"}, "dataIntent": map[string]string{"type": "string"},
 		}, "shapeId")),
-		tool("create_summary", "Present the analytical answer on the canvas, including findings, interpretation, and relevant assumptions or data issues. The one-sentence answer is also shown in chat before the summary link; put supporting detail in sections. Cite existing successful evidence shapes. Short answers can use empty sections.", objectSchema(map[string]interface{}{
+		tool("create_summary", "Create an optional investigation checkpoint on the canvas, including supported findings, open questions, and relevant assumptions or data issues. Use when a synthesis is requested or useful; do not force a definitive answer. The one-sentence answer is also shown in chat before the summary link; put supporting detail in sections. Cite existing successful evidence shapes. Short answers can use empty sections.", objectSchema(map[string]interface{}{
 			"question": map[string]string{"type": "string"}, "answer": map[string]string{"type": "string", "description": "One sentence stating the main result, including an essential caveat if needed. This is also the chat takeaway."}, "name": map[string]string{"type": "string"},
 			"sections":  map[string]interface{}{"type": "array", "items": objectSchema(map[string]interface{}{"title": map[string]string{"type": "string"}, "body": map[string]string{"type": "string"}}, "title", "body")},
 			"artifacts": map[string]interface{}{"type": "array", "maxItems": 6, "items": objectSchema(map[string]interface{}{"shapeId": map[string]string{"type": "string"}, "title": map[string]string{"type": "string"}, "note": map[string]string{"type": "string"}}, "shapeId", "title", "note")}, "layout": layoutSchema(),
@@ -90,7 +102,7 @@ func dynamicTools() []map[string]interface{} {
 
 func tool(name, description string, schema map[string]interface{}) map[string]interface{} {
 	switch name {
-	case "get_canvas_context", "compute_column_profiles", "create_query", "update_query", "run_query", "create_chart", "update_chart", "create_lens", "update_lens", "create_knob", "update_knob":
+	case "propose_exploration", "get_canvas_context", "compute_column_profiles", "create_query", "update_query", "run_query", "create_chart", "update_chart", "create_lens", "update_lens", "create_knob", "update_knob":
 		properties := schema["properties"].(map[string]interface{})
 		properties["progress"] = map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 600, "description": "Brief user-facing explanation of this step: what you are checking and why, or what the previous result changes about the next step. One or two sentences, grounded in available evidence."}
 		required, _ := schema["required"].([]string)

@@ -244,7 +244,7 @@ func (c *APIClient) runTurn(ctx context.Context, threadID, turnID, model, prompt
 		}
 		if len(seenCalls) == c.config.MaxToolCalls {
 			tools = nil
-			messages = append(messages, map[string]string{"role": "user", "content": "The tool budget is exhausted. Give your final answer using the evidence already collected."})
+			messages = append(messages, map[string]string{"role": "user", "content": "The tool budget is exhausted. Briefly state what the collected evidence establishes and what remains uncertain. Link relevant canvas shapes; a definitive answer is not required."})
 		}
 	}
 	return fmt.Errorf("the Agent reached its request limit")
