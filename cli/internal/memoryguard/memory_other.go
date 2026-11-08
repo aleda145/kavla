@@ -9,3 +9,7 @@ import kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 func enable(_ kavlaconfig.MemorySettings) (uint64, error) {
 	return 0, nil
 }
+
+func fallbackBudget(_ int) (uint64, uint64, error) {
+	return 0, 0, nil
+}

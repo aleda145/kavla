@@ -270,10 +270,23 @@ func (c *Client) ensureWorker(ctx context.Context) (_ *process, startupErr error
 	c.statuses = info.Statuses
 	c.workerError = ""
 	c.mu.Unlock()
-	if info.Limit == 0 {
-		c.logf("DuckDB service %d started; hard memory enforcement is currently Linux-only.\n", next.cmd.Process.Pid)
+	if info.Memory.Warning != "" {
+		c.logf("Warning: %s. Continuing in a separate DuckDB process without a verified compute-only hard cap.\n", info.Memory.Warning)
+	}
+	if !info.Memory.Configured {
+		c.logf("DuckDB service %d started; no Kavla memory cap configured; using DuckDB's automatic memory budget. Existing OS and container limits still apply.\n", next.cmd.Process.Pid)
+	} else if info.Memory.Limit == 0 {
+		c.logf("DuckDB service %d started; no compute-only RAM or swap cap.\n", next.cmd.Process.Pid)
+		if info.Memory.InheritedLimit > 0 {
+			c.logf("Inherited cgroup memory limit: %.2f GiB; this may be shared with the canvas server and other processes. Container OOM can stop the entire application.\n", float64(info.Memory.InheritedLimit)/(1<<30))
+		} else {
+			c.logf("No inherited cgroup memory limit detected. In Docker, configure --memory and --memory-swap.\n")
+		}
+		if info.Memory.DuckDBLimit > 0 {
+			c.logf("Cooperative DuckDB budget per engine: %.2f GiB; native allocations and combined worker usage can exceed it.\n", float64(info.Memory.DuckDBLimit)/(1<<30))
+		}
 	} else {
-		c.logf("DuckDB service %d started; compute processes share a %.2f GiB memory cap; DuckDB budget %.2f GiB; configured swap limit %d MiB.\n", next.cmd.Process.Pid, float64(info.Limit)/(1<<30), float64(info.DuckDBLimit)/(1<<30), info.SwapLimitMiB)
+		c.logf("DuckDB service %d started; compute processes share a %.2f GiB memory cap; DuckDB budget %.2f GiB; configured swap limit %d MiB.\n", next.cmd.Process.Pid, float64(info.Memory.Limit)/(1<<30), float64(info.Memory.DuckDBLimit)/(1<<30), info.SwapLimitMiB)
 	}
 	return next, nil
 }

@@ -7,6 +7,7 @@ import (
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/engine"
+	"github.com/aleda145/kavla/cli/internal/memoryguard"
 	"github.com/aleda145/kavla/cli/internal/sources"
 )
 
@@ -25,8 +26,7 @@ type configuration struct {
 type ready struct {
 	Address      string
 	Statuses     []engine.SourceStatus
-	Limit        uint64
-	DuckDBLimit  uint64
+	Memory       memoryguard.Status
 	SwapLimitMiB int64
 	Error        string
 }

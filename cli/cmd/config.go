@@ -87,9 +87,15 @@ var viewConfigCmd = &cobra.Command{
 			return
 		}
 		fmt.Println("Memory settings (restart Kavla after changes; hard limits are Linux-only):")
-		fmt.Printf("  Shared compute limit: %d%% of physical RAM\n", memory.LimitPercent)
-		fmt.Printf("  DuckDB budget per worker: %d%% of the compute limit\n", memory.DuckDBPercentOfLimit)
-		fmt.Printf("  Shared swap limit: %d MiB\n", memory.SwapLimitMiB)
+		if !memory.Configured {
+			fmt.Println("  No Kavla memory cap configured; using DuckDB's automatic memory budget.")
+			fmt.Println("  Existing OS and container limits still apply.")
+		} else {
+			fmt.Printf("  Compute memory enforcement: %s\n", memory.Enforcement)
+			fmt.Printf("  Compute budget: %d%% of available RAM (including inherited cgroup limits)\n", memory.LimitPercent)
+			fmt.Printf("  DuckDB budget per worker: %d%% of the compute limit\n", memory.DuckDBPercentOfLimit)
+			fmt.Printf("  Shared swap limit when compute enforcement is active: %d MiB\n", memory.SwapLimitMiB)
+		}
 		if len(config.Sources) == 0 {
 			fmt.Println("No data sources configured.")
 			return

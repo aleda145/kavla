@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +19,7 @@ const cgroupRoot = "/sys/fs/cgroup"
 const sliceName = "kavlacompute.slice"
 
 func enable(settings kavlaconfig.MemorySettings) (uint64, error) {
-	limit, err := memoryBudget(settings.LimitPercent)
+	limit, _, err := memoryBudget(settings.LimitPercent)
 	if err != nil {
 		return 0, fmt.Errorf("determine Kavla memory cap: %w", err)
 	}
@@ -92,43 +93,74 @@ func enable(settings kavlaconfig.MemorySettings) (uint64, error) {
 	}
 }
 
-func memoryBudget(percent int) (uint64, error) {
+func memoryBudget(percent int) (uint64, uint64, error) {
 	var info unix.Sysinfo_t
 	if err := unix.Sysinfo(&info); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	total := uint64(info.Totalram) * uint64(info.Unit)
-	limit := total/100*uint64(percent) + total%100*uint64(percent)/100
-	if limit == 0 {
-		return 0, fmt.Errorf("physical memory size is zero")
+	if total == 0 {
+		return 0, 0, fmt.Errorf("physical memory size is zero")
 	}
 	path, err := currentCgroup()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	// Do not escape a tighter inherited limit when systemd moves this process
 	// into the user slice. Skip our own slice when launched by another Kavla.
-	for path != cgroupRoot {
+	var inheritedLimit uint64
+	for {
 		if filepath.Base(path) == sliceName {
 			path = filepath.Dir(path)
 			continue
 		}
 		inherited, err := readLimit(filepath.Join(path, "memory.max"))
+		// The real host root has no memory.max, but a container's namespaced
+		// root does. Include it: /proc/self/cgroup commonly reports 0::/.
 		if err != nil {
-			return 0, fmt.Errorf("read inherited memory limit: %w", err)
+			if path != cgroupRoot || !os.IsNotExist(err) {
+				return 0, inheritedLimit, fmt.Errorf("read inherited memory limit: %w", err)
+			}
+			controllers, err := os.ReadFile(filepath.Join(cgroupRoot, "cgroup.controllers"))
+			if err != nil {
+				return 0, inheritedLimit, fmt.Errorf("read cgroup controllers: %w", err)
+			}
+			if !slices.Contains(strings.Fields(string(controllers)), "memory") {
+				return 0, inheritedLimit, fmt.Errorf("cgroup memory controller is unavailable")
+			}
 		}
-		if inherited < limit {
-			limit = inherited
+		if err == nil && inherited != ^uint64(0) {
+			if inheritedLimit == 0 || inherited < inheritedLimit {
+				inheritedLimit = inherited
+			}
+			total = min(total, inherited)
+		}
+		if path == cgroupRoot {
+			break
 		}
 		path = filepath.Dir(path)
 	}
+	limit := total/100*uint64(percent) + total%100*uint64(percent)/100
 	// The kernel rounds memory.max to pages. Round down ourselves so its
 	// readback cannot exceed the configured percentage by a partial page.
 	limit -= limit % uint64(os.Getpagesize())
 	if limit == 0 {
-		return 0, fmt.Errorf("inherited memory budget is zero")
+		return 0, inheritedLimit, fmt.Errorf("inherited memory budget is zero")
 	}
-	return limit, nil
+	return limit, inheritedLimit, nil
+}
+
+func fallbackBudget(percent int) (uint64, uint64, error) {
+	budget, inherited, err := memoryBudget(percent)
+	if err != nil {
+		// Cgroup discovery must not defeat the escape hatch. Do not fall back
+		// to host-sized allocations when a container's limit cannot be read.
+		budget = 256 << 20
+		if inherited > 0 {
+			budget = min(budget, inherited/100*uint64(percent))
+		}
+	}
+	return budget, inherited, err
 }
 
 func currentCgroup() (string, error) {

@@ -3,6 +3,10 @@ services:
     image: aleda145/kavla:latest
     init: true
     restart: unless-stopped
+    mem_limit: ${KAVLA_DOCKER_MEMORY:-0}
+    memswap_limit: ${KAVLA_DOCKER_MEMORY:-0}
+    environment:
+      KAVLA_MEMORY_ENFORCEMENT: "${KAVLA_MEMORY_ENFORCEMENT:-}"
     ports:
       - "${KAVLA_PORT:-40743}:40743"
     volumes:
