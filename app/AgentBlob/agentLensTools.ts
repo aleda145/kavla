@@ -34,16 +34,9 @@ export async function runLensTool(
   if (!existing) {
     const w = typeof args.w === "number" ? Math.max(360, Math.min(1600, args.w)) : 720;
     const h = typeof args.h === "number" ? Math.max(240, Math.min(1200, args.h)) : 480;
-    const placement = getAgentPlacement(
-      editor,
-      getAgentLayout(args, query.id, "below"),
-      query.id,
-      { w, h },
-      null,
-      true
-    );
+    const placement = getAgentPlacement(editor, getAgentLayout({}, query.id, "below"), query.id, { w, h }, null, true);
     editor.createShape<LensShape>({
-      meta: agentPlacementMeta(args),
+      meta: agentPlacementMeta(),
       id,
       type: "lens-shape",
       x: placement.x,
