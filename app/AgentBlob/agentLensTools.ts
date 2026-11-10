@@ -7,7 +7,7 @@ import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
 import { prepareGeneratedChartWidgetRuntime, validateGeneratedChartWidget } from "../Chart/GeneratedChartWidget";
 import { getUniqueName } from "../util/getUniqueName";
 import { connectShapes } from "../util/shapeConnections";
-import { getAgentLayout, getAgentPlacement } from "./agentLayout";
+import { agentPlacementMeta, getAgentLayout, getAgentPlacement, getAgentShapeBounds } from "./agentLayout";
 import { getAgentDataPreview, resolveAgentDataShape } from "./agentDataTools";
 
 export async function runLensTool(
@@ -34,8 +34,16 @@ export async function runLensTool(
   if (!existing) {
     const w = typeof args.w === "number" ? Math.max(360, Math.min(1600, args.w)) : 720;
     const h = typeof args.h === "number" ? Math.max(240, Math.min(1200, args.h)) : 480;
-    const placement = getAgentPlacement(editor, getAgentLayout(args, query.id, "below"), query.id, { w, h });
+    const placement = getAgentPlacement(
+      editor,
+      getAgentLayout(args, query.id, "below"),
+      query.id,
+      { w, h },
+      null,
+      true
+    );
     editor.createShape<LensShape>({
+      meta: agentPlacementMeta(args),
       id,
       type: "lens-shape",
       x: placement.x,
@@ -144,6 +152,7 @@ export async function runLensTool(
         return {
           ok: true,
           shapeId: id,
+          bounds: getAgentShapeBounds(editor, id),
           sourceShapeId: query.id,
           title: generated.title,
           attempts: attempt,
@@ -190,6 +199,7 @@ export async function runLensTool(
     return {
       ok: false,
       shapeId: id,
+      bounds: getAgentShapeBounds(editor, id),
       error: message,
       attempts,
       retryable: false,

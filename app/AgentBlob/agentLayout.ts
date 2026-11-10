@@ -1,10 +1,12 @@
 import type { Editor, TLArrowBinding, TLShapeId } from "tldraw";
+import { autoPlacement } from "../client/canvas/autoPlacement";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import type { SQLResultTableShape } from "../SQLResultArea/sql-result-table-types";
 
 export type AgentPlacement = "right" | "left" | "below" | "above" | "summary";
 
 export type AgentLayout = {
+  auto?: boolean;
   parentShapeId: TLShapeId | null;
   order: number;
   placement: AgentPlacement;
@@ -35,6 +37,7 @@ export function getAgentLayout(
     throw new Error("Supply both finite page coordinates layout.x and layout.y.");
   const rawOrder = typeof layout.order === "number" && Number.isFinite(layout.order) ? layout.order : 0;
   return {
+    auto: typeof layout.auto === "boolean" ? layout.auto : Object.keys(layout).length === 0,
     ...(typeof layout.x === "number" && typeof layout.y === "number" ? { x: layout.x, y: layout.y } : {}),
     parentShapeId:
       typeof layout.parentShapeId === "string" ? (layout.parentShapeId as TLShapeId) : fallbackParentShapeId,
@@ -43,6 +46,10 @@ export function getAgentLayout(
       ? (placement as AgentPlacement)
       : defaultPlacement,
   };
+}
+
+export function agentPlacementMeta(args: Record<string, unknown>) {
+  return { autoPlacement: getAgentLayout(args, null, "right").auto === true };
 }
 
 function overlaps(a: LayoutRect, b: LayoutRect) {
@@ -157,7 +164,8 @@ export function getAgentPlacement(
   layout: AgentLayout,
   fallbackAnchorShapeId: TLShapeId | null,
   size: { w: number; h: number },
-  movingShapeId: TLShapeId | null = null
+  movingShapeId: TLShapeId | null = null,
+  canAutoPlace = false
 ) {
   const anchorShapeId =
     layout.parentShapeId && editor.getShape(layout.parentShapeId) ? layout.parentShapeId : fallbackAnchorShapeId;
@@ -171,6 +179,9 @@ export function getAgentPlacement(
     width: 0,
     height: 0,
   };
+  if (canAutoPlace && layout.auto && autoPlacement.get() && !movingShapeId) {
+    return { x: anchor.maxX + 120, y: anchor.minY, score: 0 };
+  }
   const occupied = editor
     .getCurrentPageShapes()
     .filter(
@@ -309,6 +320,7 @@ function hasLayoutCollision(editor: Editor, shapeId: TLShapeId) {
 }
 
 export function reflowAgentQuery(editor: Editor, shapeId: TLShapeId) {
+  if (autoPlacement.get()) return;
   const query = editor.getShape<SQLTextAreaShape>(shapeId);
   if (query?.type !== "sql-text-area" || query.isLocked || query.props.isManuallyResized) return;
   const layout = getQueryLayout(query);

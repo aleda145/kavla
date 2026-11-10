@@ -3,6 +3,7 @@ import {
   EditSubmenu,
   KeyboardShortcutsMenuItem,
   TldrawUiButton,
+  TldrawUiDropdownMenuCheckboxItem,
   TldrawUiDropdownMenuContent,
   TldrawUiDropdownMenuRoot,
   TldrawUiDropdownMenuTrigger,
@@ -16,9 +17,11 @@ import {
 } from "tldraw";
 import { JustIconsMenuItem } from "./justIcons";
 import { getLayoutInProgress } from "./canvas/layoutActions";
+import { autoPlacement, toggleAutoPlacement } from "./canvas/autoPlacement";
 
 export function CanvasSettingsMenu() {
   const editor = useEditor();
+  const autoPlacing = useValue("Auto placement", () => autoPlacement.get(), []);
   const layoutDisabled = useValue(
     "Layout actions disabled",
     () => editor.getIsReadonly() || getLayoutInProgress(editor).get(),
@@ -54,6 +57,13 @@ export function CanvasSettingsMenu() {
           </TldrawUiMenuGroup>
           <TldrawUiMenuGroup id="settings">
             <JustIconsMenuItem />
+            <TldrawUiDropdownMenuCheckboxItem
+              checked={autoPlacing}
+              onSelect={toggleAutoPlacement}
+              title="Place new nodes automatically without moving existing nodes"
+            >
+              <span className="tlui-button__label">Auto placement</span>
+            </TldrawUiDropdownMenuCheckboxItem>
             <TldrawUiMenuActionItem actionId="layout-kavla-nodes" disabled={layoutDisabled} />
             <TldrawUiMenuActionItem actionId="fit-query-nodes" disabled={layoutDisabled} />
             <ToggleDebugModeItem />

@@ -1,3 +1,4 @@
+import { autoPlacement } from "../client/canvas/autoPlacement";
 import type { AgentRun, AgentToolEnvironment } from "../client/localServer/agentRuns";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
 import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
@@ -29,6 +30,7 @@ import { getUniqueName } from "../util/getUniqueName";
 import { getAgentContextShapeIds } from "./agent-chat-store";
 import {
   getAgentLayout,
+  agentPlacementMeta,
   getAgentPlacement,
   getAgentCanvasLayout,
   getAgentShapeBounds,
@@ -262,6 +264,10 @@ export function buildPromptCanvasContext(editor: Editor, explicitShapeIds?: stri
           : null;
       })
       .filter(Boolean),
+    autoPlacement: autoPlacement.get(),
+    placementGuidance: autoPlacement.get()
+      ? "New analytics nodes are placed automatically. Omit layout; no separate move_shapes step is needed. Existing nodes stay fixed."
+      : "Use optional layout hints when needed.",
     canvasShapeCount: editor.getCurrentPageShapes().length,
     canvasLayout: getAgentCanvasLayout(editor),
     canvasLayoutTruncated:
@@ -285,8 +291,9 @@ async function createQuery(
   const shapeId = createShapeId();
   const layout = getAgentLayout(args, source.id, "right");
   const size = getAutoExpandedSQLShapeSize(sql);
-  const placement = getAgentPlacement(editor, layout, source.id, size);
+  const placement = getAgentPlacement(editor, layout, source.id, size, null, true);
   editor.createShape<SQLTextAreaShape>({
+    meta: agentPlacementMeta(args),
     id: shapeId,
     type: "sql-text-area",
     x: placement.x,
@@ -331,6 +338,7 @@ async function createQuery(
     name: created?.props.name,
     linkedTableId: created?.props.linkedTableId,
     layout,
+    bounds: getAgentShapeBounds(editor, shapeId),
     rowCount: result.rowCount,
     schema: result.outputSchema,
     sampleRows: result.sampleRows?.slice(0, SAMPLE_ROW_LIMIT) ?? [],
@@ -470,8 +478,16 @@ async function createChart(editor: Editor, args: ToolArguments, env: AgentToolEn
     query.props.linkedTableId && editor.getShape(query.props.linkedTableId as TLShapeId)
       ? (query.props.linkedTableId as TLShapeId)
       : query.id;
-  const placement = getAgentPlacement(editor, getAgentLayout(args, chartAnchorId, "right"), chartAnchorId, { w, h });
+  const placement = getAgentPlacement(
+    editor,
+    getAgentLayout(args, chartAnchorId, "right"),
+    chartAnchorId,
+    { w, h },
+    null,
+    true
+  );
   editor.createShape<ChartShape>({
+    meta: agentPlacementMeta(args),
     id: shapeId,
     type: "chart-shape",
     x: placement.x,
@@ -492,7 +508,7 @@ async function createChart(editor: Editor, args: ToolArguments, env: AgentToolEn
     },
   });
   connectShapes(editor, query.id, shapeId);
-  return { shapeId, sourceShapeId: query.id, chartType, x, y, color };
+  return { shapeId, sourceShapeId: query.id, chartType, x, y, color, bounds: getAgentShapeBounds(editor, shapeId) };
 }
 
 function createNote(editor: Editor, args: ToolArguments): ToolResult {
@@ -774,12 +790,13 @@ function setQueryTable(editor: Editor, args: ToolArguments): ToolResult {
   let tableId = table?.id ?? null;
   const placement =
     args.show && !table
-      ? getAgentPlacement(editor, getAgentLayout(args, query.id, "right"), query.id, { w: 400, h: 300 })
+      ? getAgentPlacement(editor, getAgentLayout(args, query.id, "right"), query.id, { w: 400, h: 300 }, null, true)
       : null;
   editor.run(() => {
     if (placement) {
       tableId = createShapeId();
       editor.createShape<SQLResultTableShape>({
+        meta: agentPlacementMeta(args),
         id: tableId,
         type: "sql-result-table",
         x: placement.x,
@@ -798,7 +815,13 @@ function setQueryTable(editor: Editor, args: ToolArguments): ToolResult {
       props: { showTable: args.show as boolean, linkedTableId: tableId },
     });
   });
-  return { ok: true, shapeId: query.id, linkedTableId: tableId, showTable: args.show };
+  return {
+    ok: true,
+    shapeId: query.id,
+    linkedTableId: tableId,
+    showTable: args.show,
+    bounds: tableId ? getAgentShapeBounds(editor, tableId) : null,
+  };
 }
 
 export function ensureAgentFinalQueryTable(editor: Editor, run: AgentRun): boolean {
@@ -850,11 +873,19 @@ function createSummary(editor: Editor, args: ToolArguments, env: AgentToolEnviro
   });
   const id = createShapeId();
   const anchor = artifacts[0]?.shapeId as TLShapeId | undefined;
-  const placement = getAgentPlacement(editor, getAgentLayout(args, anchor || null, "summary"), anchor || null, {
-    w: 560,
-    h: 680,
-  });
+  const placement = getAgentPlacement(
+    editor,
+    getAgentLayout(args, anchor || null, "summary"),
+    anchor || null,
+    {
+      w: 560,
+      h: 680,
+    },
+    null,
+    true
+  );
   editor.createShape<SummaryShape>({
+    meta: agentPlacementMeta(args),
     id,
     type: "summary-shape",
     x: placement.x,
@@ -868,7 +899,14 @@ function createSummary(editor: Editor, args: ToolArguments, env: AgentToolEnviro
       sourceJobId: env.runId,
     },
   });
-  return { ok: true, shapeId: id, question, answer, evidenceShapeIds: artifacts.map((artifact) => artifact.shapeId) };
+  return {
+    ok: true,
+    shapeId: id,
+    question,
+    answer,
+    bounds: getAgentShapeBounds(editor, id),
+    evidenceShapeIds: artifacts.map((artifact) => artifact.shapeId),
+  };
 }
 
 export async function hydratePromptCanvasContext(
