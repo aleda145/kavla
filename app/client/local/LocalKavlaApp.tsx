@@ -1,4 +1,5 @@
 import { applyCanvasPreferences } from "../canvasPreferences";
+import { registerAutoPlacement } from "../canvas/autoPlacement";
 import { parseRecoverableCanvas } from "./parseRecoverableCanvas";
 import { getAgentRuns, isAgentRunActive, cancelAgentRun } from "../localServer/agentRuns";
 import {
@@ -651,6 +652,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
 
       for (const cleanup of shapeSideEffectCleanupRef.current) cleanup();
       shapeSideEffectCleanupRef.current = [
+        registerAutoPlacement(editor, () => loadedRef.current && !loadingDocumentRef.current),
         editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
           if (loadingDocumentRef.current || !loadedRef.current) return;
           handleLocalShapeDeleted(editor, shape, deleteShapes);

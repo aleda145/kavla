@@ -2,7 +2,7 @@ import { createShapeId, type Editor, type TLShapeId } from "tldraw";
 import type { KnobShape } from "../Knob/knob-types";
 import { getKnobPlacement, getUniqueKnobName } from "../Knob/createKnobs";
 import { formatKnobTime, parseKnobTime, timeSteps } from "../Knob/knobTime";
-import { getAgentLayout, getAgentPlacement } from "./agentLayout";
+import { agentPlacementMeta, getAgentLayout, getAgentPlacement } from "./agentLayout";
 
 export function describeAgentKnob(knob: KnobShape) {
   const props = knob.props;
@@ -137,6 +137,7 @@ export function runAgentKnobTool(editor: Editor, args: Record<string, unknown>, 
       ? getAgentPlacement(editor, getAgentLayout(args, anchorId, "above"), anchorId, { w: 240, h: 126 })
       : getKnobPlacement(editor, anchorId);
     editor.createShape<KnobShape>({
+      meta: agentPlacementMeta(args),
       id,
       type: "knob",
       parentId: editor.getCurrentPageId(),
