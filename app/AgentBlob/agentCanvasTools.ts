@@ -1,4 +1,3 @@
-import { autoPlacement } from "../client/canvas/autoPlacement";
 import type { AgentRun, AgentToolEnvironment } from "../client/localServer/agentRuns";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
 import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
@@ -32,9 +31,7 @@ import {
   getAgentLayout,
   agentPlacementMeta,
   getAgentPlacement,
-  getAgentCanvasLayout,
   getAgentShapeBounds,
-  getAgentArrowOverlaps,
   reflowAgentQuery,
   trackAgentQueryLayout,
 } from "./agentLayout";
@@ -168,7 +165,6 @@ function describeShape(editor: Editor, shape: TLShape): Record<string, unknown> 
       upstreamShapeIds: query.props.upstreamShapeIds,
       linkedTableId: query.props.linkedTableId,
       showTable: query.props.showTable,
-      layout: query.meta.agentQueryLayout,
       error: query.props.error,
       stale: query.props.stale,
       isDirty: query.props.isDirty,
@@ -264,14 +260,7 @@ export function buildPromptCanvasContext(editor: Editor, explicitShapeIds?: stri
           : null;
       })
       .filter(Boolean),
-    autoPlacement: autoPlacement.get(),
-    placementGuidance: autoPlacement.get()
-      ? "New analytics nodes are placed automatically. Omit layout; no separate move_shapes step is needed. Existing nodes stay fixed."
-      : "Use optional layout hints when needed.",
     canvasShapeCount: editor.getCurrentPageShapes().length,
-    canvasLayout: getAgentCanvasLayout(editor),
-    canvasLayoutTruncated:
-      editor.getCurrentPageShapes().filter((shape) => !["agent-chat", "agent-blob"].includes(shape.type)).length > 200,
     profilePolicy:
       "Profiles are deterministic metadata recorded on existing shapes. Analytical SQL uses visible query nodes.",
   };
@@ -289,11 +278,11 @@ async function createQuery(
   const sql = formatAgentSQL(requiredString(args, "sql"));
   const desiredName = optionalString(args, "name") ?? "agent_query";
   const shapeId = createShapeId();
-  const layout = getAgentLayout(args, source.id, "right");
+  const layout = getAgentLayout({}, source.id, "right");
   const size = getAutoExpandedSQLShapeSize(sql);
   const placement = getAgentPlacement(editor, layout, source.id, size, null, true);
   editor.createShape<SQLTextAreaShape>({
-    meta: agentPlacementMeta(args),
+    meta: agentPlacementMeta(),
     id: shapeId,
     type: "sql-text-area",
     x: placement.x,
@@ -337,7 +326,6 @@ async function createQuery(
     shapeId,
     name: created?.props.name,
     linkedTableId: created?.props.linkedTableId,
-    layout,
     bounds: getAgentShapeBounds(editor, shapeId),
     rowCount: result.rowCount,
     schema: result.outputSchema,
@@ -384,7 +372,7 @@ async function updateQuery(editor: Editor, args: ToolArguments, env: AgentToolEn
     trackAgentQueryLayout(
       editor,
       query.id,
-      getAgentLayout(args, (query.props.upstreamShapeIds?.[0] as TLShapeId | undefined) ?? null, "right")
+      getAgentLayout({}, (query.props.upstreamShapeIds?.[0] as TLShapeId | undefined) ?? null, "right")
     );
   }
   const desiredName = optionalString(args, "name");
@@ -480,14 +468,14 @@ async function createChart(editor: Editor, args: ToolArguments, env: AgentToolEn
       : query.id;
   const placement = getAgentPlacement(
     editor,
-    getAgentLayout(args, chartAnchorId, "right"),
+    getAgentLayout({}, chartAnchorId, "right"),
     chartAnchorId,
     { w, h },
     null,
     true
   );
   editor.createShape<ChartShape>({
-    meta: agentPlacementMeta(args),
+    meta: agentPlacementMeta(),
     id: shapeId,
     type: "chart-shape",
     x: placement.x,
@@ -516,7 +504,7 @@ function createNote(editor: Editor, args: ToolArguments): ToolResult {
   const anchorShapeId = optionalString(args, "anchorShapeId");
   const anchor = anchorShapeId ? getShapeOrThrow(editor, anchorShapeId) : null;
   const shapeId = createShapeId();
-  const placement = getAgentPlacement(editor, getAgentLayout(args, anchor?.id ?? null, "summary"), anchor?.id ?? null, {
+  const placement = getAgentPlacement(editor, getAgentLayout({}, anchor?.id ?? null, "summary"), anchor?.id ?? null, {
     w: 200,
     h: 200,
   });
@@ -665,26 +653,7 @@ export async function executeAgentCanvasTool(
   onActivityShape: ((shapeId: string) => void) | undefined,
   env: AgentToolEnvironment
 ): Promise<ToolResult> {
-  const result = await dispatchAgentCanvasTool(editor, tool, args, onActivityShape, env);
-  const ids = [result.shapeId, result.linkedTableId].filter((id): id is string => typeof id === "string");
-  const movedIds = Array.isArray(result.movedShapes)
-    ? result.movedShapes.flatMap((item: unknown) =>
-        item && typeof item === "object" && "id" in item && typeof item.id === "string" ? [item.id] : []
-      )
-    : [];
-  const arrowOverlaps = getAgentArrowOverlaps(editor, [...ids, ...movedIds] as TLShapeId[]);
-  return {
-    ...result,
-    ...(arrowOverlaps.length ? { arrowOverlaps } : {}),
-    ...(ids.length
-      ? {
-          placedShapes: ids.flatMap((id) => {
-            const shape = editor.getShape(id as TLShapeId);
-            return shape ? [{ id, type: shape.type, bounds: getAgentShapeBounds(editor, shape.id) }] : [];
-          }),
-        }
-      : {}),
-  };
+  return dispatchAgentCanvasTool(editor, tool, args, onActivityShape, env);
 }
 
 function assertUnlocked(editor: Editor, shape: TLShape) {
@@ -790,13 +759,13 @@ function setQueryTable(editor: Editor, args: ToolArguments): ToolResult {
   let tableId = table?.id ?? null;
   const placement =
     args.show && !table
-      ? getAgentPlacement(editor, getAgentLayout(args, query.id, "right"), query.id, { w: 400, h: 300 }, null, true)
+      ? getAgentPlacement(editor, getAgentLayout({}, query.id, "right"), query.id, { w: 400, h: 300 }, null, true)
       : null;
   editor.run(() => {
     if (placement) {
       tableId = createShapeId();
       editor.createShape<SQLResultTableShape>({
-        meta: agentPlacementMeta(args),
+        meta: agentPlacementMeta(),
         id: tableId,
         type: "sql-result-table",
         x: placement.x,
@@ -875,7 +844,7 @@ function createSummary(editor: Editor, args: ToolArguments, env: AgentToolEnviro
   const anchor = artifacts[0]?.shapeId as TLShapeId | undefined;
   const placement = getAgentPlacement(
     editor,
-    getAgentLayout(args, anchor || null, "summary"),
+    getAgentLayout({}, anchor || null, "summary"),
     anchor || null,
     {
       w: 560,
@@ -885,7 +854,7 @@ function createSummary(editor: Editor, args: ToolArguments, env: AgentToolEnviro
     true
   );
   editor.createShape<SummaryShape>({
-    meta: agentPlacementMeta(args),
+    meta: agentPlacementMeta(),
     id,
     type: "summary-shape",
     x: placement.x,

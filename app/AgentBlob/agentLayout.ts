@@ -48,8 +48,8 @@ export function getAgentLayout(
   };
 }
 
-export function agentPlacementMeta(args: Record<string, unknown>) {
-  return { autoPlacement: getAgentLayout(args, null, "right").auto === true };
+export function agentPlacementMeta() {
+  return { autoPlacement: true };
 }
 
 function overlaps(a: LayoutRect, b: LayoutRect) {
