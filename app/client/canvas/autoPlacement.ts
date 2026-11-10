@@ -111,6 +111,22 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
   const insert = (shape: TLShape, inputs: TLShapeId[]) => {
     const box = occupied.get(shape.id);
     if (!box) return;
+    const bindings = editor.getBindingsToShape<TLArrowBinding>(shape.id, "arrow");
+    const connectorIds = new Set(bindings.map((binding) => binding.fromId));
+    // Creation helpers add bindings just after creating the shape. Wait for
+    // those so we can measure the real connector, rather than guessing its path.
+    if (shape.type === "sql-text-area" || views.has(shape.type)) {
+      const connectedInputs = new Set(
+        bindings
+          .filter((binding) => binding.props.terminal === "end")
+          .flatMap((binding) => {
+            const arrow = editor.getShape<TLArrowShape>(binding.fromId);
+            const start = arrow && getArrowBindings(editor, arrow).start;
+            return start ? [start.toId] : [];
+          })
+      );
+      if (inputs.some((id) => editor.getShape(id)?.type !== "knob" && !connectedInputs.has(id))) return;
+    }
     // A chart sourced through a result still belongs beside the original query.
     let anchorId = inputs.find((id) => editor.getShape(id)?.type !== "knob") ?? inputs[0];
     const visited = new Set<TLShapeId>();
@@ -122,7 +138,33 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
     }
     const anchor = anchorId && occupied.get(anchorId);
     const anchorShape = anchorId && editor.getShape(anchorId);
-    const preferred = anchorId ? establishedDirection(anchorId) : "RIGHT";
+    let preferred = anchorId ? establishedDirection(anchorId) : "RIGHT";
+    const siblings: Bounds[] = [];
+    if (shape.type === "sql-text-area" && anchorId && anchor) {
+      const counts = new Map<LayoutDirection, number>();
+      for (const binding of editor.getBindingsToShape<TLArrowBinding>(anchorId, "arrow")) {
+        if (binding.props.terminal !== "start") continue;
+        const arrow = editor.getShape<TLArrowShape>(binding.fromId);
+        const end = arrow && getArrowBindings(editor, arrow).end;
+        if (
+          !end ||
+          end.toId === shape.id ||
+          pending.has(end.toId) ||
+          editor.getShape(end.toId)?.type !== "sql-text-area"
+        )
+          continue;
+        const sibling = occupied.get(end.toId);
+        if (!sibling) continue;
+        siblings.push(sibling);
+        const direction = directionBetween(anchor, sibling);
+        counts.set(direction, (counts.get(direction) ?? 0) + 1);
+      }
+      // A new sibling should use the existing fan-out, even if the parent was
+      // reached from another direction earlier in the analysis.
+      for (const direction of directions) {
+        if ((counts.get(direction) ?? 0) > (counts.get(preferred) ?? 0)) preferred = direction;
+      }
+    }
     const sideBranch = shape.type === "sql-text-area" && anchorShape?.type === "data-source";
     let candidates = sideBranch ? directions : [preferred];
     if (views.has(shape.type)) {
@@ -149,6 +191,34 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
           candidate.y + candidate.h + 28 > other.y
       );
     refreshPaths();
+    const origin = editor.getShapePageTransform(shape).applyToPoint({ x: 0, y: 0 });
+    const positionUpdate = (candidate: { x: number; y: number }) => {
+      const point = editor.getPointInParentSpace(shape, {
+        x: origin.x + candidate.x - box.x,
+        y: origin.y + candidate.y - box.y,
+      });
+      return { id: shape.id, type: shape.type, x: point.x, y: point.y };
+    };
+    const fixedObstacles = obstacles.filter(([id]) => !pending.has(id));
+    const connectorHits = (candidate: Bounds) => {
+      if (!connectorIds.size) return 0;
+      // Probe only this new node. tldraw's operation batches these changes, so
+      // intermediate candidates aren't rendered or separate undo steps.
+      editor.updateShape(positionUpdate(candidate));
+      try {
+        const hits = new Set<TLShapeId>();
+        for (const id of connectorIds) {
+          const route = readRoute(editor, id);
+          if (!route || [...route.ends].some((end) => end !== shape.id && pending.has(end))) continue;
+          for (const [id, obstacle] of fixedObstacles) {
+            if (crosses(route, id, obstacle)) hits.add(id);
+          }
+        }
+        return hits.size;
+      } finally {
+        editor.updateShape({ id: shape.id, type: shape.type, x: shape.x, y: shape.y });
+      }
+    };
     for (const direction of candidates) {
       const axis = vector[direction];
       const vertical = axis.y !== 0;
@@ -171,28 +241,35 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
       }
       // A bounded local search, with a clear outer lane as a crowded-board fallback.
       const offsets = [0, -1, 1, -2, 2, -3, 3].map((n) => n * ((vertical ? box.w : box.h) + 64));
+      const outerOffsets: number[] = [];
+      for (const sibling of siblings) {
+        offsets.push(vertical ? sibling.x - box.w - 64 - x : sibling.y - box.h - 64 - y);
+        offsets.push(vertical ? sibling.x + sibling.w + 64 - x : sibling.y + sibling.h + 64 - y);
+      }
       if (obstacles.length) {
-        offsets.push(
+        outerOffsets.push(
           Math.min(...obstacles.map(([, b]) => (vertical ? b.x : b.y))) - (vertical ? box.w + x : box.h + y) - 64
         );
-        offsets.push(
+        outerOffsets.push(
           Math.max(...obstacles.map(([, b]) => (vertical ? b.x + b.w : b.y + b.h))) - (vertical ? x : y) + 64
         );
       }
-      for (const offset of offsets) {
+      const nearby = [...new Set(offsets)].sort((a, b) => Math.abs(a) - Math.abs(b)).slice(0, 24);
+      for (const offset of [...new Set([...nearby, ...outerOffsets])]) {
         const candidate = { x: x + (vertical ? offset : 0), y: y + (vertical ? 0 : offset), w: box.w, h: box.h };
         if (overlaps(candidate)) continue;
-        const crossings = [...paths.values()].filter((route) => crosses(route, shape.id, candidate)).length;
-        const score = Math.abs(offset) + crossings * 10000 + (direction === preferred ? 0 : 80);
+        const distance = Math.abs(offset) + (direction === preferred ? 0 : 80);
+        if (best && distance >= best.score) continue;
+        const crossings =
+          [...paths.values()].filter((route) => crosses(route, shape.id, candidate)).length + connectorHits(candidate);
+        const score = distance + crossings * 10000;
         if (!best || score < best.score) best = { ...candidate, score, direction };
       }
     }
     if (!best) return;
-    const origin = editor.getShapePageTransform(shape).applyToPoint({ x: 0, y: 0 });
-    const point = editor.getPointInParentSpace(shape, { x: origin.x + best.x - box.x, y: origin.y + best.y - box.y });
     // Remove before updating so the placement itself cannot become another insertion.
     pending.delete(shape.id);
-    editor.updateShape({ id: shape.id, type: shape.type, x: point.x, y: point.y });
+    editor.updateShape(positionUpdate(best));
     flow.set(shape.id, views.has(shape.type) ? preferred : best.direction);
     index(editor.getShape(shape.id)!);
   };
@@ -253,7 +330,9 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
     editor.sideEffects.registerAfterCreateHandler("binding", (binding) => {
       if (binding.type !== "arrow") return;
       dirtyArrows.add(binding.fromId);
-      if (pending.has(binding.toId)) dirty.add(binding.toId);
+      if (pending.has(binding.toId)) {
+        for (const id of pending) dirty.add(id);
+      }
     }),
     editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
       occupied.delete(shape.id);
@@ -286,6 +365,7 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
         inputs.filter((input) => pending.has(input)).forEach(visit);
         visiting.delete(id);
         done.add(id);
+        if (inputs.some((input) => pending.has(input))) return;
         if (inputs.length || shape.type === "data-source" || shape.type === "summary-shape") insert(shape, inputs);
       };
       placing = true;
