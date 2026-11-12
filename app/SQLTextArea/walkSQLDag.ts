@@ -2,7 +2,13 @@ import type { Editor } from "tldraw";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import { getRemoteSourceMetadata } from "../DataSource/remote-source-metadata";
 import { buildBigQuerySampleSQL } from "../DataSource/source-samples";
-import { quoteDottedIdentifier, quoteIdentifier, quoteSqlString, stripTrailingSemicolons } from "../src/duckdb/sql";
+import {
+  quoteDottedIdentifier,
+  quoteIdentifier,
+  quoteSqlString,
+  stripSQLComments,
+  stripTrailingSemicolons,
+} from "../src/duckdb/sql";
 import { getEngineAppearance, type ShapeEngineTab } from "../util/ShapeEngineTabs";
 import { getOrderedDependenciesForSQL, type SQLDependencyShape } from "./sqlDependencies";
 import { getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
@@ -206,9 +212,10 @@ export function buildRemoteSQLFromDag(
   editor: Editor
 ): string {
   const { sourceNativePreview } = describeQueryExecution(orderedDependencies);
+  // Comments stay in the editor, but are removed before wrapping or sending SQL to the backend.
   const ctes = orderedDependencies.map((dependency) => {
     if (dependency.type === "sql-text-area")
-      return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(resolveKnobSQL(editor, dependency.props.text))})`;
+      return `${quoteIdentifier(dependency.props.name)} AS (${stripTrailingSemicolons(stripSQLComments(resolveKnobSQL(editor, dependency.props.text)))}\n)`;
     const source = getRemoteSourceMetadata(dependency);
     if (!source) throw new Error(`Source "${dependency.props.name}" is unavailable.`);
     const percent = dependency.props.samplePercent ?? 100;
@@ -247,6 +254,6 @@ export function buildRemoteSQLFromDag(
     }
     return `${quoteIdentifier(dependency.props.name)} AS (${sourceSQL})`;
   });
-  const query = stripTrailingSemicolons(resolveKnobSQL(editor, sqlText));
-  return ctes.length ? `WITH ${ctes.join(",\n")} SELECT * FROM (${query}) AS kavla_query` : query;
+  const query = stripTrailingSemicolons(stripSQLComments(resolveKnobSQL(editor, sqlText)));
+  return ctes.length ? `WITH ${ctes.join(",\n")} SELECT * FROM (${query}\n) AS kavla_query` : query;
 }
