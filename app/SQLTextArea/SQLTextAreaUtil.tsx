@@ -308,11 +308,11 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       } catch (e: any) {
         console.error(e);
         if (e?.name === "AbortError" || e?.message === "Query cancelled") {
-          update({ isRunning: false, error: null, queryStartTime: null, runnerName: null });
+          update({ isRunning: false, isDirty: true, error: null, queryStartTime: null, runnerName: null });
           return { success: false, error: "Query cancelled" };
         } else {
           const errorMessage = e.message ?? "Unknown error";
-          update({ isRunning: false, error: errorMessage, queryStartTime: null, runnerName: null });
+          update({ isRunning: false, isDirty: true, error: errorMessage, queryStartTime: null, runnerName: null });
           return { success: false, error: errorMessage };
         }
       } finally {

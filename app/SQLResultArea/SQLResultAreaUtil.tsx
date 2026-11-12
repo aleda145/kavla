@@ -289,7 +289,7 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
     const handleSortColumn = async (columnName: string) => {
       if (!sourceShapeId || sortInFlight.current) return;
       const upstream = this.editor.getShape<SQLTextAreaShape>(sourceShapeId as TLShapeId);
-      if (!upstream || upstream.props.isRunning) return;
+      if (!upstream || upstream.props.isRunning || upstream.props.isDirty || upstream.props.error) return;
 
       sortInFlight.current = true;
       setIsSorting(true);
@@ -693,7 +693,14 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
             dataErrorMessage={dataErrorMessage}
             focusedCell={focusedCell}
             isLoadingData={isLoadingData}
-            isSortingDisabled={!sourceShape || isSorting || sourceShape.props.isRunning}
+            isQueryDirty={sourceShape?.props.isDirty ?? false}
+            isSortingDisabled={
+              !sourceShape ||
+              isSorting ||
+              sourceShape.props.isRunning ||
+              sourceShape.props.isDirty ||
+              !!sourceShape.props.error
+            }
             sorting={sorting}
             onSortColumn={handleSortColumn}
             rowTotalSize={rowVirtualizer.getTotalSize()}
