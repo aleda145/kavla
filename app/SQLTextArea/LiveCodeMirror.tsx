@@ -587,7 +587,8 @@ export const LiveCodeMirror = ({
 
     return [
       EditorView.updateListener.of((update) => {
-        if (update.docChanged || update.geometryChanged) {
+        // Mounting the SQL view must preserve the shape size when switching modes.
+        if (update.docChanged) {
           if (resizeTimeoutRef.current) return;
           resizeTimeoutRef.current = setTimeout(() => {
             resizeTimeoutRef.current = null;
