@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { format } from "sql-formatter";
 import { useEditor, useToasts, useValue } from "tldraw";
@@ -43,11 +53,20 @@ import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { extractSQLBizOperation, getSQLBizExtractionPlan, isSQLBizExtracting } from "./extractSQLBizOperation";
 import { useData } from "../client/useLocalServer";
 import { useSQLBizFilterStats } from "./useSQLBizStats";
-import { formatBizFilterCount, formatBizPercentage, type BizFilterPlan } from "./sqlBizFilterStats";
+import { formatBizPercentage, type BizFilterPlan } from "./sqlBizFilterStats";
 import { SQLBizOperationStats } from "./SQLBizOperationStatsView";
 import { SQLBizAnalysisControls } from "./SQLBizAnalysisControls";
 import { useTldrawScrollArea } from "../DataSource/useTldrawScrollArea";
 import { TldrawScrollAreaIndicator } from "../DataSource/TldrawScrollAreaIndicator";
+
+const sqlTextStyle: CSSProperties = {
+  fontFamily: "monospace",
+  fontSize: 12,
+  fontWeight: 400,
+  lineHeight: "18px",
+  whiteSpace: "pre-wrap",
+  overflowWrap: "anywhere",
+};
 
 const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
   CTE: { Icon: Layers, color: "#bfdbfe" },
@@ -302,14 +321,17 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
             alignItems: "stretch",
             width: getSQLBizCardWidth(step, availableWidth),
             minHeight: 82,
-            padding: group ? "10px" : "9px 8px",
+            padding: group ? "10px" : "10px 12px",
             boxSizing: "border-box",
             border: group ? "2px dashed #000" : "2px solid #000",
-            borderRadius: 12,
+            borderRadius: 8,
             background: "#fff",
             color: "#000",
             textAlign: "left",
             fontFamily: "Inter, sans-serif",
+            fontSize: 12,
+            fontWeight: 400,
+            lineHeight: "18px",
             cursor: "pointer",
           }}
         >
@@ -363,13 +385,13 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
                     </div>
                   ))}
                   {step.filterCards.length > SQL_BIZ_PREVIEW_LIMIT && (
-                    <span style={{ fontSize: 10 }}>+{step.filterCards.length - SQL_BIZ_PREVIEW_LIMIT} more</span>
+                    <span>+{step.filterCards.length - SQL_BIZ_PREVIEW_LIMIT} more</span>
                   )}
                 </div>
               ) : (
                 <>
                   <BizCardText step={step} highlight={highlight} />
-                  {step.stats && <SQLBizOperationStats shape={shape} plan={step.stats} />}
+                  {step.stats && <SQLBizOperationStats shape={shape} plan={step.stats} highlight={highlight} />}
                 </>
               )}
             </>
@@ -520,25 +542,8 @@ function BizCardText({
 }) {
   return (
     <>
-      <span
-        style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, lineHeight: "16px", fontWeight: 700 }}
-      >
-        {highlight(card.primary)}
-      </span>
-      {card.secondary && (
-        <span
-          style={{
-            fontSize: 10,
-            lineHeight: "14px",
-            color: "#000",
-            marginTop: 3,
-            whiteSpace: "pre-wrap",
-            overflowWrap: "anywhere",
-          }}
-        >
-          {highlight(card.secondary)}
-        </span>
-      )}
+      <span style={sqlTextStyle}>{highlight(card.primary)}</span>
+      {card.secondary && <span style={{ ...sqlTextStyle, marginTop: 6 }}>{highlight(card.secondary)}</span>}
     </>
   );
 }
@@ -564,6 +569,10 @@ function FilterCounts({
     ? getSQLBizFilterPreviews(preview, state.status === "ready" ? state.counts.conditions : undefined)
     : [];
   const moreFilters = Math.max(0, (preview?.filterCards?.length ?? 1) - SQL_BIZ_PREVIEW_LIMIT);
+  const conditions =
+    popup && !("error" in plan)
+      ? plan.conditions.map((sql, index) => ({ sql, index }))
+      : previews.map(({ card, index }) => ({ sql: card.primary, index }));
   const percentage = (removed: number, input: number, nulls?: number) => (
     <span className="inline-flex shrink-0 items-baseline gap-1 whitespace-nowrap">
       <span
@@ -591,32 +600,14 @@ function FilterCounts({
   return (
     <div
       aria-live="polite"
-      style={{ marginTop: preview ? 0 : 6, fontSize: popup ? 12 : 10, lineHeight: "14px", overflowWrap: "anywhere" }}
+      style={{ marginTop: preview ? 0 : 6, fontSize: 12, lineHeight: "20px", overflowWrap: "anywhere" }}
     >
-      {preview && highlight && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
-          {previews.map(({ card, index }) => (
-            <div
-              key={index}
-              style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}
-            >
-              <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
-                <BizCardText step={preview} card={card} highlight={highlight} />
-              </span>
-              {perCondition &&
-                state.status === "ready" &&
-                percentage(state.counts.conditions[index], state.counts.input)}
-            </div>
-          ))}
-          {moreFilters > 0 && <span>+{moreFilters} more</span>}
-        </div>
-      )}
-      {popup && !("error" in plan) && (
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 8, lineHeight: "20px" }}>
-          {plan.conditions.map((condition, index) => (
+      {conditions.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 8, rowGap: 4 }}>
+          {conditions.map(({ sql, index }) => (
             <div key={index} style={{ display: "contents" }}>
-              <span style={{ fontFamily: "monospace", whiteSpace: "pre-wrap", userSelect: "text" }}>
-                {highlight ? highlight(condition) : condition}
+              <span style={{ ...sqlTextStyle, userSelect: popup ? "text" : undefined }}>
+                {highlight ? highlight(sql) : sql}
               </span>
               {perCondition && state.status === "ready" ? (
                 percentage(state.counts.conditions[index], state.counts.input, state.counts.conditionNulls[index])
@@ -632,22 +623,18 @@ function FilterCounts({
           ))}
         </div>
       )}
+      {moreFilters > 0 && <div className="mt-1">+{moreFilters} more</div>}
       {!popup && state.status === "loading" && <span className="font-mono text-[10px] text-black">Counting rows…</span>}
       {!popup && state.status === "waiting" && (
         <span className="font-mono text-[10px] text-black">Waiting for query…</span>
       )}
       {state.status === "error" && <div className="text-xs font-bold text-red-500">{state.error}</div>}
-      {state.status === "ready" &&
-        (popup ? (
-          <div className="flex justify-between items-start gap-2 mt-1 pt-1 border-t border-gray-200">
-            <span className="font-mono text-[10px] text-black">Total excluded</span>
-            {percentage(state.counts.removed, state.counts.input, state.counts.nulls)}
-          </div>
-        ) : (
-          <div style={previews.length > 1 ? { borderTop: "1px solid #e5e7eb", paddingTop: 6 } : undefined}>
-            {formatBizFilterCount(state.counts.removed, state.counts.input)}
-          </div>
-        ))}
+      {state.status === "ready" && (
+        <div className="flex justify-between items-start gap-2 mt-1 pt-1 border-t border-gray-200">
+          <span className="font-mono text-[10px] text-black">Total excluded</span>
+          {percentage(state.counts.removed, state.counts.input, state.counts.nulls)}
+        </div>
+      )}
       {popup && !("error" in plan) && <SQLBizAnalysisControls {...analysis} loading={state.status === "loading"} />}
     </div>
   );
@@ -832,11 +819,8 @@ function OperationPopup({
         {!filterPlan && (
           <pre
             style={{
+              ...sqlTextStyle,
               margin: "6px 0 0",
-              fontFamily: "monospace",
-              lineHeight: "18px",
-              whiteSpace: "pre-wrap",
-              overflowWrap: "anywhere",
               userSelect: "text",
             }}
           >
