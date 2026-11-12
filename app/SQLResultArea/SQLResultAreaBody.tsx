@@ -167,6 +167,7 @@ interface SQLResultAreaBodyProps {
   dataErrorMessage: string | null;
   focusedCell: SQLResultFocusedCell | null;
   isLoadingData: boolean;
+  isQueryDirty: boolean;
   isSortingDisabled: boolean;
   sorting: SQLResultSort | null;
   onSortColumn: (columnName: string) => void;
@@ -189,6 +190,7 @@ export function SQLResultAreaBody({
   dataErrorMessage,
   focusedCell,
   isLoadingData,
+  isQueryDirty,
   isSortingDisabled,
   sorting,
   onSortColumn,
@@ -272,11 +274,11 @@ export function SQLResultAreaBody({
                         const header = headerGroup.headers[virtualColumn.index];
                         const direction = sorting?.columnName === header.column.id ? sorting.direction : null;
                         const sortAction =
-                          direction === "desc"
+                          (direction === "desc"
                             ? "Sort ascending"
                             : direction === "asc"
                               ? "Remove sorting"
-                              : "Sort descending";
+                              : "Sort descending") + (isQueryDirty ? " (disabled until not dirty)" : "");
                         return (
                           <div
                             key={header.id}
@@ -318,7 +320,7 @@ export function SQLResultAreaBody({
                                   color: "inherit",
                                   font: "inherit",
                                   textAlign: "left",
-                                  cursor: isSortingDisabled ? "wait" : "pointer",
+                                  cursor: isSortingDisabled ? "not-allowed" : "pointer",
                                   whiteSpace: "nowrap",
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",
