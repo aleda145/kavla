@@ -271,7 +271,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
             } else if (group) showHover(event.currentTarget);
           }}
           onPointerLeave={closeHoverSoon}
-          aria-label={`${step.scope ? `${step.scope}: ` : ""}${label}: ${step.detail}`}
+          aria-label={`${step.scope ? `${step.scope}: ` : ""}${label}: ${card.primary}${card.secondary ? `, ${card.secondary}` : ""}`}
           aria-expanded={pinned?.path.join(".") === path.join(".") || detail?.path.join(".") === path.join(".")}
           aria-haspopup="dialog"
           onPointerDown={(event) => event.stopPropagation()}
