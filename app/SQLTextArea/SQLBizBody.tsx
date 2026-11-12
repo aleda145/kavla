@@ -22,12 +22,13 @@ import {
 } from "lucide-react";
 import {
   getSQLBizCardWidth,
-  getSQLBizFilterPreview,
+  getSQLBizFilterPreviews,
   getSQLBizColumns,
   getSQLBizSummary,
   getSQLBizStep,
   getSQLBizGroupLayout,
   SQL_BIZ_CARD_GAP,
+  SQL_BIZ_PREVIEW_LIMIT,
   type BizOperation,
   type BizStep,
 } from "./sqlBizSummary";
@@ -354,6 +355,17 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
               <OperationBadge operation={step.label} />
               {step.filter ? (
                 <FilterCounts shape={shape} plan={step.filter} perCondition preview={step} highlight={highlight} />
+              ) : step.filterCards?.length ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {getSQLBizFilterPreviews(step).map(({ card, index }) => (
+                    <div key={index} style={{ display: "flex", flexDirection: "column" }}>
+                      <BizCardText step={step} card={card} highlight={highlight} />
+                    </div>
+                  ))}
+                  {step.filterCards.length > SQL_BIZ_PREVIEW_LIMIT && (
+                    <span style={{ fontSize: 10 }}>+{step.filterCards.length - SQL_BIZ_PREVIEW_LIMIT} more</span>
+                  )}
+                </div>
               ) : (
                 <>
                   <BizCardText step={step} highlight={highlight} />
@@ -537,6 +549,10 @@ function FilterCounts({
 }) {
   const analysis = useSQLBizFilterStats(shape, plan, perCondition);
   const { state } = analysis;
+  const previews = preview
+    ? getSQLBizFilterPreviews(preview, state.status === "ready" ? state.counts.conditions : undefined)
+    : [];
+  const moreFilters = Math.max(0, (preview?.filterCards?.length ?? 1) - SQL_BIZ_PREVIEW_LIMIT);
   const percentage = (removed: number, input: number, nulls?: number) => (
     <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
       <span
@@ -567,12 +583,21 @@ function FilterCounts({
       style={{ marginTop: preview ? 0 : 6, fontSize: popup ? 12 : 10, lineHeight: "14px", overflowWrap: "anywhere" }}
     >
       {preview && highlight && (
-        <div style={{ display: "flex", flexDirection: "column", marginBottom: 6 }}>
-          <BizCardText
-            step={preview}
-            card={getSQLBizFilterPreview(preview, state.status === "ready" ? state.counts.conditions : undefined)}
-            highlight={highlight}
-          />
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
+          {previews.map(({ card, index }) => (
+            <div
+              key={index}
+              style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}
+            >
+              <span style={{ display: "flex", flexDirection: "column" }}>
+                <BizCardText step={preview} card={card} highlight={highlight} />
+              </span>
+              {perCondition &&
+                state.status === "ready" &&
+                percentage(state.counts.conditions[index], state.counts.input)}
+            </div>
+          ))}
+          {moreFilters > 0 && <span>+{moreFilters} more</span>}
         </div>
       )}
       {popup && !("error" in plan) && (
@@ -580,7 +605,7 @@ function FilterCounts({
           {plan.conditions.map((condition, index) => (
             <div key={index} style={{ display: "contents" }}>
               <span style={{ fontFamily: "monospace", whiteSpace: "pre-wrap", userSelect: "text" }}>
-                {highlight ? highlight(`${index ? "AND " : ""}${condition}`) : condition}
+                {highlight ? highlight(condition) : condition}
               </span>
               {perCondition && state.status === "ready" ? (
                 percentage(state.counts.conditions[index], state.counts.input, state.counts.conditionNulls[index])
@@ -608,7 +633,9 @@ function FilterCounts({
             {percentage(state.counts.removed, state.counts.input, state.counts.nulls)}
           </div>
         ) : (
-          <div>{formatBizFilterCount(state.counts.removed, state.counts.input)}</div>
+          <div style={previews.length > 1 ? { borderTop: "1px solid #e5e7eb", paddingTop: 6 } : undefined}>
+            {formatBizFilterCount(state.counts.removed, state.counts.input)}
+          </div>
         ))}
       {popup && !("error" in plan) && <SQLBizAnalysisControls {...analysis} loading={state.status === "loading"} />}
     </div>
@@ -645,13 +672,7 @@ function OperationPopup({
   const position = usePopupPlacement(detail.anchor, popover, shape.id);
   const filterPlan = step.filter && !("error" in step.filter) ? step.filter : null;
   const popupWidth = filterPlan
-    ? Math.min(
-        640,
-        Math.max(
-          320,
-          ...filterPlan.conditions.map((condition, index) => (condition.length + (index ? 4 : 0)) * 7.3 + 170)
-        )
-      )
+    ? Math.min(640, Math.max(320, ...filterPlan.conditions.map((condition) => condition.length * 7.3 + 170)))
     : 320;
   const extraction = useValue(
     "Biz operation extraction",

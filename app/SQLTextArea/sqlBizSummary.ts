@@ -41,6 +41,15 @@ export type BizStep = {
   stats?: BizOperationStatsPlan;
 };
 export type BizSummary = { steps: BizStep[]; note: string | null; error?: string };
+export const SQL_BIZ_PREVIEW_LIMIT = 3;
+
+function previewLines(items: string[]): string | undefined {
+  if (!items.length) return undefined;
+  return [
+    ...items.slice(0, SQL_BIZ_PREVIEW_LIMIT),
+    ...(items.length > SQL_BIZ_PREVIEW_LIMIT ? [`+${items.length - SQL_BIZ_PREVIEW_LIMIT} more`] : []),
+  ].join("\n");
+}
 
 const cache = new Map<string, BizSummary>();
 type BizGroupLayout = { w: number; h: number; columns: number[] };
@@ -389,12 +398,7 @@ function summarize(sql: string): BizSummary {
       add("FILTER", expressionSQL(query.where_clause.this), scope, conditionCard(query.where_clause.this));
       steps[steps.length - 1].filter = buildBizFilterPlan(query, filterScopes);
       const conditions = getBizFilterConditions(query.where_clause.this);
-      if (conditions.length > 1) {
-        steps[steps.length - 1].filterCards = conditions.map((condition) => ({
-          primary: conditionCard(condition).primary,
-          secondary: `+${conditions.length - 1} ${conditions.length === 2 ? "condition" : "conditions"}`,
-        }));
-      }
+      steps[steps.length - 1].filterCards = conditions.map((condition) => ({ primary: expressionSQL(condition) }));
     }
 
     const projections = query.expressions.map((expression) => ({ expression, ...expressionFacts(expression) }));
@@ -478,16 +482,13 @@ function summarize(sql: string): BizSummary {
         .filter((projection) => projection.aggregates.length && !projection.windows.length)
         .map((projection) => outputCaption(projection.expression));
       const captions = metrics.length ? metrics : aggregates.size ? [`${aggregates.size} metrics`] : [];
-      const caption = captions.length
-        ? captions[0] + (captions.length > 1 ? ` · +${captions.length - 1}` : "")
-        : undefined;
       add("AGGREGATE", [grouping, ...aggregates].filter(Boolean).join(" · "), scope, {
         primary: grouping
           ? query.group_by?.all
             ? "Group by all fields"
             : `By ${columnCaption(groupingExpressions, "Calculated groups")}`
-          : (caption ?? "All rows"),
-        secondary: grouping ? caption : undefined,
+          : "All rows",
+        secondary: previewLines(captions),
       });
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "aggregate" });
     }
@@ -538,6 +539,9 @@ function summarize(sql: string): BizSummary {
       primary: query.expressions.some((expression) => "star" in unalias(expression))
         ? "All fields"
         : `${query.expressions.length} ${query.expressions.length === 1 ? "field" : "fields"}`,
+      secondary: query.expressions.some((expression) => "star" in unalias(expression))
+        ? undefined
+        : previewLines(query.expressions.map(outputCaption)),
     });
     if (query.distinct || query.distinct_on) {
       add(
@@ -603,12 +607,17 @@ function sortCard(
   resolve = (expression: ast.Expression) => expression
 ): BizCard {
   const first = order.expressions[0];
+  const caption = (item: (typeof order.expressions)[number]) =>
+    `${columnCaption([resolve(item.this)], "Calculated value")} ${item.desc ? "↓" : "↑"}`;
   return {
-    primary: first ? `${columnCaption([resolve(first.this)], "Calculated value")} ${first.desc ? "↓" : "↑"}` : "",
+    primary: first ? caption(first) : "",
     secondary:
-      order.expressions.length > 1
-        ? `+${order.expressions.length - 1} sort ${order.expressions.length === 2 ? "field" : "fields"}`
-        : undefined,
+      [
+        ...order.expressions.slice(1, SQL_BIZ_PREVIEW_LIMIT).map(caption),
+        ...(order.expressions.length > SQL_BIZ_PREVIEW_LIMIT
+          ? [`+${order.expressions.length - SQL_BIZ_PREVIEW_LIMIT} more`]
+          : []),
+      ].join("\n") || undefined,
   };
 }
 
@@ -644,12 +653,12 @@ export function getSQLBizStep(summary: BizSummary, path: readonly number[]): Biz
   return step;
 }
 
-export function getSQLBizFilterPreview(step: BizStep, removed?: readonly number[]): BizCard {
-  const fallback = step.card ?? { primary: step.detail };
-  if (!step.filterCards?.length || removed?.length !== step.filterCards.length) return fallback;
+export function getSQLBizFilterPreviews(step: BizStep, removed?: readonly number[]) {
+  const cards = step.filterCards?.length ? step.filterCards : [step.card ?? { primary: step.detail }];
+  const ranked = cards.map((card, index) => ({ card, index }));
   // Every condition uses the same input denominator. Ties retain SQL order.
-  const first = removed.reduce((best, count, index) => (count > removed[best] ? index : best), 0);
-  return step.filterCards[first];
+  if (removed?.length === cards.length) ranked.sort((a, b) => removed[b.index] - removed[a.index] || a.index - b.index);
+  return ranked.slice(0, SQL_BIZ_PREVIEW_LIMIT);
 }
 
 export function getSQLBizCardWidth(step: BizStep, availableWidth = Infinity): number {
@@ -661,7 +670,7 @@ export function getSQLBizCardWidth(step: BizStep, availableWidth = Infinity): nu
   const secondaryWidth =
     Math.max(0, ...cards.flatMap((card) => (card.secondary ?? "").split("\n").map((line) => Array.from(line).length))) *
     6.1;
-  return Math.ceil(Math.max(132, primaryWidth + 24, secondaryWidth + 24));
+  return Math.ceil(Math.max(step.filter ? 190 : 132, primaryWidth + (step.filter ? 96 : 24), secondaryWidth + 24));
 }
 
 export const SQL_BIZ_CARD_GAP = 12;
@@ -669,16 +678,34 @@ export const SQL_BIZ_CARD_GAP = 12;
 export function getSQLBizCardHeight(step: BizStep, availableWidth = Infinity): number {
   if (step.children) return getSQLBizGroupLayout(step, availableWidth).h;
   const cards = [step.card ?? { primary: step.detail }, ...(step.filterCards ?? [])];
+  const textHeight = (card: BizCard) =>
+    card.primary.split("\n").length * 16 +
+    (card.secondary && !(step.stats && step.label === "CONDITIONAL" && /^\d+ groups$/.test(card.secondary))
+      ? 3 + card.secondary.split("\n").length * 14
+      : 0);
+  if (step.filter || step.filterCards?.length) {
+    const previews = step.filterCards?.length ? step.filterCards : cards;
+    const previewHeight = previews
+      .map(textHeight)
+      .sort((a, b) => b - a)
+      .slice(0, SQL_BIZ_PREVIEW_LIMIT)
+      .reduce((sum, height) => sum + height + 6, 0);
+    return (
+      52 +
+      previewHeight +
+      (previews.length > SQL_BIZ_PREVIEW_LIMIT ? 20 : 0) +
+      (step.filter ? 26 : 0) +
+      (step.scope ? 18 : 0)
+    );
+  }
+  const statsKind = step.stats && "kind" in step.stats ? step.stats.kind : undefined;
   return Math.max(
     82,
     ...cards.map(
       (card) =>
         52 +
-        card.primary.split("\n").length * 16 +
-        (card.secondary && !(step.stats && step.label === "CONDITIONAL" && /^\d+ groups$/.test(card.secondary))
-          ? 3 + card.secondary.split("\n").length * 14
-          : 0) +
-        (step.filter || step.stats ? 32 : 0) +
+        textHeight(card) +
+        (statsKind === "buckets" ? 102 : statsKind === "join" ? 46 : step.stats ? 32 : 0) +
         (step.scope ? 18 : 0)
     )
   );

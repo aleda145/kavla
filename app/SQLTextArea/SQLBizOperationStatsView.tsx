@@ -4,6 +4,7 @@ import { useSQLBizStats } from "./useSQLBizStats";
 import { readBizOperationStats, type BizOperationStatsPlan } from "./sqlBizOperationStats";
 import { formatBizFilterCount, formatBizPercentage } from "./sqlBizFilterStats";
 import { SQLBizAnalysisControls } from "./SQLBizAnalysisControls";
+import { SQL_BIZ_PREVIEW_LIMIT } from "./sqlBizSummary";
 
 function percentage(rows: number, input: number, meaning: string, unit = "rows") {
   const title = `${rows.toLocaleString()} of ${input.toLocaleString()} ${unit} ${meaning}`;
@@ -69,15 +70,13 @@ export function SQLBizOperationStats({
     stats?.kind === "combine" && !("error" in plan) && plan.kind === "combine"
       ? { ...stats, operation: plan.operation, all: plan.all }
       : null;
-  const largestBucket =
+  const topBuckets =
     stats?.kind === "buckets"
       ? stats.buckets
           .filter((bucket) => !bucket.other)
-          .reduce<(typeof stats.buckets)[number] | null>(
-            (largest, bucket) => (!largest || bucket.rows > largest.rows ? bucket : largest),
-            null
-          )
-      : null;
+          .sort((a, b) => b.rows - a.rows)
+          .slice(0, SQL_BIZ_PREVIEW_LIMIT)
+      : [];
   return (
     <div
       aria-live="polite"
@@ -202,7 +201,10 @@ export function SQLBizOperationStats({
             {percentage(stats.rightMatched, stats.right, "matched at least once")}
           </div>
         ) : (
-          <div>{percentage(stats.leftMatched, stats.left, "matched at least once")} left matched</div>
+          <div className="flex flex-col gap-1">
+            <div>{percentage(stats.leftMatched, stats.left, "matched at least once")} left matched</div>
+            <div>{percentage(stats.rightMatched, stats.right, "matched at least once")} right matched</div>
+          </div>
         ))}
       {combine &&
         (popup ? (
@@ -258,16 +260,17 @@ export function SQLBizOperationStats({
           >
             {stats.count.toLocaleString()} {stats.count === 1 ? "bucket" : "buckets"}
           </div>
-          {!popup && largestBucket && (
-            <div className="flex items-baseline gap-1 text-black" style={{ minWidth: 0 }}>
-              <span
-                className="truncate"
-                title={`Largest bucket: ${largestBucket.isNull ? "NULL" : largestBucket.label}`}
-              >
-                {largestBucket.isNull ? "NULL" : JSON.stringify(largestBucket.label)}
-              </span>
-              <span>·</span>
-              {percentage(largestBucket.rows, stats.input, "in the largest bucket")}
+          {!popup && topBuckets.length > 0 && (
+            <div className="mt-1 flex flex-col gap-1 text-black" style={{ minWidth: 0 }}>
+              {topBuckets.map((bucket, index) => (
+                <div key={index} className="flex items-baseline justify-between gap-2" style={{ minWidth: 0 }}>
+                  <span className="truncate" title={bucket.isNull ? "NULL" : bucket.label}>
+                    {bucket.isNull ? "NULL" : bucket.label}
+                  </span>
+                  {percentage(bucket.rows, stats.input, "in this bucket")}
+                </div>
+              ))}
+              {stats.count > topBuckets.length && <div>+{stats.count - topBuckets.length} more</div>}
             </div>
           )}
           {popup && (
