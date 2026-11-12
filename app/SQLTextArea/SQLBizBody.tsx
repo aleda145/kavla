@@ -520,11 +520,22 @@ function BizCardText({
 }) {
   return (
     <>
-      <span style={{ whiteSpace: "pre", fontSize: 12, lineHeight: "16px", fontWeight: 700 }}>
+      <span
+        style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 12, lineHeight: "16px", fontWeight: 700 }}
+      >
         {highlight(card.primary)}
       </span>
-      {card.secondary && !(step.stats && step.label === "CONDITIONAL" && /^\d+ groups$/.test(card.secondary)) && (
-        <span style={{ fontSize: 10, lineHeight: "14px", color: "#000", marginTop: 3, whiteSpace: "pre" }}>
+      {card.secondary && (
+        <span
+          style={{
+            fontSize: 10,
+            lineHeight: "14px",
+            color: "#000",
+            marginTop: 3,
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+          }}
+        >
           {highlight(card.secondary)}
         </span>
       )}
@@ -554,7 +565,7 @@ function FilterCounts({
     : [];
   const moreFilters = Math.max(0, (preview?.filterCards?.length ?? 1) - SQL_BIZ_PREVIEW_LIMIT);
   const percentage = (removed: number, input: number, nulls?: number) => (
-    <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
+    <span className="inline-flex shrink-0 items-baseline gap-1 whitespace-nowrap">
       <span
         title={`${removed.toLocaleString()} of ${input.toLocaleString()} input rows removed`}
         aria-label={`${removed.toLocaleString()} of ${input.toLocaleString()} input rows removed`}
@@ -589,7 +600,7 @@ function FilterCounts({
               key={index}
               style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}
             >
-              <span style={{ display: "flex", flexDirection: "column" }}>
+              <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
                 <BizCardText step={preview} card={card} highlight={highlight} />
               </span>
               {perCondition &&
