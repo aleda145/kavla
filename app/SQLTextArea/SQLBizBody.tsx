@@ -54,7 +54,7 @@ import { extractSQLBizOperation, getSQLBizExtractionPlan, isSQLBizExtracting } f
 import { useData } from "../client/useLocalServer";
 import { useSQLBizFilterStats } from "./useSQLBizStats";
 import { formatBizPercentage, type BizFilterPlan } from "./sqlBizFilterStats";
-import { SQLBizOperationStats } from "./SQLBizOperationStatsView";
+import { SQLBizBucketCount, SQLBizOperationStats } from "./SQLBizOperationStatsView";
 import { SQLBizAnalysisControls } from "./SQLBizAnalysisControls";
 import { useTldrawScrollArea } from "../DataSource/useTldrawScrollArea";
 import { TldrawScrollAreaIndicator } from "../DataSource/TldrawScrollAreaIndicator";
@@ -89,29 +89,40 @@ const operations: Record<BizOperation, { Icon: LucideIcon; color: string }> = {
   COMBINE: { Icon: Combine, color: "#cbd5e1" },
 };
 
-function OperationBadge({ operation }: { operation: BizOperation }) {
+function OperationBadge({
+  operation,
+  shape,
+  stats,
+}: {
+  operation: BizOperation;
+  shape?: SQLTextAreaShape;
+  stats?: BizStep["stats"];
+}) {
   const { Icon, color } = operations[operation];
   const label = operation === "CONDITIONAL" ? "CLASSIFY" : operation;
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        fontSize: 10,
-        lineHeight: "14px",
-        fontWeight: 800,
-        marginBottom: 8,
-        alignSelf: "flex-start",
-        padding: "3px 6px",
-        borderRadius: 999,
-        border: "1px solid #000",
-        background: color,
-        whiteSpace: "nowrap",
-      }}
-    >
-      <Icon size={13} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
-      {label}
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, alignSelf: "flex-start", marginBottom: 8 }}>
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          fontSize: 10,
+          lineHeight: "14px",
+          fontWeight: 800,
+          padding: "3px 6px",
+          borderRadius: 999,
+          border: "1px solid #000",
+          background: color,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <Icon size={13} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
+        {label}
+      </span>
+      {shape && stats && "kind" in stats && stats.kind === "buckets" && (
+        <SQLBizBucketCount shape={shape} plan={stats} />
+      )}
     </span>
   );
 }
@@ -374,7 +385,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
             </>
           ) : (
             <>
-              <OperationBadge operation={step.label} />
+              <OperationBadge operation={step.label} shape={shape} stats={step.stats} />
               {step.filter ? (
                 <FilterCounts shape={shape} plan={step.filter} perCondition preview={step} highlight={highlight} />
               ) : step.filterCards?.length ? (
@@ -743,7 +754,7 @@ function OperationPopup({
         }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-          <OperationBadge operation={step.label} />
+          <OperationBadge operation={step.label} shape={shape} stats={step.stats} />
           <span style={{ display: "flex", gap: 8 }}>
             <span
               title={

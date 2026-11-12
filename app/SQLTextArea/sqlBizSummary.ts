@@ -107,7 +107,7 @@ function shortExpression(expression: ast.Expression, fallback: string): string {
   return shortPreview(expressionSQL(expression), fallback);
 }
 
-function bucketCaption(value: ast.Expression): string {
+function bucketCaption(value: ast.Expression): string | undefined {
   if ("function" in value) {
     const { name, args } = value.function;
     if (["date_trunc", "timestamp_trunc", "datetime_trunc", "time_trunc"].includes(name.toLowerCase())) {
@@ -143,7 +143,7 @@ function bucketCaption(value: ast.Expression): string {
             return `${amount.literal.value} ${unit.unit.toLowerCase()}${amount.literal.value === "1" ? "" : "s"} per bin${alignment}`;
           }
         }
-        return `${shortExpression(width, "Time interval")} bins`;
+        return undefined;
       }
     }
     if (name.toLowerCase() === "round") {
@@ -170,7 +170,7 @@ function bucketCaption(value: ast.Expression): string {
       return `${expressionSQL(width)}-wide bins`;
     }
   }
-  return shortExpression(value, "Bucket calculation");
+  return undefined;
 }
 
 function transformCard(expression: ast.Expression, label: BizOperation): BizCard {
@@ -863,7 +863,7 @@ export function getSQLBizCardHeight(step: BizStep, availableWidth = Infinity): n
   const statsKind = step.stats && "kind" in step.stats ? step.stats.kind : undefined;
   const statsHeight =
     statsKind === "buckets"
-      ? 142
+      ? 112
       : statsKind === "join" || statsKind === "limit" || statsKind === "skip"
         ? 64
         : statsKind === "clean"

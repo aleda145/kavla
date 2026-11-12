@@ -21,17 +21,7 @@ function percentage(rows: number, input: number, meaning: string, unit = "rows")
   );
 }
 
-export function SQLBizOperationStats({
-  shape,
-  plan,
-  popup = false,
-  highlight,
-}: {
-  shape: SQLTextAreaShape;
-  plan: BizOperationStatsPlan;
-  popup?: boolean;
-  highlight?: (sql: string) => ReactNode;
-}) {
+function useOperationStats(shape: SQLTextAreaShape, plan: BizOperationStatsPlan) {
   const analysis = useSQLBizStats(shape, "error" in plan ? null : plan.sql, "error" in plan ? plan.error : undefined);
   const { state } = analysis;
   const result = useMemo(() => {
@@ -60,6 +50,34 @@ export function SQLBizOperationStats({
   }, [state, plan]);
   const stats = result && "stats" in result ? result.stats : null;
   const error = state.status === "error" ? state.error : result && "error" in result ? result.error : null;
+  return { analysis, state, stats, error };
+}
+
+export function SQLBizBucketCount({ shape, plan }: { shape: SQLTextAreaShape; plan: BizOperationStatsPlan }) {
+  const { stats } = useOperationStats(shape, plan);
+  if (stats?.kind !== "buckets") return null;
+  return (
+    <span
+      className="w-fit bg-white border border-black px-1.5 py-0.5 rounded text-[10px] leading-4 font-bold text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,0.1)] whitespace-nowrap"
+      title={`${stats.input.toLocaleString()} input rows`}
+    >
+      {stats.count.toLocaleString()} {stats.count === 1 ? "bucket" : "buckets"}
+    </span>
+  );
+}
+
+export function SQLBizOperationStats({
+  shape,
+  plan,
+  popup = false,
+  highlight,
+}: {
+  shape: SQLTextAreaShape;
+  plan: BizOperationStatsPlan;
+  popup?: boolean;
+  highlight?: (sql: string) => ReactNode;
+}) {
+  const { analysis, state, stats, error } = useOperationStats(shape, plan);
   const beforeAfter =
     stats && (stats.kind === "aggregate" || stats.kind === "deduplicate")
       ? `${stats.input.toLocaleString()} → ${stats.output.toLocaleString()} rows`
@@ -212,42 +230,32 @@ export function SQLBizOperationStats({
         </div>
       )}
       {stats?.kind === "buckets" && (
-        <>
-          <div
-            className="w-fit bg-white border border-black px-1.5 py-0.5 rounded text-[10px] leading-4 font-bold text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,0.1)]"
-            title={`${stats.input.toLocaleString()} input rows`}
-          >
-            {stats.count.toLocaleString()} {stats.count === 1 ? "bucket" : "buckets"}
-          </div>
-          <div className="mt-2 flex flex-col gap-1">
-            {buckets.map((bucket, index) => (
-              <div key={index} className="flex items-center gap-2 h-5 w-full">
-                <span
-                  title={
-                    bucket.other
-                      ? `${Math.max(0, stats.count - stats.buckets.filter((item) => !item.other).length).toLocaleString()} remaining buckets`
-                      : bucket.isNull
-                        ? "SQL NULL"
-                        : bucket.label
-                  }
-                  className={`w-[80px] shrink-0 font-mono text-xs truncate text-left ${bucket.other || bucket.isNull ? "italic text-black" : "text-black"}`}
-                >
-                  {bucket.isNull ? "NULL" : bucket.other ? "Other" : bucket.label}
-                </span>
-                <div aria-hidden className="flex-1 min-w-0 h-3 bg-gray-100">
-                  <div
-                    className="h-full bg-yellow-300 border-2 border-black"
-                    style={{ width: `${stats.input ? (bucket.rows / stats.input) * 100 : 0}%` }}
-                  />
-                </div>
-                <span className="w-12 shrink-0 text-right">
-                  {percentage(bucket.rows, stats.input, "in this bucket")}
-                </span>
+        <div className="flex flex-col gap-1">
+          {buckets.map((bucket, index) => (
+            <div key={index} className="flex items-center gap-2 h-5 w-full">
+              <span
+                title={
+                  bucket.other
+                    ? `${Math.max(0, stats.count - stats.buckets.filter((item) => !item.other).length).toLocaleString()} remaining buckets`
+                    : bucket.isNull
+                      ? "SQL NULL"
+                      : bucket.label
+                }
+                className={`w-[80px] shrink-0 font-mono text-xs truncate text-left ${bucket.other || bucket.isNull ? "italic text-black" : "text-black"}`}
+              >
+                {bucket.isNull ? "NULL" : bucket.other ? "Other" : bucket.label}
+              </span>
+              <div aria-hidden className="flex-1 min-w-0 h-3 bg-gray-100">
+                <div
+                  className="h-full bg-yellow-300 border-2 border-black"
+                  style={{ width: `${stats.input ? (bucket.rows / stats.input) * 100 : 0}%` }}
+                />
               </div>
-            ))}
-            {!popup && stats.count > buckets.length && <div>+{stats.count - buckets.length} more</div>}
-          </div>
-        </>
+              <span className="w-12 shrink-0 text-right">{percentage(bucket.rows, stats.input, "in this bucket")}</span>
+            </div>
+          ))}
+          {!popup && stats.count > buckets.length && <div>+{stats.count - buckets.length} more</div>}
+        </div>
       )}
       {popup && !("error" in plan) && <SQLBizAnalysisControls {...analysis} loading={state.status === "loading"} />}
     </div>
