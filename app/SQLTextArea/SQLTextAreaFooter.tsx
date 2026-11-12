@@ -113,7 +113,7 @@ export function SQLTextAreaFooter({ shape, estimate }: { shape: SQLTextAreaShape
   return (
     <div style={footerStyle}>
       {errorContent}
-      {(running || stats || estimate) && (
+      {!errorContent && (running || stats || estimate) && (
         <div
           style={{
             display: "flex",
