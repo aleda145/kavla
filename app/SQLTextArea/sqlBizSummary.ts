@@ -77,20 +77,25 @@ function assignment(expression: ast.Expression): string {
     : expressionSQL(expression);
 }
 
-function metricCaption(expression: ast.Expression): string {
+function columnCaption(expressions: ast.Expression[], fallback: string): string {
+  const columns = [...new Set(expressions.flatMap((expression) => ast.getColumns(expression).map(expressionSQL)))];
+  return columns.length
+    ? columns.slice(0, 2).join(", ") + (columns.length > 2 ? ` +${columns.length - 2}` : "")
+    : fallback;
+}
+
+function outputCaption(expression: ast.Expression): string {
   return "alias" in expression
-    ? `${expressionSQL(expression.alias.this)} → ${expressionSQL({ identifier: expression.alias.alias })}`
-    : expressionSQL(expression);
+    ? expressionSQL({ identifier: expression.alias.alias })
+    : columnCaption([expression], "Calculated value");
 }
 
 function transformCard(expression: ast.Expression, label: BizOperation): BizCard {
   const value = unalias(expression);
-  const columns = [...new Set(ast.getColumns(value).map(expressionSQL))];
-  const input = columns.slice(0, 2).join(", ") + (columns.length > 2 ? ` +${columns.length - 2}` : "");
+  const input = columnCaption([value], "");
   const output = "alias" in expression ? expressionSQL({ identifier: expression.alias.alias }) : "";
-  const primary =
-    input && output && input !== output ? `${input} → ${output}` : output || input || expressionSQL(value);
-  let secondary = expressionSQL(value);
+  const primary = input && output && input !== output ? `${input} → ${output}` : output || input || "Calculated value";
+  let secondary: string | undefined;
   if (label === "CONDITIONAL" && "case" in value) {
     const results = value.case.whens.map(([, result]) => result);
     if (value.case.else_) results.push(value.case.else_);
@@ -100,7 +105,7 @@ function transformCard(expression: ast.Expression, label: BizOperation): BizCard
         ? `${new Set(results.map(expressionSQL)).size} groups`
         : `${value.case.whens.length} rules`;
   } else if (label === "CONDITIONAL" && "if_func" in value) {
-    secondary = expressionSQL(value.if_func.condition);
+    secondary = "2 outcomes";
   } else if (label === "BUCKET") {
     const floor =
       "floor" in value ? value.floor : "mul" in value && "floor" in value.mul.left ? value.mul.left.floor : null;
@@ -118,15 +123,39 @@ function transformCard(expression: ast.Expression, label: BizOperation): BizCard
 }
 
 function conditionCard(expression: ast.Expression): BizCard {
-  const detail = expressionSQL(expression);
-  if (detail.length <= 44) return { primary: detail };
-  const columns = [...new Set(ast.getColumns(expression).map(expressionSQL))];
   const logical = ast.findAll(expression, (node) => "and" in node || "or" in node).length;
   return {
-    primary: columns.length
-      ? columns.slice(0, 2).join(", ") + (columns.length > 2 ? ` +${columns.length - 2}` : "")
-      : detail,
-    secondary: logical ? `${logical + 1} conditions` : detail,
+    primary: columnCaption([expression], "Row condition"),
+    secondary: logical ? `${logical + 1} conditions` : undefined,
+  };
+}
+
+function windowCard(expression: ast.Expression): BizCard {
+  const value = unalias(expression);
+  const window = ast.findAll(value, (node) => "window_function" in node)[0];
+  const fn = window && "window_function" in window ? window.window_function.this : value;
+  const name = "function" in fn ? fn.function.name.toLowerCase() : ast.getExprType(fn);
+  const captions: Record<string, string> = {
+    row_number: "Row number",
+    rank: "Rank",
+    dense_rank: "Dense rank",
+    percent_rank: "Percentile rank",
+    cume_dist: "Cumulative distribution",
+    ntile: "Ranked groups",
+    lag: "Previous value",
+    lead: "Next value",
+    first_value: "First value",
+    last_value: "Last value",
+    nth_value: "Nth value",
+    sum: "Sum over window",
+    avg: "Average over window",
+    count: "Count over window",
+    min: "Minimum over window",
+    max: "Maximum over window",
+  };
+  return {
+    primary: outputCaption(expression),
+    secondary: captions[name] ?? "Window calculation",
   };
 }
 
@@ -297,7 +326,8 @@ function summarize(sql: string): BizSummary {
         `${name}${modifiers} · ${sourceName(operation.left)} ${connector} ${sourceName(operation.right)}`,
         scope,
         {
-          primary: `${name}${modifiers}`,
+          primary:
+            name === "EXCEPT" ? "Exclude matching rows" : name === "INTERSECT" ? "Keep matching rows" : "Combine rows",
           secondary: `${sourceName(operation.left)} ${connector} ${sourceName(operation.right)}`,
         }
       );
@@ -346,8 +376,12 @@ function summarize(sql: string): BizSummary {
           ? ` USING (${join.using.map((column) => expressionSQL({ identifier: column })).join(", ")})`
           : "";
       add("JOIN", `${kind} ${sourceName(join.this)}${condition}`, scope, {
-        primary: `${kind} ${sourceName(join.this)}`,
-        secondary: condition.trim() || undefined,
+        primary: sourceName(join.this),
+        secondary: join.on
+          ? columnCaption([join.on], "Matching rows")
+          : join.using.length
+            ? join.using.map((column) => column.name).join(", ")
+            : undefined,
       });
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "join", index });
     }
@@ -442,13 +476,17 @@ function summarize(sql: string): BizSummary {
       const grouping = group ? expressionSQL({ group_by: group }) : "";
       const metrics = projections
         .filter((projection) => projection.aggregates.length && !projection.windows.length)
-        .map((projection) => metricCaption(projection.expression));
-      const captions = metrics.length ? metrics : [...aggregates];
+        .map((projection) => outputCaption(projection.expression));
+      const captions = metrics.length ? metrics : aggregates.size ? [`${aggregates.size} metrics`] : [];
       const caption = captions.length
         ? captions[0] + (captions.length > 1 ? ` · +${captions.length - 1}` : "")
         : undefined;
       add("AGGREGATE", [grouping, ...aggregates].filter(Boolean).join(" · "), scope, {
-        primary: grouping ? grouping.replace(/^GROUP BY /, "BY ") : (caption ?? "All rows"),
+        primary: grouping
+          ? query.group_by?.all
+            ? "Group by all fields"
+            : `By ${columnCaption(groupingExpressions, "Calculated groups")}`
+          : (caption ?? "All rows"),
         secondary: grouping ? caption : undefined,
       });
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "aggregate" });
@@ -459,19 +497,7 @@ function summarize(sql: string): BizSummary {
     }
     for (const projection of projections) {
       if (projection.windows.length) {
-        const window = projection.windows[0];
-        const over = "window_function" in window ? window.window_function.over : null;
-        const fn = "window_function" in window ? expressionSQL(window.window_function.this) : expressionSQL(window);
-        const output =
-          "alias" in projection.expression ? expressionSQL({ identifier: projection.expression.alias.alias }) : "";
-        add("WINDOW", assignment(projection.expression), scope, {
-          primary: output ? `${fn} → ${output}` : fn,
-          secondary: over?.partition_by.length
-            ? `BY ${list(over.partition_by)}`
-            : over?.order_by.length
-              ? `ORDER ${expressionSQL(over.order_by[0].this)}`
-              : undefined,
-        });
+        add("WINDOW", assignment(projection.expression), scope, windowCard(projection.expression));
       }
     }
     const displayedWindows = new Set(projections.flatMap((projection) => projection.windows.map(expressionSQL)));
@@ -480,7 +506,7 @@ function summarize(sql: string): BizSummary {
         for (const window of expressionFacts(clause).windows) {
           const detail = expressionSQL(window);
           if (!displayedWindows.has(detail)) {
-            add("WINDOW", detail, scope);
+            add("WINDOW", detail, scope, windowCard(window));
             displayedWindows.add(detail);
           }
         }
@@ -495,7 +521,8 @@ function summarize(sql: string): BizSummary {
         add(
           "WINDOW",
           `${expressionSQL({ identifier: window.name })} AS (${[base, definition].filter(Boolean).join(" ")})`,
-          scope
+          scope,
+          { primary: expressionSQL({ identifier: window.name }), secondary: "Window definition" }
         );
       }
     }
@@ -507,14 +534,22 @@ function summarize(sql: string): BizSummary {
       add("FILTER WINDOW", expressionSQL(query.qualify.this), scope, conditionCard(query.qualify.this));
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "qualify" });
     }
-    add("SELECT", query.expressions.map(outputProjection).join(", "), scope);
+    add("SELECT", query.expressions.map(outputProjection).join(", "), scope, {
+      primary: query.expressions.some((expression) => "star" in unalias(expression))
+        ? "All fields"
+        : `${query.expressions.length} ${query.expressions.length === 1 ? "field" : "fields"}`,
+    });
     if (query.distinct || query.distinct_on) {
       add(
         "DEDUPLICATE",
         query.distinct_on
           ? `DISTINCT ON (${list(query.distinct_on)})`
           : `DISTINCT ${query.expressions.map(outputProjection).join(", ")}`,
-        scope
+        scope,
+        {
+          primary: "Unique rows",
+          secondary: query.distinct_on ? columnCaption(query.distinct_on, "Selected fields") : undefined,
+        }
       );
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "deduplicate" });
     }
@@ -569,7 +604,7 @@ function sortCard(
 ): BizCard {
   const first = order.expressions[0];
   return {
-    primary: first ? sortDetails({ ...order, expressions: [first] }, resolve) : "",
+    primary: first ? `${columnCaption([resolve(first.this)], "Calculated value")} ${first.desc ? "↓" : "↑"}` : "",
     secondary:
       order.expressions.length > 1
         ? `+${order.expressions.length - 1} sort ${order.expressions.length === 2 ? "field" : "fields"}`
