@@ -3,7 +3,7 @@ import { getUniqueName } from "../util/getUniqueName";
 import { extractTableNames } from "../util/parseSql";
 import { setShapeUpstreamConnections } from "../util/shapeConnections";
 import { getSQLKnobs } from "../Knob/knobSQL";
-import { clearQuerySQLSize, isBizMode, setQueryBizMode } from "../client/canvas/bizMode";
+import { isBizMode, setQueryBizMode } from "../client/canvas/bizMode";
 import { getOrderedDependenciesForSQL, type SQLDependencyShape } from "./sqlDependencies";
 import { getSQLBizStep, getSQLBizSummary } from "./sqlBizSummary";
 import { getAutoExpandedSQLShapeSize } from "./sqlShapeSize";
@@ -337,9 +337,6 @@ function applySQLBizExtraction(
     throw error;
   }
   setQueryBizMode(editor, upstreamId, bizMode);
-  // SQL mode should fit the rewritten SQL instead of restoring pre-extraction sizes.
-  clearQuerySQLSize(editor, upstreamId);
-  clearQuerySQLSize(editor, original.id);
   const extracted =
     plan.direction === "upstream"
       ? { id: upstreamId, name: plan.upstreamName }
