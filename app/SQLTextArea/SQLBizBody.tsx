@@ -63,7 +63,7 @@ const sqlTextStyle: CSSProperties = {
   fontFamily: "monospace",
   fontSize: 12,
   fontWeight: 400,
-  lineHeight: "18px",
+  lineHeight: 1.4,
   whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
 };
@@ -331,7 +331,7 @@ export function SQLBizBody({ text, shape }: { text: string; shape: SQLTextAreaSh
             fontFamily: "Inter, sans-serif",
             fontSize: 12,
             fontWeight: 400,
-            lineHeight: "18px",
+            lineHeight: 1.4,
             cursor: "pointer",
           }}
         >
@@ -600,10 +600,10 @@ function FilterCounts({
   return (
     <div
       aria-live="polite"
-      style={{ marginTop: preview ? 0 : 6, fontSize: 12, lineHeight: "20px", overflowWrap: "anywhere" }}
+      style={{ marginTop: preview ? 0 : 6, fontSize: 12, lineHeight: 1.4, overflowWrap: "anywhere" }}
     >
       {conditions.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 8, rowGap: 4 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", columnGap: 8 }}>
           {conditions.map(({ sql, index }) => (
             <div key={index} style={{ display: "contents" }}>
               <span style={{ ...sqlTextStyle, userSelect: popup ? "text" : undefined }}>
