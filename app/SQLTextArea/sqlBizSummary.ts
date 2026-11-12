@@ -843,15 +843,15 @@ export function getSQLBizCardHeight(step: BizStep, availableWidth = Infinity): n
         0
       );
   const textHeight = (card: BizCard) =>
-    lines(card.primary, 7.3, step.filter ? 144 : 28) * 18 +
-    (card.secondary ? 6 + lines(card.secondary, 7.3, 28) * 18 : 0);
+    lines(card.primary, 7.3, step.filter ? 144 : 28) * 16.8 +
+    (card.secondary ? 6 + lines(card.secondary, 7.3, 28) * 16.8 : 0);
   if (step.filter || step.filterCards?.length) {
     const previews = step.filterCards?.length ? step.filterCards : cards;
     const previewHeight = previews
       .map(textHeight)
       .sort((a, b) => b - a)
       .slice(0, SQL_BIZ_PREVIEW_LIMIT)
-      .reduce((sum, height) => sum + height + 6, 0);
+      .reduce((sum, height) => sum + height + (step.filter ? 0 : 6), 0);
     return (
       52 +
       previewHeight +
