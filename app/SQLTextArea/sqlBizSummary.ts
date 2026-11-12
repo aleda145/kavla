@@ -821,9 +821,9 @@ export function getSQLBizCardWidth(step: BizStep, availableWidth = Infinity): nu
     Math.max(...cards.flatMap((card) => card.primary.split("\n").map((line) => Array.from(line).length))) * 7.3;
   const secondaryWidth =
     Math.max(0, ...cards.flatMap((card) => (card.secondary ?? "").split("\n").map((line) => Array.from(line).length))) *
-    6.1;
+    7.3;
   const width = Math.ceil(
-    Math.max(step.filter ? 190 : 132, primaryWidth + (step.filter ? 96 : 24), secondaryWidth + 24)
+    Math.max(step.filter || step.stats ? 260 : 132, primaryWidth + (step.filter ? 144 : 28), secondaryWidth + 28)
   );
   return Math.min(width, Math.max(132, Math.min(360, availableWidth)));
 }
@@ -843,8 +843,8 @@ export function getSQLBizCardHeight(step: BizStep, availableWidth = Infinity): n
         0
       );
   const textHeight = (card: BizCard) =>
-    lines(card.primary, 7.3, step.filter ? 96 : 24) * 16 +
-    (card.secondary ? 3 + lines(card.secondary, 6.1, 24) * 14 : 0);
+    lines(card.primary, 7.3, step.filter ? 144 : 28) * 18 +
+    (card.secondary ? 6 + lines(card.secondary, 7.3, 28) * 18 : 0);
   if (step.filter || step.filterCards?.length) {
     const previews = step.filterCards?.length ? step.filterCards : cards;
     const previewHeight = previews
@@ -861,16 +861,21 @@ export function getSQLBizCardHeight(step: BizStep, availableWidth = Infinity): n
     );
   }
   const statsKind = step.stats && "kind" in step.stats ? step.stats.kind : undefined;
-  return Math.max(
-    82,
-    ...cards.map(
-      (card) =>
-        52 +
-        textHeight(card) +
-        (statsKind === "buckets" ? 102 : statsKind === "join" ? 46 : step.stats ? 32 : 0) +
-        (step.scope ? 18 : 0)
-    )
-  );
+  const statsHeight =
+    statsKind === "buckets"
+      ? 142
+      : statsKind === "join" || statsKind === "limit" || statsKind === "skip"
+        ? 64
+        : statsKind === "clean"
+          ? 88
+          : statsKind === "combine"
+            ? 112
+            : statsKind === "aggregate"
+              ? 192
+              : step.stats
+                ? 40
+                : 0;
+  return Math.max(82, ...cards.map((card) => 52 + textHeight(card) + statsHeight + (step.scope ? 18 : 0)));
 }
 
 export function getSQLBizColumns(summary: BizSummary, available: { w: number; h: number }): number[] {
