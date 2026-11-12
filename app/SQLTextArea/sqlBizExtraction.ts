@@ -45,6 +45,22 @@ function sqlFor(expression: ast.Expression): string {
   return result.sql[0];
 }
 
+function transformExpression(
+  expression: ast.Expression,
+  rewrite: (node: ast.Expression, parent: ast.Expression | null) => ast.Expression | undefined
+): ast.Expression {
+  return ast.transform(expression, {
+    enter(node, parent) {
+      const replacement = rewrite(node, parent);
+      if (replacement) return replacement;
+      // The SDK otherwise rebuilds scalar payloads as objects, corrupting DATE
+      // cast targets, boolean literals and other scalar AST values.
+      const value = ast.getExprData(node);
+      if (value === null || typeof value !== "object") return null;
+    },
+  });
+}
+
 function column(name: string): ast.Expression {
   return {
     column: {
@@ -379,7 +395,7 @@ function planExtraction(
       return resolveInputColumn(structuredClone(matches[0]), new Set([...resolving, name]));
     };
     const resolveInputExpression = (expression: ast.Expression) =>
-      ast.transform(expression, { column: (node) => resolveInputColumn(node) });
+      transformExpression(expression, (node) => ("column" in node ? resolveInputColumn(node) : undefined));
     const inputFilter = () =>
       query.where_clause && {
         ...query.where_clause,
@@ -483,32 +499,30 @@ function planExtraction(
       // spelling/qualification when matching expressions to projected aliases.
       const expressionKey = (expression: ast.Expression) =>
         sqlFor(
-          ast.transform(expression, {
-            column: (node) => ("column" in node ? column(node.column.name.name.toLowerCase()) : undefined),
-          })
+          transformExpression(expression, (node) =>
+            "column" in node ? column(node.column.name.name.toLowerCase()) : undefined
+          )
         );
       const projected = outputs.map((item) => ({ ...item, key: expressionKey(item.expression) }));
       const mapOutputExpression = (expression: ast.Expression, clause: "ORDER BY" | "HAVING" | "QUALIFY") =>
-        ast.transform(expression, {
-          enter(node, parent) {
-            if ("column" in node && !node.column.table) {
-              const name = node.column.name.name.toLowerCase();
-              const alias = projected.find((item) => item.name.toLowerCase() === name);
-              if (alias) {
-                requireSafe(
-                  (clause === "ORDER BY" && !parent) || !inputNames.has(name) || alias.key === expressionKey(node),
-                  `${clause} uses “${node.column.name.name}” as both an input column and an output alias; extraction is ambiguous.`
-                );
-                return column(alias.name);
-              }
+        transformExpression(expression, (node, parent) => {
+          if ("column" in node && !node.column.table) {
+            const name = node.column.name.name.toLowerCase();
+            const alias = projected.find((item) => item.name.toLowerCase() === name);
+            if (alias) {
+              requireSafe(
+                (clause === "ORDER BY" && !parent) || !inputNames.has(name) || alias.key === expressionKey(node),
+                `${clause} uses “${node.column.name.name}” as both an input column and an output alias; extraction is ambiguous.`
+              );
+              return column(alias.name);
             }
-            const match = projected.find((item) => item.key === expressionKey(node));
-            if (match) return column(match.name);
-            requireSafe(
-              !("column" in node) && !("window_function" in node) && !aggregateTypes.has(ast.getExprType(node)),
-              `${clause} needs an expression or column that is not exposed by the query output. Give it an output alias before extracting.`
-            );
-          },
+          }
+          const match = projected.find((item) => item.key === expressionKey(node));
+          if (match) return column(match.name);
+          requireSafe(
+            !("column" in node) && !("window_function" in node) && !aggregateTypes.has(ast.getExprType(node)),
+            `${clause} needs an expression or column that is not exposed by the query output. Give it an output alias before extracting.`
+          );
         });
       const mappedOrder = query.order_by && {
         ...query.order_by,
