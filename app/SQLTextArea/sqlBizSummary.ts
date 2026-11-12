@@ -99,6 +99,80 @@ function outputCaption(expression: ast.Expression): string {
     : columnCaption([expression], "Calculated value");
 }
 
+function shortPreview(sql: string, fallback: string): string {
+  return sql.length <= 80 && !sql.includes("\n") ? sql : fallback;
+}
+
+function shortExpression(expression: ast.Expression, fallback: string): string {
+  return shortPreview(expressionSQL(expression), fallback);
+}
+
+function bucketCaption(value: ast.Expression): string {
+  if ("function" in value) {
+    const { name, args } = value.function;
+    if (["date_trunc", "timestamp_trunc", "datetime_trunc", "time_trunc"].includes(name.toLowerCase())) {
+      const unit = args[0];
+      if (unit && "literal" in unit && unit.literal.literal_type === "string") {
+        const captions: Record<string, string> = {
+          year: "Yearly",
+          quarter: "Quarterly",
+          month: "Monthly",
+          week: "Weekly",
+          day: "Daily",
+          hour: "Hourly",
+          minute: "By minute",
+          second: "By second",
+        };
+        const caption = captions[unit.literal.value.toLowerCase()];
+        if (caption) return caption;
+      }
+    }
+    if (["time_bucket", "date_bin"].includes(name.toLowerCase())) {
+      const width = args[0];
+      if (width && "interval" in width) {
+        const amount = width.interval.this;
+        const unit = width.interval.unit;
+        if (
+          amount &&
+          "literal" in amount &&
+          (amount.literal.literal_type === "string" || amount.literal.literal_type === "number")
+        ) {
+          const alignment = args.length > 2 ? " · custom alignment" : "";
+          if (!unit) return `${amount.literal.value} per bin${alignment}`;
+          if (unit.type === "simple") {
+            return `${amount.literal.value} ${unit.unit.toLowerCase()}${amount.literal.value === "1" ? "" : "s"} per bin${alignment}`;
+          }
+        }
+        return `${shortExpression(width, "Time interval")} bins`;
+      }
+    }
+    if (name.toLowerCase() === "round") {
+      const scale = args[1];
+      if (!scale) return "Rounded to whole numbers";
+      if ("literal" in scale && scale.literal.literal_type === "number" && Number(scale.literal.value) >= 0) {
+        return `Rounded to ${scale.literal.value} decimal places`;
+      }
+    }
+  }
+  const floor =
+    "floor" in value ? value.floor : "mul" in value && "floor" in value.mul.left ? value.mul.left.floor : null;
+  if (
+    floor &&
+    !floor.scale &&
+    "div" in floor.this &&
+    "literal" in floor.this.div.right &&
+    floor.this.div.right.literal.literal_type === "number" &&
+    Number(floor.this.div.right.literal.value) > 0
+  ) {
+    const width = floor.this.div.right;
+    if (!("mul" in value)) return `Bin index · width ${expressionSQL(width)}`;
+    if ("literal" in value.mul.right && value.mul.right.literal.value === width.literal.value) {
+      return `${expressionSQL(width)}-wide bins`;
+    }
+  }
+  return shortExpression(value, "Bucket calculation");
+}
+
 function transformCard(expression: ast.Expression, label: BizOperation): BizCard {
   const value = unalias(expression);
   const input = columnCaption([value], "");
@@ -106,40 +180,80 @@ function transformCard(expression: ast.Expression, label: BizOperation): BizCard
   const primary = input && output && input !== output ? `${input} → ${output}` : output || input || "Calculated value";
   let secondary: string | undefined;
   if (label === "CONDITIONAL" && "case" in value) {
-    const results = value.case.whens.map(([, result]) => result);
-    if (value.case.else_) results.push(value.case.else_);
-    const constants = results.every((result) => "literal" in result || "boolean" in result || "null" in result);
-    secondary =
-      constants && value.case.else_
-        ? `${new Set(results.map(expressionSQL)).size} groups`
-        : `${value.case.whens.length} rules`;
+    const rules = value.case.whens.map(([condition, result]) => {
+      const predicate: ast.Expression = value.case.operand
+        ? {
+            eq: {
+              left: value.case.operand,
+              right: condition,
+              left_comments: [],
+              operator_comments: [],
+              trailing_comments: [],
+            },
+          }
+        : condition;
+      return shortPreview(
+        `${shortExpression(predicate, "Condition")} → ${shortExpression(result, "Calculated result")}`,
+        "Complex rule"
+      );
+    });
+    rules.push(
+      value.case.else_ ? `Otherwise → ${shortExpression(value.case.else_, "Calculated result")}` : "Otherwise → NULL"
+    );
+    secondary = previewLines(rules);
   } else if (label === "CONDITIONAL" && "if_func" in value) {
-    secondary = "2 outcomes";
+    secondary = previewLines([
+      `${shortExpression(value.if_func.condition, "Condition")} → ${shortExpression(value.if_func.true_value, "Calculated result")}`,
+      `Otherwise → ${value.if_func.false_value ? shortExpression(value.if_func.false_value, "Calculated result") : "NULL"}`,
+    ]);
   } else if (label === "BUCKET") {
-    const floor =
-      "floor" in value ? value.floor : "mul" in value && "floor" in value.mul.left ? value.mul.left.floor : null;
-    if (
-      floor &&
-      "div" in floor.this &&
-      "literal" in floor.this.div.right &&
-      floor.this.div.right.literal.literal_type === "number" &&
-      Number(floor.this.div.right.literal.value) > 0
-    ) {
-      secondary = `${expressionSQL(floor.this.div.right)}-wide bins`;
-    }
+    secondary = bucketCaption(value);
+  } else if (label === "CALCULATE") {
+    const formula = assignment(expression);
+    return { primary: shortPreview(formula, primary), secondary: formula.length > 80 ? "Calculation" : undefined };
+  } else {
+    secondary = shortExpression(value, label === "CLEAN" ? "Cleaning transformation" : "Conditional calculation");
   }
   return { primary, secondary };
 }
 
 function conditionCard(expression: ast.Expression): BizCard {
-  const logical = ast.findAll(expression, (node) => "and" in node || "or" in node).length;
   return {
-    primary: columnCaption([expression], "Row condition"),
-    secondary: logical ? `${logical + 1} conditions` : undefined,
+    primary: previewLines(getBizFilterConditions(expression).map(expressionSQL)) ?? "Row condition",
   };
 }
 
-function windowCard(expression: ast.Expression): BizCard {
+function windowContext(over: ast.ExpressionInner<"window_function">["over"]): string[] {
+  const lines: string[] = [];
+  if (over.window_name) lines.push(`Window ${expressionSQL({ identifier: over.window_name })}`);
+  lines.push(...over.partition_by.map((field) => `Within ${shortExpression(field, "Calculated group")}`));
+  lines.push(
+    ...over.order_by.map(
+      (order) =>
+        `By ${shortExpression(order.this, "Calculated value")} ${order.desc ? "↓" : "↑"}${order.nulls_first == null ? "" : order.nulls_first ? " · NULLs first" : " · NULLs last"}`
+    )
+  );
+  if (over.frame) {
+    const bound = (value: NonNullable<typeof over.frame>["start"]): string => {
+      if (value === "CurrentRow") return "current row";
+      if (value === "UnboundedPreceding") return "start";
+      if (value === "UnboundedFollowing") return "end";
+      if (value === "BarePreceding") return "preceding";
+      if (value === "BareFollowing") return "following";
+      if ("Preceding" in value) return `${shortExpression(value.Preceding, "N")} preceding`;
+      if ("Following" in value) return `${shortExpression(value.Following, "N")} following`;
+      return shortExpression(value.Value, "Bound");
+    };
+    lines.push(
+      `${over.frame.kind}: ${bound(over.frame.start)} → ${over.frame.end ? bound(over.frame.end) : "current row"}`
+    );
+    if (over.frame.exclude)
+      lines.push(`Exclude ${over.frame.exclude.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase()}`);
+  }
+  return lines;
+}
+
+function windowCard(expression: ast.Expression, definitions: ast.ExpressionInner<"select">["windows"]): BizCard {
   const value = unalias(expression);
   const window = ast.findAll(value, (node) => "window_function" in node)[0];
   const fn = window && "window_function" in window ? window.window_function.this : value;
@@ -151,6 +265,7 @@ function windowCard(expression: ast.Expression): BizCard {
     percent_rank: "Percentile rank",
     cume_dist: "Cumulative distribution",
     ntile: "Ranked groups",
+    n_tile: "Ranked groups",
     lag: "Previous value",
     lead: "Next value",
     first_value: "First value",
@@ -162,9 +277,29 @@ function windowCard(expression: ast.Expression): BizCard {
     min: "Minimum over window",
     max: "Maximum over window",
   };
+  const context: string[] = [];
+  if (window && "window_function" in window) {
+    let over = window.window_function.over;
+    const visited = new Set<string>();
+    while (over.window_name && !visited.has(over.window_name.name)) {
+      visited.add(over.window_name.name);
+      const definition = definitions?.find((item) => item.name.name === over.window_name?.name);
+      if (!definition) break;
+      over = {
+        ...over,
+        window_name: definition.spec.window_name,
+        partition_by: over.partition_by.length ? over.partition_by : definition.spec.partition_by,
+        order_by: over.order_by.length ? over.order_by : definition.spec.order_by,
+        frame: over.frame ?? definition.spec.frame,
+      };
+    }
+    context.push(...windowContext(over));
+  }
+  const input = columnCaption([fn], "");
+  const description = `${captions[name] ?? "Window calculation"}${input ? ` · ${input}` : ""}`;
   return {
     primary: outputCaption(expression),
-    secondary: captions[name] ?? "Window calculation",
+    secondary: [description, previewLines(context)].filter(Boolean).join("\n"),
   };
 }
 
@@ -385,11 +520,13 @@ function summarize(sql: string): BizSummary {
           ? ` USING (${join.using.map((column) => expressionSQL({ identifier: column })).join(", ")})`
           : "";
       add("JOIN", `${kind} ${sourceName(join.this)}${condition}`, scope, {
-        primary: sourceName(join.this),
+        primary: `${kind} JOIN · ${sourceName(join.this)}`,
         secondary: join.on
-          ? columnCaption([join.on], "Matching rows")
+          ? previewLines(
+              getBizFilterConditions(join.on).map((predicate) => shortExpression(predicate, "Matching condition"))
+            )
           : join.using.length
-            ? join.using.map((column) => column.name).join(", ")
+            ? previewLines(join.using.map((column) => `${expressionSQL({ identifier: column })} · both tables`))
             : undefined,
       });
       steps[steps.length - 1].stats = buildBizOperationStats(query, filterScopes, { kind: "join", index });
@@ -480,8 +617,20 @@ function summarize(sql: string): BizSummary {
       const grouping = group ? expressionSQL({ group_by: group }) : "";
       const metrics = projections
         .filter((projection) => projection.aggregates.length && !projection.windows.length)
-        .map((projection) => outputCaption(projection.expression));
-      const captions = metrics.length ? metrics : aggregates.size ? [`${aggregates.size} metrics`] : [];
+        .map((projection) => {
+          const metric = shortExpression(unalias(projection.expression), "Calculated metric");
+          return "alias" in projection.expression ? `${metric} → ${outputCaption(projection.expression)}` : metric;
+        });
+      const extraMetrics = [...aggregates].filter(
+        (aggregate) =>
+          !projections.some(
+            (projection) =>
+              projection.aggregates.length &&
+              !projection.windows.length &&
+              assignment(projection.expression) === aggregate
+          )
+      );
+      const captions = [...metrics, ...extraMetrics.map((metric) => shortPreview(metric, "Calculated metric"))];
       add("AGGREGATE", [grouping, ...aggregates].filter(Boolean).join(" · "), scope, {
         primary: grouping
           ? query.group_by?.all
@@ -498,7 +647,7 @@ function summarize(sql: string): BizSummary {
     }
     for (const projection of projections) {
       if (projection.windows.length) {
-        add("WINDOW", assignment(projection.expression), scope, windowCard(projection.expression));
+        add("WINDOW", assignment(projection.expression), scope, windowCard(projection.expression, query.windows));
       }
     }
     const displayedWindows = new Set(projections.flatMap((projection) => projection.windows.map(expressionSQL)));
@@ -507,7 +656,7 @@ function summarize(sql: string): BizSummary {
         for (const window of expressionFacts(clause).windows) {
           const detail = expressionSQL(window);
           if (!displayedWindows.has(detail)) {
-            add("WINDOW", detail, scope, windowCard(window));
+            add("WINDOW", detail, scope, windowCard(window, query.windows));
             displayedWindows.add(detail);
           }
         }
@@ -523,7 +672,10 @@ function summarize(sql: string): BizSummary {
           "WINDOW",
           `${expressionSQL({ identifier: window.name })} AS (${[base, definition].filter(Boolean).join(" ")})`,
           scope,
-          { primary: expressionSQL({ identifier: window.name }), secondary: "Window definition" }
+          {
+            primary: expressionSQL({ identifier: window.name }),
+            secondary: previewLines(windowContext(window.spec)) ?? "All rows",
+          }
         );
       }
     }
@@ -670,7 +822,10 @@ export function getSQLBizCardWidth(step: BizStep, availableWidth = Infinity): nu
   const secondaryWidth =
     Math.max(0, ...cards.flatMap((card) => (card.secondary ?? "").split("\n").map((line) => Array.from(line).length))) *
     6.1;
-  return Math.ceil(Math.max(step.filter ? 190 : 132, primaryWidth + (step.filter ? 96 : 24), secondaryWidth + 24));
+  const width = Math.ceil(
+    Math.max(step.filter ? 190 : 132, primaryWidth + (step.filter ? 96 : 24), secondaryWidth + 24)
+  );
+  return Math.min(width, Math.max(132, Math.min(360, availableWidth)));
 }
 
 export const SQL_BIZ_CARD_GAP = 12;
@@ -678,11 +833,18 @@ export const SQL_BIZ_CARD_GAP = 12;
 export function getSQLBizCardHeight(step: BizStep, availableWidth = Infinity): number {
   if (step.children) return getSQLBizGroupLayout(step, availableWidth).h;
   const cards = [step.card ?? { primary: step.detail }, ...(step.filterCards ?? [])];
+  const width = getSQLBizCardWidth(step, availableWidth);
+  const lines = (text: string, charWidth: number, padding: number) =>
+    text
+      .split("\n")
+      .reduce(
+        (sum, line) =>
+          sum + Math.max(1, Math.ceil((Array.from(line).length * charWidth) / Math.max(1, width - padding))),
+        0
+      );
   const textHeight = (card: BizCard) =>
-    card.primary.split("\n").length * 16 +
-    (card.secondary && !(step.stats && step.label === "CONDITIONAL" && /^\d+ groups$/.test(card.secondary))
-      ? 3 + card.secondary.split("\n").length * 14
-      : 0);
+    lines(card.primary, 7.3, step.filter ? 96 : 24) * 16 +
+    (card.secondary ? 3 + lines(card.secondary, 6.1, 24) * 14 : 0);
   if (step.filter || step.filterCards?.length) {
     const previews = step.filterCards?.length ? step.filterCards : cards;
     const previewHeight = previews
