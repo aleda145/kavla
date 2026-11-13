@@ -1,0 +1,114 @@
+/* Scope the chrome to the local toolbar, including its portalled overflow menu. */
+.tlui-toolbar:has(.custom-data-tools),
+.tlui-popover__content:has(.custom-data-tools) {
+  --color-selected: #000;
+  --color-selected-contrast: #fff;
+  --color-text-1: #000;
+  --color-panel: #fff;
+  --color-focus: #000;
+  font-family: Inter, sans-serif;
+}
+
+.tlui-toolbar:has(.custom-data-tools) .tlui-toolbar__tools,
+.tlui-popover__content:has(.custom-data-tools) {
+  border: 2px solid #000;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.tlui-toolbar:has(.custom-data-tools) .tlui-toolbar__tools {
+  padding: 0;
+}
+
+:is(.tlui-toolbar, .tlui-popover__content):has(.custom-data-tools) .tlui-button__tool {
+  width: 40px;
+  height: 40px;
+  margin: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #000;
+  box-shadow: none;
+  transition: background-color 100ms ease;
+}
+
+:is(.tlui-toolbar, .tlui-popover__content):has(.custom-data-tools) .tlui-button__tool::after {
+  display: none;
+}
+
+@media (hover: hover) {
+  :is(.tlui-toolbar, .tlui-popover__content):has(.custom-data-tools)
+    .tlui-button__tool:not(:disabled, [aria-pressed="true"], [data-state="open"]):hover {
+    background: #e2e8f0;
+  }
+}
+
+:is(.tlui-toolbar, .tlui-popover__content):has(.custom-data-tools)
+  .tlui-button__tool:is([aria-pressed="true"], [data-state="open"]) {
+  background: #000;
+  color: #fff;
+}
+
+:is(.tlui-toolbar, .tlui-popover__content):has(.custom-data-tools) .tlui-button__tool:focus-visible {
+  outline: 2px solid #000 !important;
+  outline-offset: 2px !important;
+}
+
+.custom-data-tools {
+  display: flex;
+  align-items: center;
+  position: relative;
+  pointer-events: all;
+}
+
+.tlui-popover__content .custom-data-tools {
+  display: none;
+}
+
+.custom-data-tools .tlui-button__tool {
+  width: 48px !important;
+  height: 44px !important;
+}
+
+.kavla-toolbar-divider {
+  width: 1px;
+  height: 28px;
+  margin: 0 4px;
+  background: #000;
+}
+
+.custom-data-tools .tlui-icon {
+  display: none;
+}
+
+.tlui-toolbar:has(.custom-data-tools) .tlui-toolbar__extras__controls {
+  border: 2px solid #000;
+  background: #fff;
+  color: #000;
+  box-shadow: none;
+}
+
+@media (max-width: 840px) {
+  .tlui-toolbar:has(.custom-data-tools)
+    .tlui-toolbar__tools__list
+    > :is([data-testid="tools.eraser"], [data-testid="tools.arrow"]) {
+    display: none;
+  }
+
+  .tlui-toolbar:has(.custom-data-tools) .tlui-button__tool {
+    width: 36px;
+    margin: 1px;
+  }
+
+  .custom-data-tools .tlui-button__tool {
+    width: 36px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.tlui-toolbar, .tlui-popover__content):has(.custom-data-tools) .tlui-button__tool {
+    transition: none;
+  }
+}
