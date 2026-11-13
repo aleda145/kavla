@@ -1,0 +1,67 @@
+/* Include the mobile panel and the style pickers rendered in portals. */
+.tlui-style-panel,
+.tlui-popover__content:has([data-testid^="style."]) {
+  --color-text-1: #000;
+  --color-panel: #fff;
+  --color-selected: #000;
+  --color-muted-2: #e2e8f0;
+  --color-focus: #000;
+  --color-divider: #000;
+  font-family: Inter, sans-serif;
+  color: #000;
+}
+
+.tlui-style-panel.tlui-style-panel__wrapper,
+.tlui-popover__content:has([data-testid^="style."]) {
+  border: 2px solid #000;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* Leave the original 148px of space for the controls inside the new border. */
+.tlui-style-panel.tlui-style-panel__wrapper {
+  width: 152px;
+  max-width: 152px;
+}
+
+:is(.tlui-style-panel, .tlui-popover__content:has([data-testid^="style."])) .tlui-button {
+  border: 0;
+  box-shadow: none;
+}
+
+:is(.tlui-style-panel, .tlui-popover__content:has([data-testid^="style."])) .tlui-button::after {
+  border-radius: 5px;
+  background: #e2e8f0;
+  opacity: 0;
+}
+
+@media (hover: hover) {
+  :is(.tlui-style-panel, .tlui-popover__content:has([data-testid^="style."]))
+    .tlui-button:not(:disabled, [data-isactive="true"], [data-state="open"]):hover::after {
+    opacity: 1;
+  }
+}
+
+:is(.tlui-style-panel, .tlui-popover__content:has([data-testid^="style."]))
+  .tlui-button:is([data-isactive="true"], [data-state="open"]) {
+  color: #000;
+}
+
+:is(.tlui-style-panel, .tlui-popover__content:has([data-testid^="style."]))
+  .tlui-button:is([data-isactive="true"], [data-state="open"])::after {
+  background: #e2e8f0;
+  opacity: 1;
+}
+
+/* Keep every swatch visible, including black, while marking the selected color. */
+.tlui-style-panel .tlui-button[data-testid^="style.color."][data-isactive="true"]::after {
+  background: #e2e8f0;
+}
+
+.tlui-style-panel .tlui-slider__thumb {
+  box-sizing: border-box;
+  border: 2px solid #000;
+  box-shadow: none;
+}

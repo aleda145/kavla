@@ -3,6 +3,7 @@ import { canvasPreferenceActions } from "../canvasPreferences";
 import { memo, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import "../canvas-menu.css";
 import "./local-toolbar.css";
+import "./local-style-panel.css";
 import {
   CenteredTopPanelContainer,
   DefaultKeyboardShortcutsDialog,
