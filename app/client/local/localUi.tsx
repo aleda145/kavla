@@ -41,6 +41,7 @@ import { AgentLayer } from "../../AgentBlob/AgentOverlay";
 import { useAgentChatLayout } from "../../AgentBlob/AgentChatLayout";
 import { createOrFocusAgentChat } from "../../AgentBlob/agent-chat-store";
 import { LocalRoomInfoPanel } from "./LocalRoomInfoPanel";
+import { LocalNavigationPanel } from "./LocalNavigationPanel";
 import { KavlaVersionBadge } from "./KavlaVersion";
 import { LineageHighlights } from "../canvas/LineageHighlights";
 import { LocalAgentDialog } from "./LocalAgentDialog";
@@ -531,7 +532,8 @@ export function useLocalComponents({
           onSaveDocument={onSaveDocument}
         />
       ),
-      SharePanel: () => <LocalRoomInfoPanel fileSize={fileSize} />,
+      SharePanel: LocalRoomInfoPanel,
+      NavigationPanel: () => <LocalNavigationPanel fileSize={fileSize} />,
       MainMenu: CanvasSettingsMenu,
       PageMenu: null,
       TopPanel: LocalConnectionStatus,
