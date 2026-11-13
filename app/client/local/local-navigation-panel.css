@@ -12,23 +12,68 @@
 
 .kavla-navigation-panel .tlui-navigation-panel {
   position: relative;
+  width: auto;
+  border-top: 2px solid #000;
+  border-right: 2px solid #000;
+  border-radius: 0 8px 0 0;
+  background: #fff;
+  box-shadow: none;
 }
 
 .kavla-navigation-file-size {
   align-self: flex-start;
   border: 2px solid #000;
   border-left: 0;
+  border-bottom: 0;
   border-radius: 0 8px 0 0;
   box-shadow: none;
 }
 
-.kavla-navigation-panel:has(.kavla-navigation-file-size) .tlui-navigation-panel {
-  width: auto;
-  border-right: 2px solid #000;
+.kavla-navigation-panel .tlui-navigation-panel::before {
+  display: none;
 }
 
-.kavla-navigation-panel:has(.kavla-navigation-file-size) .tlui-navigation-panel::before {
-  inset: 0;
+.kavla-navigation-panel .tlui-navigation-panel,
+.tlui-menu:has([data-testid^="zoom-menu."]) {
+  --color-panel: #fff;
+  --color-text-1: #000;
+  --color-text-3: #64748b;
+  --color-muted-2: #e2e8f0;
+  --color-hint: #e2e8f0;
+  --color-focus: #000;
+  --color-divider: #000;
+  color: #000;
+  font-family: Inter, sans-serif;
+  font-weight: 800;
+}
+
+/* The zoom menu is portalled outside the navigation panel. */
+.tlui-menu:has([data-testid^="zoom-menu."]) {
+  border: 2px solid #000;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.kavla-navigation-panel .tlui-button,
+.tlui-menu:has([data-testid^="zoom-menu."]) .tlui-button {
   border: 0;
-  border-radius: 0;
+  box-shadow: none;
+}
+
+.kavla-navigation-panel .tlui-button::after,
+.tlui-menu:has([data-testid^="zoom-menu."]) .tlui-button::after {
+  border-radius: 5px;
+  background: #e2e8f0;
+}
+
+.kavla-navigation-panel .tlui-button[data-state="open"]::after {
+  background: #e2e8f0;
+  opacity: 1;
+}
+
+.kavla-navigation-panel .tlui-button:focus-visible,
+.tlui-menu:has([data-testid^="zoom-menu."]) .tlui-button:focus-visible {
+  outline: 2px solid #000 !important;
+  outline-offset: -4px !important;
 }
