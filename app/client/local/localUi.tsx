@@ -46,6 +46,7 @@ import { LocalRoomInfoPanel } from "./LocalRoomInfoPanel";
 import { LocalNavigationPanel } from "./LocalNavigationPanel";
 import { KavlaVersionBadge } from "./KavlaVersion";
 import { LineageHighlights } from "../canvas/LineageHighlights";
+import { AutoPlacementDebug } from "../canvas/AutoPlacementDebug";
 import { LocalAgentDialog } from "./LocalAgentDialog";
 import { LocalSaveDialog } from "./LocalSaveDialog";
 import { LocalSourcesDialog } from "./LocalSourcesDialog";
@@ -542,7 +543,12 @@ export function useLocalComponents({
       MainMenu: CanvasSettingsMenu,
       PageMenu: null,
       TopPanel: LocalConnectionStatus,
-      OnTheCanvas: LineageHighlights,
+      OnTheCanvas: () => (
+        <>
+          <AutoPlacementDebug />
+          <LineageHighlights />
+        </>
+      ),
       InFrontOfTheCanvas: () => (
         <>
           <AgentLayer />

@@ -12,6 +12,84 @@ import { crosses, readRoute, type Bounds, type Route } from "./arrowGeometry";
 import { resetConnectorLane } from "./connectorLanes";
 import type { LayoutDirection } from "./layoutQueryBranches";
 
+export function getAutoPlacementRadius(
+  parent: Pick<Bounds, "w" | "h">,
+  child: Pick<Bounds, "w" | "h">,
+  gap: number
+): number {
+  return Math.hypot((parent.w + child.w) / 2 + gap, (parent.h + child.h) / 2 + gap);
+}
+
+// Shared by insertion and the read-only debug preview. Arrow routing and flow
+// preferences rank positions afterwards; only lack of space expands the circle.
+export function getAutoPlacementSearch(
+  center: Bounds,
+  child: Pick<Bounds, "w" | "h">,
+  obstacles: Bounds[],
+  routes: Route[],
+  gap: number
+): { initialRadius: number; radius: number; candidates: Bounds[] } {
+  const originX = center.x + (center.w - child.w) / 2;
+  const originY = center.y + (center.h - child.h) / 2;
+  const reachX = (center.w + child.w) / 2 + gap;
+  const reachY = (center.h + child.h) / 2 + gap;
+  const initialRadius = getAutoPlacementRadius(center, child, gap);
+  let radius = initialRadius;
+  // Search a circle around the parent on all sides. Expand only when there
+  // is no shape-sized empty space inside it, never to satisfy flow preference.
+  while (true) {
+    const xs = new Set([originX, originX - reachX, originX + reachX]);
+    const ys = new Set([originY, originY - reachY, originY + reachY]);
+    const addEdges = (other: Bounds, clearances: number[]) => {
+      if (
+        other.x > originX + radius + child.w + 64 ||
+        other.x + other.w < originX - radius - 64 ||
+        other.y > originY + radius + child.h + 64 ||
+        other.y + other.h < originY - radius - 64
+      )
+        return;
+      // Obstacle edges find actual pockets, including gaps a fixed grid misses.
+      for (const clearance of clearances) {
+        xs.add(other.x - child.w - clearance);
+        xs.add(other.x + other.w + clearance);
+        ys.add(other.y - child.h - clearance);
+        ys.add(other.y + other.h + clearance);
+      }
+    };
+    for (const other of obstacles) addEdges(other, [28, 64]);
+    for (const route of routes) {
+      for (let i = 1; i < route.points.length; i++) {
+        const a = route.points[i - 1],
+          b = route.points[i];
+        addEdges(
+          { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) },
+          [28]
+        );
+      }
+    }
+    const candidates: Bounds[] = [];
+    for (const x of xs) {
+      if (Math.abs(x - originX) > radius) continue;
+      for (const y of ys) {
+        if (Math.hypot(x - originX, y - originY) > radius) continue;
+        if (
+          obstacles.some(
+            (other) =>
+              x < other.x + other.w + 28 &&
+              x + child.w + 28 > other.x &&
+              y < other.y + other.h + 28 &&
+              y + child.h + 28 > other.y
+          )
+        )
+          continue;
+        candidates.push({ x, y, w: child.w, h: child.h });
+      }
+    }
+    if (candidates.length) return { initialRadius, radius, candidates };
+    radius *= 1.5;
+  }
+}
+
 const storageKey = "kavla.auto-placement";
 export const autoPlacement = atom(
   "Auto placement",
@@ -178,14 +256,6 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
     const obstacles = [...occupied].filter(
       ([id]) => id !== shape.id && !editor.hasAncestor(shape, id) && !editor.hasAncestor(id, shape.id)
     );
-    const overlaps = (candidate: Bounds) =>
-      obstacles.some(
-        ([, other]) =>
-          candidate.x < other.x + other.w + 28 &&
-          candidate.x + candidate.w + 28 > other.x &&
-          candidate.y < other.y + other.h + 28 &&
-          candidate.y + candidate.h + 28 > other.y
-      );
     refreshPaths();
     // The lane pass resets automatic ports before routing. Probe that same
     // geometry, otherwise a clear pinned route can become obstructed afterwards.
@@ -241,80 +311,44 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
     const originX = center.x + (center.w - box.w) / 2;
     const originY = center.y + (center.h - box.h) / 2;
     const gap = views.has(shape.type) ? 48 : 120;
-    const reachX = (center.w + box.w) / 2 + gap;
-    const reachY = (center.h + box.h) / 2 + gap;
-    let radius = Math.hypot(reachX, reachY);
-    // Search a circle around the parent on all sides. Expand only when there
-    // is no shape-sized empty space inside it, never to satisfy flow preference.
-    while (!best) {
-      const xs = new Set([originX, originX - reachX, originX + reachX]);
-      const ys = new Set([originY, originY - reachY, originY + reachY]);
-      const addEdges = (other: Bounds, clearances: number[]) => {
-        if (
-          other.x > originX + radius + box.w + 64 ||
-          other.x + other.w < originX - radius - 64 ||
-          other.y > originY + radius + box.h + 64 ||
-          other.y + other.h < originY - radius - 64
-        )
-          return;
-        // Obstacle edges find actual pockets, including gaps a fixed grid misses.
-        for (const clearance of clearances) {
-          xs.add(other.x - box.w - clearance);
-          xs.add(other.x + other.w + clearance);
-          ys.add(other.y - box.h - clearance);
-          ys.add(other.y + other.h + clearance);
-        }
-      };
-      for (const [, other] of obstacles) addEdges(other, [28, 64]);
-      for (const route of existingPaths) {
-        for (let i = 1; i < route.points.length; i++) {
-          const a = route.points[i - 1],
-            b = route.points[i];
-          addEdges(
-            { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) },
-            [28]
-          );
-        }
-      }
-      const candidates: (Bounds & { score: number; hits: number; direction: LayoutDirection })[] = [];
-      for (const x of xs) {
-        if (Math.abs(x - originX) > radius) continue;
-        for (const y of ys) {
-          const distance = Math.hypot(x - originX, y - originY);
-          if (distance > radius) continue;
-          const candidate = { x, y, w: box.w, h: box.h };
-          if (overlaps(candidate)) continue;
-          const direction = directionBetween(center, candidate);
-          const edgeGap = {
-            RIGHT: x - center.x - center.w,
-            LEFT: center.x - x - box.w,
-            DOWN: y - center.y - center.h,
-            UP: center.y - y - box.h,
-          }[direction];
-          // Keep a comfortable connector gap when possible. Both that gap and
-          // flow direction are preferences, so tight local pockets remain usable.
-          const score =
-            distance + (direction === preferredSide ? 0 : 240) + (anchor ? Math.max(0, gap - edgeGap) * 2 : 0);
-          const hits = new Set(
-            existingPaths.filter((route) => crosses(route, shape.id, candidate)).map((route) => route.id)
-          ).size;
-          candidates.push({ ...candidate, direction, score, hits });
-        }
-      }
-      candidates.sort((a, b) => a.hits - b.hits || a.score - b.score);
-      let probes = 0;
-      for (const candidate of candidates) {
-        if (best && (candidate.hits > best.hits || (candidate.hits === best.hits && candidate.score >= best.score)))
-          continue;
-        const hits = candidate.hits + connectorHits(candidate);
-        if (!best || hits < best.hits || (hits === best.hits && candidate.score < best.score))
-          best = { ...candidate, hits };
-        // Geometry checks are cheap. Bound actual tldraw route probes on very
-        // crowded boards, and keep the best nearby placement found so far.
-        if (++probes >= 96) break;
-      }
-      radius *= 1.5;
+    const search = getAutoPlacementSearch(
+      center,
+      box,
+      obstacles.map(([, bounds]) => bounds),
+      existingPaths,
+      gap
+    );
+    const candidates = search.candidates.map((candidate) => {
+      const { x, y } = candidate;
+      const distance = Math.hypot(x - originX, y - originY);
+      const direction = directionBetween(center, candidate);
+      const edgeGap = {
+        RIGHT: x - center.x - center.w,
+        LEFT: center.x - x - box.w,
+        DOWN: y - center.y - center.h,
+        UP: center.y - y - box.h,
+      }[direction];
+      // Keep a comfortable connector gap when possible. Both that gap and
+      // flow direction are preferences, so tight local pockets remain usable.
+      const score = distance + (direction === preferredSide ? 0 : 240) + (anchor ? Math.max(0, gap - edgeGap) * 2 : 0);
+      const hits = new Set(
+        existingPaths.filter((route) => crosses(route, shape.id, candidate)).map((route) => route.id)
+      ).size;
+      return { ...candidate, direction, score, hits };
+    });
+    candidates.sort((a, b) => a.hits - b.hits || a.score - b.score);
+    let probes = 0;
+    for (const candidate of candidates) {
+      if (best && (candidate.hits > best.hits || (candidate.hits === best.hits && candidate.score >= best.score)))
+        continue;
+      const hits = candidate.hits + connectorHits(candidate);
+      if (!best || hits < best.hits || (hits === best.hits && candidate.score < best.score))
+        best = { ...candidate, hits };
+      // Geometry checks are cheap. Bound actual tldraw route probes on very
+      // crowded boards, and keep the best nearby placement found so far.
+      if (++probes >= 96) break;
     }
+    if (!best) return;
     // Remove before updating so the placement itself cannot become another insertion.
     pending.delete(shape.id);
     editor.updateShape(positionUpdate(best));
