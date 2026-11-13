@@ -7,7 +7,6 @@ import { isBackendComputing } from "../backendCompute";
 import { setBizMode, useBizMode } from "../canvas/bizMode";
 import { getCliTerminalDisplay } from "../cliTerminalDisplay";
 import { useCliOutput, useCliStatus } from "../localServer/runtimeStore";
-import { LocalAssetsDialog } from "./LocalAssetsDialog";
 
 const DISCORD_INVITE_URL = "https://discord.gg/aeBGuDdhtP";
 const GITHUB_REPOSITORY_URL = "https://github.com/aleda145/kavla";
@@ -31,17 +30,7 @@ const lightStyle = {
   padding: "2px 6px",
 } as const;
 
-function formatCompactFileSize(fileSize: number): string {
-  const megabytes = fileSize / (1024 * 1024);
-  if (megabytes === 0) return "0 MB";
-  if (megabytes < 0.1) return "<0.1 MB";
-  if (megabytes < 999.5) {
-    return `${Number(megabytes.toPrecision(3))} MB`;
-  }
-  return `${Number((megabytes / 1024).toPrecision(3))} GB`;
-}
-
-export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
+export function LocalRoomInfoPanel() {
   const editor = useEditor();
   const bizMode = useBizMode(editor);
   const cliConnected = useCliStatus();
@@ -50,7 +39,6 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
   const isComputingRaw = useValue("is DuckDB computing", () => isBackendComputing.get(), []);
   const [isComputing, setIsComputing] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
-  const [assetsOpen, setAssetsOpen] = useState(false);
   const [terminalPosition, setTerminalPosition] = useState({ left: 0, top: 0 });
   const terminalTriggerRef = useRef<HTMLButtonElement>(null);
   const terminalPopoverRef = useRef<HTMLDivElement>(null);
@@ -145,7 +133,7 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
   }, [editor]);
 
   return (
-    <div className="pointer-events-none flex flex-col items-end">
+    <div className="kavla-room-info pointer-events-none flex flex-col items-end">
       <div
         className="pointer-events-auto flex flex-col select-none items-end gap-3 border-b-2 border-l-2 border-black bg-white p-3"
         style={{ borderRadius: "0 0 0 12px" }}
@@ -409,28 +397,6 @@ export function LocalRoomInfoPanel({ fileSize }: { fileSize: number | null }) {
           })}
         </div>
       </div>
-      {fileSize !== null ? (
-        <button
-          type="button"
-          aria-label={`View canvas assets. Saved Kavla file size: ${formatCompactFileSize(fileSize)}`}
-          aria-haspopup="dialog"
-          aria-expanded={assetsOpen}
-          onClick={() => setAssetsOpen(true)}
-          className="pointer-events-auto select-none border-b-2 border-l-2 border-black bg-white px-2 py-1"
-          style={{
-            borderRadius: "0 0 0 8px",
-            fontFamily: "Inter, sans-serif",
-            fontSize: 10,
-            fontWeight: 850,
-            lineHeight: 1,
-            cursor: "pointer",
-          }}
-          title="View and manage canvas assets"
-        >
-          {formatCompactFileSize(fileSize)}
-        </button>
-      ) : null}
-      {assetsOpen && <LocalAssetsDialog onClose={() => setAssetsOpen(false)} />}
     </div>
   );
 }

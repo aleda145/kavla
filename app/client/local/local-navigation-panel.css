@@ -1,0 +1,34 @@
+.kavla-navigation-panel {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  z-index: var(--layer-panels);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  pointer-events: none;
+}
+
+.kavla-navigation-panel .tlui-navigation-panel {
+  position: relative;
+}
+
+.kavla-navigation-file-size {
+  align-self: flex-start;
+  border: 2px solid #000;
+  border-left: 0;
+  border-radius: 0 8px 0 0;
+  box-shadow: none;
+}
+
+.kavla-navigation-panel:has(.kavla-navigation-file-size) .tlui-navigation-panel {
+  width: auto;
+  border-right: 2px solid #000;
+}
+
+.kavla-navigation-panel:has(.kavla-navigation-file-size) .tlui-navigation-panel::before {
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+}
