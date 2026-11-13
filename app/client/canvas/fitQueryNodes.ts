@@ -1,4 +1,4 @@
-import type { Editor } from "tldraw";
+import type { Editor, TLShapeId } from "tldraw";
 import { format } from "sql-formatter";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { isBizMode } from "./bizMode";
@@ -10,9 +10,9 @@ import {
   SQL_BIZ_CARD_GAP,
 } from "../../SQLTextArea/sqlBizSummary";
 
-export function fitQueryNodes(editor: Editor): void {
+export function fitQueryNodes(editor: Editor, ids: TLShapeId[] = editor.getSelectedShapeIds()): void {
   if (editor.getIsReadonly()) return;
-  const queries = getLayoutSelection(editor).filter(
+  const queries = getLayoutSelection(editor, ids).filter(
     (shape): shape is SQLTextAreaShape => shape.type === "sql-text-area"
   );
   if (!queries.length) return;
@@ -59,7 +59,7 @@ export function fitQueryNodes(editor: Editor): void {
     const headerWidth =
       measure(props.name, "800 14.4px Inter, sans-serif") +
       props.name.length * 0.5 +
-      96 +
+      132 +
       (props.isDirty ? 20 : 0) +
       (props.stale ? 70 : 0);
     let footerWidth = 0;
