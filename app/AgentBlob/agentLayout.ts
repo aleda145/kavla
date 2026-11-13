@@ -1,5 +1,5 @@
 import type { Editor, TLArrowBinding, TLShapeId } from "tldraw";
-import { autoPlacement } from "../client/canvas/autoPlacement";
+import { hasAutoPlacement } from "../client/canvas/autoPlacement";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import type { SQLResultTableShape } from "../SQLResultArea/sql-result-table-types";
 
@@ -164,8 +164,7 @@ export function getAgentPlacement(
   layout: AgentLayout,
   fallbackAnchorShapeId: TLShapeId | null,
   size: { w: number; h: number },
-  movingShapeId: TLShapeId | null = null,
-  canAutoPlace = false
+  movingShapeId: TLShapeId | null = null
 ) {
   const anchorShapeId =
     layout.parentShapeId && editor.getShape(layout.parentShapeId) ? layout.parentShapeId : fallbackAnchorShapeId;
@@ -179,9 +178,6 @@ export function getAgentPlacement(
     width: 0,
     height: 0,
   };
-  if (canAutoPlace && layout.auto && autoPlacement.get() && !movingShapeId) {
-    return { x: anchor.maxX + 120, y: anchor.minY, score: 0 };
-  }
   const occupied = editor
     .getCurrentPageShapes()
     .filter(
@@ -320,7 +316,7 @@ function hasLayoutCollision(editor: Editor, shapeId: TLShapeId) {
 }
 
 export function reflowAgentQuery(editor: Editor, shapeId: TLShapeId) {
-  if (autoPlacement.get()) return;
+  if (hasAutoPlacement(editor)) return;
   const query = editor.getShape<SQLTextAreaShape>(shapeId);
   if (query?.type !== "sql-text-area" || query.isLocked || query.props.isManuallyResized) return;
   const layout = getQueryLayout(query);

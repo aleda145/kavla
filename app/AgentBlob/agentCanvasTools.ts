@@ -26,15 +26,9 @@ import { getAutoExpandedSQLShapeSize } from "../SQLTextArea/sqlShapeSize";
 import type { SQLResultTableShape } from "../SQLResultArea/sql-result-table-types";
 import { connectShapes, disconnectShapes } from "../util/shapeConnections";
 import { getUniqueName } from "../util/getUniqueName";
+import { getFallbackNodePosition } from "../client/canvas/fallbackNodePosition";
 import { getAgentContextShapeIds } from "./agent-chat-store";
-import {
-  getAgentLayout,
-  agentPlacementMeta,
-  getAgentPlacement,
-  getAgentShapeBounds,
-  reflowAgentQuery,
-  trackAgentQueryLayout,
-} from "./agentLayout";
+import { getAgentLayout, agentPlacementMeta, getAgentPlacement, getAgentShapeBounds } from "./agentLayout";
 
 const SAMPLE_ROW_LIMIT = 20;
 const MAX_TEXT_LENGTH = 500;
@@ -278,15 +272,12 @@ async function createQuery(
   const sql = formatAgentSQL(requiredString(args, "sql"));
   const desiredName = optionalString(args, "name") ?? "agent_query";
   const shapeId = createShapeId();
-  const layout = getAgentLayout({}, source.id, "right");
   const size = getAutoExpandedSQLShapeSize(sql);
-  const placement = getAgentPlacement(editor, layout, source.id, size, null, true);
   editor.createShape<SQLTextAreaShape>({
     meta: agentPlacementMeta(),
     id: shapeId,
     type: "sql-text-area",
-    x: placement.x,
-    y: placement.y,
+    ...getFallbackNodePosition(editor, source.id),
     props: {
       ...size,
       text: sql,
@@ -294,7 +285,6 @@ async function createQuery(
       showTable: args.showTable === true,
     },
   });
-  trackAgentQueryLayout(editor, shapeId, layout);
   connectShapes(editor, source.id, shapeId);
   onActivityShape?.(shapeId);
   env.signal.throwIfAborted();
@@ -319,7 +309,6 @@ async function createQuery(
       guidance: "Keep this visible query shape and update it with a materially different, simpler query.",
     });
   }
-  reflowAgentQuery(editor, shapeId);
   const created = editor.getShape<SQLTextAreaShape>(shapeId);
   return boundedResult({
     ok: true,
@@ -368,13 +357,6 @@ async function updateQuery(editor: Editor, args: ToolArguments, env: AgentToolEn
   if (shape.type !== "sql-text-area") throw new Error(`Shape ${shapeId} is not a SQL query.`);
   const query = shape as SQLTextAreaShape;
   const sql = formatAgentSQL(requiredString(args, "sql"));
-  if (!query.meta.agentQueryLayout) {
-    trackAgentQueryLayout(
-      editor,
-      query.id,
-      getAgentLayout({}, (query.props.upstreamShapeIds?.[0] as TLShapeId | undefined) ?? null, "right")
-    );
-  }
   const desiredName = optionalString(args, "name");
   editor.updateShape<SQLTextAreaShape>({
     id: query.id,
@@ -386,7 +368,6 @@ async function updateQuery(editor: Editor, args: ToolArguments, env: AgentToolEn
       ...(desiredName ? { name: getUniqueName(editor, desiredName, query.id) } : {}),
     },
   });
-  reflowAgentQuery(editor, query.id);
   env.signal.throwIfAborted();
   let result: SQLShapeRunResult;
   try {
@@ -408,7 +389,6 @@ async function updateQuery(editor: Editor, args: ToolArguments, env: AgentToolEn
     });
   }
   env.signal.throwIfAborted();
-  reflowAgentQuery(editor, query.id);
   const updated = editor.getShape<SQLTextAreaShape>(query.id);
   if (!result.success) {
     return boundedResult({
@@ -462,24 +442,11 @@ async function createChart(editor: Editor, args: ToolArguments, env: AgentToolEn
   const h = typeof args.h === "number" ? Math.max(300, Math.min(1000, args.h)) : 400;
   if (args.isStacked === true && (!color || !["bar", "area"].includes(chartType)))
     throw new Error("Stacking requires a bar or area chart with a grouping column.");
-  const chartAnchorId =
-    query.props.linkedTableId && editor.getShape(query.props.linkedTableId as TLShapeId)
-      ? (query.props.linkedTableId as TLShapeId)
-      : query.id;
-  const placement = getAgentPlacement(
-    editor,
-    getAgentLayout({}, chartAnchorId, "right"),
-    chartAnchorId,
-    { w, h },
-    null,
-    true
-  );
   editor.createShape<ChartShape>({
     meta: agentPlacementMeta(),
     id: shapeId,
     type: "chart-shape",
-    x: placement.x,
-    y: placement.y,
+    ...getFallbackNodePosition(editor, query.id, "above", h),
     props: {
       sourceShapeId: query.id,
       chartType,
@@ -757,19 +724,14 @@ function setQueryTable(editor: Editor, args: ToolArguments): ToolResult {
     throw new Error("The linked result table does not belong to this query.");
   if (table && !args.show) assertUnlocked(editor, table);
   let tableId = table?.id ?? null;
-  const placement =
-    args.show && !table
-      ? getAgentPlacement(editor, getAgentLayout({}, query.id, "right"), query.id, { w: 400, h: 300 }, null, true)
-      : null;
   editor.run(() => {
-    if (placement) {
+    if (args.show && !table) {
       tableId = createShapeId();
       editor.createShape<SQLResultTableShape>({
         meta: agentPlacementMeta(),
         id: tableId,
         type: "sql-result-table",
-        x: placement.x,
-        y: placement.y,
+        ...getFallbackNodePosition(editor, query.id, "below"),
         props: { sourceShapeId: query.id, w: 400, h: 300 },
       });
       connectShapes(editor, query.id, tableId);
@@ -841,24 +803,11 @@ function createSummary(editor: Editor, args: ToolArguments, env: AgentToolEnviro
     };
   });
   const id = createShapeId();
-  const anchor = artifacts[0]?.shapeId as TLShapeId | undefined;
-  const placement = getAgentPlacement(
-    editor,
-    getAgentLayout({}, anchor || null, "summary"),
-    anchor || null,
-    {
-      w: 560,
-      h: 680,
-    },
-    null,
-    true
-  );
   editor.createShape<SummaryShape>({
     meta: agentPlacementMeta(),
     id,
     type: "summary-shape",
-    x: placement.x,
-    y: placement.y,
+    ...getFallbackNodePosition(editor, (artifacts[0]?.shapeId as TLShapeId | undefined) ?? null, "below"),
     props: {
       name: optionalString(args, "name") || "Summary",
       question,

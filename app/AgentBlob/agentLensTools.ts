@@ -7,7 +7,8 @@ import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
 import { prepareGeneratedChartWidgetRuntime, validateGeneratedChartWidget } from "../Chart/GeneratedChartWidget";
 import { getUniqueName } from "../util/getUniqueName";
 import { connectShapes } from "../util/shapeConnections";
-import { agentPlacementMeta, getAgentLayout, getAgentPlacement, getAgentShapeBounds } from "./agentLayout";
+import { getFallbackNodePosition } from "../client/canvas/fallbackNodePosition";
+import { agentPlacementMeta, getAgentShapeBounds } from "./agentLayout";
 import { getAgentDataPreview, resolveAgentDataShape } from "./agentDataTools";
 
 export async function runLensTool(
@@ -34,13 +35,11 @@ export async function runLensTool(
   if (!existing) {
     const w = typeof args.w === "number" ? Math.max(360, Math.min(1600, args.w)) : 720;
     const h = typeof args.h === "number" ? Math.max(240, Math.min(1200, args.h)) : 480;
-    const placement = getAgentPlacement(editor, getAgentLayout({}, query.id, "below"), query.id, { w, h }, null, true);
     editor.createShape<LensShape>({
       meta: agentPlacementMeta(),
       id,
       type: "lens-shape",
-      x: placement.x,
-      y: placement.y,
+      ...getFallbackNodePosition(editor, query.id, "above", h),
       props: {
         name: getUniqueName(editor, typeof args.name === "string" ? args.name : "Lens"),
         sourceShapeId: query.id,

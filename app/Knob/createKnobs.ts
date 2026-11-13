@@ -1,6 +1,7 @@
 import { createShapeId, type Editor, type TLShapeId } from "tldraw";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { connectShapes } from "../util/shapeConnections";
+import { getFallbackNodePosition } from "../client/canvas/fallbackNodePosition";
 import type { KnobShape } from "./knob-types";
 import { mapKnobParameters } from "./knobSQL";
 
@@ -86,13 +87,10 @@ export function ensureQueryKnobs(editor: Editor, query: SQLTextAreaShape, text: 
         continue;
       }
       const id = createShapeId();
-      const { x, y } = getKnobPlacement(editor, query.id);
       editor.createShape<KnobShape>({
         id,
         type: "knob",
-        parentId: editor.getCurrentPageId(),
-        x,
-        y,
+        ...getFallbackNodePosition(editor, query.id, "above", 126),
         props: {
           name,
           inferFromColumn: true,

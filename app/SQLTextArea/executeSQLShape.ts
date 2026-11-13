@@ -6,6 +6,7 @@ import { walkSQLDag, buildRemoteSQLFromDag } from "./walkSQLDag";
 import { connectShapes, setShapeUpstreamConnections } from "../util/shapeConnections";
 import { dispatchSQLShapeRunStarted, dispatchSQLShapeRunFinished, type SQLShapeRunResult } from "./sqlShapeRun";
 import { ensureQueryKnobs } from "../Knob/createKnobs";
+import { getFallbackNodePosition } from "../client/canvas/fallbackNodePosition";
 
 export async function executeSQLShape(
   editor: Editor,
@@ -71,8 +72,7 @@ export async function executeSQLShape(
       editor.createShape({
         id: tableId,
         type: "sql-result-table",
-        x: current.x,
-        y: current.y + editor.getShapeGeometry(current).bounds.height + 60,
+        ...getFallbackNodePosition(editor, id, "below"),
         props: { sourceShapeId: id, w: 400, h: 300 },
       });
       editor.updateShape<SQLTextAreaShape>({ id, type: "sql-text-area", props: { linkedTableId: tableId } });
