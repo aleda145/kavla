@@ -11,7 +11,7 @@ import type { SummaryShape } from "../../Summary/summary-shape-types";
 import { layoutQueryBranches, type LayoutConnection, type LayoutDirection } from "./layoutQueryBranches";
 import { avoidLayoutArrows } from "./avoidLayoutArrows";
 import { captureLayoutAnnotations, findEmptyPosition } from "./layoutAnnotations";
-import { resetConnectorLanes, routeConnectorLanes } from "./connectorLanes";
+import { resetConnectorLanes } from "./connectorLanes";
 import { getLayoutSelection, isLayoutNode } from "./layoutSelection";
 
 function isQueryView(shape: TLShape): shape is ChartShape | SQLResultTableShape | LensShape {
@@ -192,6 +192,7 @@ export async function layoutKavlaNodes(editor: Editor, selection = editor.getSel
   const worker = new Worker(elkWorkerUrl);
   const elk = new ELK({ workerFactory: () => worker });
   let layout: ElkNode;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     layout = await Promise.race([
       layoutQueryBranches(
@@ -206,8 +207,12 @@ export async function layoutKavlaNodes(editor: Editor, selection = editor.getSel
           once: true,
         });
       }),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("Layout took too long. Try a smaller selection.")), 10_000);
+      }),
     ]);
   } finally {
+    clearTimeout(timeout);
     elk.terminateWorker();
   }
 
@@ -337,7 +342,8 @@ export async function layoutKavlaNodes(editor: Editor, selection = editor.getSel
         )
       );
       moveAnnotations();
-      routeConnectorLanes(editor, nodeIds);
+      // The binding utility routes once at operation completion, after all
+      // candidate moves and annotation updates have settled.
     },
     { ignoreShapeLock: true }
   );

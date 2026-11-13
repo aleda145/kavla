@@ -1,6 +1,7 @@
 import type { Editor, TLShapeId } from "tldraw";
 import type { LayoutDirection } from "./layoutQueryBranches";
 import { crosses, hitsBox, readRoute, type Point, type Route } from "./arrowGeometry";
+import { createLayoutBudget } from "./layoutBudget";
 
 const arrowGap = 20;
 const nodeGap = 24;
@@ -13,11 +14,12 @@ export function avoidLayoutArrows(
   nodeIds: Set<TLShapeId>,
   groups: Map<TLShapeId, { direction: LayoutDirection; members: TLShapeId[] }>
 ): void {
+  const canContinue = createLayoutBudget(50, 100_000);
   const shapes = editor.getCurrentPageShapes();
   const arrowIds = shapes.filter((shape) => shape.type === "arrow").map((shape) => shape.id);
   if (!arrowIds.length) return;
-  const readRoutes = () =>
-    arrowIds.flatMap((id) => {
+  const readRoutes = (ids: Iterable<TLShapeId> = arrowIds) =>
+    [...ids].flatMap((id) => {
       const route = readRoute(editor, id);
       return route ? [route] : [];
     });
@@ -40,6 +42,7 @@ export function avoidLayoutArrows(
   for (let pass = 0; pass < 4; pass++) {
     let moved = false;
     for (const unit of units) {
+      if (!canContinue()) return;
       if (unit.members.some((id) => editor.isShapeOrAncestorLocked(id))) continue;
       const movingIds = new Set(unit.members);
       const boxes = [...nodeIds].flatMap((id) => {
@@ -74,6 +77,7 @@ export function avoidLayoutArrows(
       const countCrossings = (delta: Point, paths: Route[]) => {
         let count = 0;
         for (const route of paths) {
+          if (!canContinue()) return undefined;
           for (const { id, box } of moving) {
             if (crosses(route, id, { ...box, x: box.x + delta.x, y: box.y + delta.y })) count++;
           }
@@ -86,6 +90,7 @@ export function avoidLayoutArrows(
         return count;
       };
       const baseline = countCrossings({ x: 0, y: 0 }, routes);
+      if (baseline === undefined) return;
       if (!baseline) continue;
       const xs = new Set([0, -80, 80, -160, 160, -320, 320]);
       const ys = new Set(xs);
@@ -130,6 +135,7 @@ export function avoidLayoutArrows(
       const nearbyCandidates = candidates
         .filter(
           (delta) =>
+            canContinue() &&
             (delta.x !== 0 || delta.y !== 0) &&
             Math.abs(current.x + delta.x - original.x) <= anchor.w + current.w + 320 &&
             Math.abs(current.y + delta.y - original.y) <= anchor.h + current.h + 320 &&
@@ -163,14 +169,19 @@ export function avoidLayoutArrows(
       let bestCount = baseline;
       let bestUpdates: ReturnType<typeof updatesFor> | undefined;
       for (const delta of nearbyCandidates) {
+        if (!canContinue()) break;
         const updates = updatesFor(delta);
         editor.updateShapes(updates);
-        const count = countCrossings(delta, readRoutes());
-        if (count < bestCount) {
-          bestCount = count;
-          bestUpdates = updates;
+        try {
+          // Only connectors attached to this probe can have changed geometry.
+          const count = countCrossings(delta, [...unchangedRoutes, ...readRoutes(attachedIds)]);
+          if (count !== undefined && count < bestCount) {
+            bestCount = count;
+            bestUpdates = updates;
+          }
+        } finally {
+          editor.updateShapes(originals);
         }
-        editor.updateShapes(originals);
         if (bestCount === 0) break;
       }
       if (bestUpdates) {

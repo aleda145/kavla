@@ -1,7 +1,8 @@
 import { track, useEditor, useValue } from "tldraw";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { getAutoPlacementSearch } from "./autoPlacement";
-import { readRoute } from "./arrowGeometry";
+import { createLayoutBudget } from "./layoutBudget";
+import { getLayoutInProgress } from "./layoutActions";
 
 export const AutoPlacementDebug = track(function AutoPlacementDebug() {
   const editor = useEditor();
@@ -11,6 +12,7 @@ export const AutoPlacementDebug = track(function AutoPlacementDebug() {
     "Selected nodes' placement search",
     () => {
       if (!editor.getInstanceState().isDebugMode) return [];
+      if (getLayoutInProgress(editor).get()) return [];
       const parents = editor
         .getSelectedShapes()
         .filter((shape) => shape.type === "data-source" || shape.type === "sql-text-area");
@@ -22,22 +24,24 @@ export const AutoPlacementDebug = track(function AutoPlacementDebug() {
         const bounds = editor.getShapePageBounds(shape);
         return bounds ? [bounds] : [];
       });
-      const routes = shapes.flatMap((shape) => {
-        const route = shape.type === "arrow" ? readRoute(editor, shape.id) : undefined;
-        return route ? [route] : [];
-      });
+      // The radius expands for node occupancy, not arrow preferences. Finding
+      // one free position is enough; share a budget across the entire selection.
+      const canContinue = createLayoutBudget(12, 50_000);
       return parents.flatMap((shape) => {
         const bounds = editor.getShapePageBounds(shape);
         if (!bounds) return [];
-        const { initialRadius, radius } = getAutoPlacementSearch(bounds, child, obstacles, routes, 120);
-        return [{ id: shape.id, x: bounds.center.x, y: bounds.center.y, initialRadius, radius }];
+        const { initialRadius, radius, limited } = getAutoPlacementSearch(bounds, child, obstacles, [], 120, {
+          firstOnly: true,
+          canContinue,
+        });
+        return [{ id: shape.id, x: bounds.center.x, y: bounds.center.y, initialRadius, radius, limited }];
       });
     },
     [editor]
   );
   if (!circles.length) return null;
   const zoom = editor.getZoomLevel();
-  return circles.map(({ id, x, y, initialRadius, radius }) => {
+  return circles.map(({ id, x, y, initialRadius, radius, limited }) => {
     return (
       <svg
         key={id}
@@ -64,6 +68,7 @@ export const AutoPlacementDebug = track(function AutoPlacementDebug() {
           paintOrder="stroke"
         >
           New query · search radius {Math.round(radius)} · node centers
+          {limited ? " · preview limit reached" : ""}
         </text>
       </svg>
     );
