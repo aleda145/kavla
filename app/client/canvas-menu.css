@@ -125,6 +125,28 @@ html[data-kavla-just-icons] .kavla-canvas-menu .tlui-button.kavla-settings-trigg
   box-shadow: none;
 }
 
+/* Menu focus uses the same highlight as pointer navigation, without a second outline. */
+.tlui-menu:is(
+    [data-testid^="context-menu"],
+    [data-testid^="main-menu"],
+    :has([data-testid^="main-menu"]),
+    :has([data-testid^="zoom-menu."])
+  )
+  .tlui-button:focus-visible {
+  outline: none !important;
+}
+
+.tlui-menu:is(
+    [data-testid^="context-menu"],
+    [data-testid^="main-menu"],
+    :has([data-testid^="main-menu"]),
+    :has([data-testid^="zoom-menu."])
+  )
+  .tlui-button:focus-visible::after {
+  background: #e2e8f0;
+  opacity: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .kavla-canvas-menu .tlui-button {
     transition: none;
