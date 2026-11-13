@@ -1,8 +1,10 @@
-import { Asterisk, BriefcaseBusiness, Code2 } from "lucide-react";
-import type { Editor } from "tldraw";
+import { Asterisk, BriefcaseBusiness, Code2, Scan } from "lucide-react";
+import { type Editor, useToasts, useValue } from "tldraw";
 import EditableText from "../util/EditableText";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { setQueryBizMode, useBizMode } from "../client/canvas/bizMode";
+import { fitQueryNodes } from "../client/canvas/fitQueryNodes";
+import { getLayoutInProgress } from "../client/canvas/layoutActions";
 
 interface SQLTextAreaHeaderProps {
   editor: Editor;
@@ -12,6 +14,12 @@ interface SQLTextAreaHeaderProps {
 
 export function SQLTextAreaHeader({ editor, shape, onNameChange }: SQLTextAreaHeaderProps) {
   const bizMode = useBizMode(editor, shape.id);
+  const { addToast } = useToasts();
+  const canFit = useValue(
+    "Can fit query",
+    () => !editor.getIsReadonly() && !editor.isShapeOrAncestorLocked(shape.id) && !getLayoutInProgress(editor).get(),
+    [editor, shape.id]
+  );
   return (
     <div
       style={{
@@ -41,6 +49,29 @@ export function SQLTextAreaHeader({ editor, shape, onNameChange }: SQLTextAreaHe
             ⚠️ STALE
           </span>
         )}
+        <button
+          type="button"
+          aria-label="Fit this query to its content"
+          title="Fit this query to its content"
+          disabled={!canFit}
+          onClick={() => {
+            if (!canFit) return;
+            try {
+              fitQueryNodes(editor, [shape.id]);
+            } catch (error) {
+              addToast({
+                title: "Could not resize query",
+                description: error instanceof Error ? error.message : String(error),
+                severity: "error",
+              });
+            }
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+          className="flex h-6 w-7 items-center justify-center rounded border-2 border-black bg-white p-0 text-black shadow-none cursor-pointer enabled:hover:bg-slate-200 disabled:cursor-default disabled:opacity-40 active:translate-x-px active:translate-y-px active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+        >
+          <Scan size={14} aria-hidden />
+        </button>
         <button
           type="button"
           aria-label="Biz mode for this query"
