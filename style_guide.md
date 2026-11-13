@@ -19,6 +19,7 @@ Kavla features a distinct "Neo-Brutalist" or "Pop" aesthetic characterized by hi
 - **Blue**: `bg-blue-100` / `#dbeafe` - Product headers (DataSource).
 - **Pink**: `bg-pink-100` / `#fce7f3` - Product headers (Chart).
 - **Teal**: `bg-teal-100` - Knob headers, controls, SQL parameter highlights, and hints.
+- **Menu Gray**: `bg-slate-200` / `#e2e8f0` - The official gray for menu hover, keyboard focus, and selected states, plus toolbar hover and style-panel selections.
 
 ---
 
@@ -67,12 +68,15 @@ There is also a "just icons" mode. app/client/justIcons.tsx . If its enabled, we
 
 ### Dropdowns / Overlays
 
-Hard drop shadows identify floating UI (such as chat) as separate from canvas shapes.
+Menus, submenus, and tool panels stay minimal:
 
-Overlays _do_ use the "Loud" shadow to float above content:
+- **Background**: White (`#fff`) with a `2px solid #000` outer border.
+- **Shadow**: None. Reserve drop shadows for modals.
+- **Highlight**: Menu Gray (`#e2e8f0`) for hover, keyboard focus, and selected menu items, with black text/icons. Selected items keep their highlight on hover.
+- **Focus**: Menu items use the gray highlight rather than an additional black outline.
+- **Controls**: No individual borders between menu items or tools.
 
-- **Shadow**: `boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)"`.
-- **Border**: `2px solid #000`.
+Modals use the hard shadow `boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)"` and a `2px solid #000` border.
 
 ---
 
