@@ -2,6 +2,7 @@ import { CanvasSettingsMenu } from "../CanvasSettingsMenu";
 import { canvasPreferenceActions } from "../canvasPreferences";
 import { memo, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import "../canvas-menu.css";
+import "./local-toolbar.css";
 import {
   CenteredTopPanelContainer,
   DefaultKeyboardShortcutsDialog,
@@ -427,42 +428,14 @@ function LocalToolbar(props: ComponentProps<typeof DefaultToolbar>) {
 
   return (
     <DefaultToolbar {...props}>
-      <div className="custom-data-tools" style={{ display: "flex", pointerEvents: "all", position: "relative" }}>
-        <style>
-          {`
-            .tlui-popover__content .custom-data-tools { display: none !important; }
-            button[data-testid="tools.data-source"],
-            button[data-testid="tools.sql-text-area"] {
-              width: 48px !important;
-              height: 48px !important;
-              border-radius: 9px !important;
-            }
-            button[data-testid="tools.data-source"] { background-color: #eff6ff !important; }
-            button[data-testid="tools.data-source"]:hover { background-color: #bfdbfe !important; }
-            button[data-testid="tools.sql-text-area"] { background-color: #fefce8 !important; }
-            button[data-testid="tools.sql-text-area"]:hover { background-color: #fef08a !important; }
-            button[data-testid="tools.data-source"] .tlui-icon,
-            button[data-testid="tools.sql-text-area"] .tlui-icon { display: none !important; }
-            .data-tool-wrapper button::before,
-            .data-tool-wrapper button::after { background: transparent !important; }
-            .data-tool-wrapper.data-tool-selected button {
-              background-color: var(--color-selected, #3b82f6) !important;
-            }
-            @media (max-width: 840px) {
-              button[data-testid="tools.eraser"],
-              button[data-testid="tools.arrow"] { display: none !important; }
-            }
-          `}
-        </style>
-        <DataToolButton tool={tools["data-source"]} selected={sourceSelected} color="#2563eb" label="Source">
+      <div className="custom-data-tools">
+        <DataToolButton tool={tools["data-source"]} selected={sourceSelected} label="Source">
           <Database size={20} strokeWidth={2} />
         </DataToolButton>
-        <DataToolButton tool={tools["sql-text-area"]} selected={sqlSelected} color="#854d0e" label="Query">
+        <DataToolButton tool={tools["sql-text-area"]} selected={sqlSelected} label="Query">
           <FileTerminal size={20} strokeWidth={2} />
         </DataToolButton>
-        <div
-          style={{ width: 1, height: 32, backgroundColor: "var(--color-border)", margin: "0 4px", alignSelf: "center" }}
-        />
+        <div className="kavla-toolbar-divider" aria-hidden="true" />
       </div>
       <DefaultToolbarContent />
     </DefaultToolbar>
@@ -472,13 +445,11 @@ function LocalToolbar(props: ComponentProps<typeof DefaultToolbar>) {
 function DataToolButton({
   tool,
   selected,
-  color,
   label,
   children,
 }: {
   tool: ComponentProps<typeof TldrawUiMenuItem>;
   selected: boolean;
-  color: string;
   label: string;
   children: ReactNode;
 }) {
@@ -495,12 +466,12 @@ function DataToolButton({
           justifyContent: "center",
           pointerEvents: "none",
           gap: 2,
-          color: selected ? "#fff" : color,
+          color: selected ? "#fff" : "#000",
           zIndex: 10,
         }}
       >
         {children}
-        <span className="kavla-control-label" style={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }}>
+        <span className="kavla-control-label" style={{ fontSize: 10, fontWeight: 800, lineHeight: 1 }}>
           {label}
         </span>
       </div>
