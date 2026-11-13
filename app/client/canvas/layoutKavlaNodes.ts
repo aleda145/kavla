@@ -11,7 +11,7 @@ import type { SummaryShape } from "../../Summary/summary-shape-types";
 import { layoutQueryBranches, type LayoutConnection, type LayoutDirection } from "./layoutQueryBranches";
 import { avoidLayoutArrows } from "./avoidLayoutArrows";
 import { captureLayoutAnnotations, findEmptyPosition } from "./layoutAnnotations";
-import { resetConnectorLanes } from "./connectorLanes";
+import { captureConnectorLanes, resetConnectorLanes } from "./connectorLanes";
 import { getLayoutSelection, isLayoutNode } from "./layoutSelection";
 
 function isQueryView(shape: TLShape): shape is ChartShape | SQLResultTableShape | LensShape {
@@ -295,7 +295,6 @@ export async function layoutKavlaNodes(editor: Editor, selection = editor.getSel
   editor.run(
     () => {
       editor.updateShapes(updates);
-      resetConnectorLanes(editor, nodeIds);
 
       // Clear endpoint pins and custom bends saved by earlier layout versions.
       // Generated query connectors return to automatic routing; native arrows
@@ -308,6 +307,13 @@ export async function layoutKavlaNodes(editor: Editor, selection = editor.getSel
         const { start, end } = getArrowBindings(editor, arrow);
         if (!start || !end) continue;
         if (!nodeIds.has(start.toId) && !nodeIds.has(end.toId)) continue;
+        // Current automatic lanes are restored after geometry probes below.
+        if (
+          start.meta.kavlaLane === true ||
+          end.meta.kavlaLane === true ||
+          typeof arrow.meta.kavlaLaneMidpoint === "number"
+        )
+          continue;
         const source = editor.getShape(start.toId);
         const target = editor.getShape(end.toId);
         if (
@@ -329,19 +335,26 @@ export async function layoutKavlaNodes(editor: Editor, selection = editor.getSel
           props: { elbowMidPoint: 0.5 },
         });
       }
-      avoidLayoutArrows(
-        editor,
-        new Map([...groupByShape].filter(([id, groupId]) => id !== groupId && isQueryView(shapesById.get(id)!))),
-        new Set(
-          shapes
-            .filter((shape) => !["arrow", "group", "frame", "agent-chat"].includes(shape.type))
-            .map((shape) => shape.id)
-        ),
-        new Map(
-          [...groups].map(([id, group]) => [id, { direction: group.direction, members: [...group.offsets.keys()] }])
-        )
-      );
-      moveAnnotations();
+      const restoreLanes = captureConnectorLanes(editor, nodeIds);
+      try {
+        resetConnectorLanes(editor, nodeIds);
+        avoidLayoutArrows(
+          editor,
+          new Map([...groupByShape].filter(([id, groupId]) => id !== groupId && isQueryView(shapesById.get(id)!))),
+          new Set(
+            shapes
+              .filter((shape) => !["arrow", "group", "frame", "agent-chat"].includes(shape.type))
+              .map((shape) => shape.id)
+          ),
+          new Map(
+            [...groups].map(([id, group]) => [id, { direction: group.direction, members: [...group.offsets.keys()] }])
+          )
+        );
+        moveAnnotations();
+      } finally {
+        restoreLanes();
+      }
+
       // The binding utility routes once at operation completion, after all
       // candidate moves and annotation updates have settled.
     },
