@@ -72,8 +72,7 @@
   opacity: 1;
 }
 
-.kavla-navigation-panel .tlui-button:focus-visible,
-.tlui-menu:has([data-testid^="zoom-menu."]) .tlui-button:focus-visible {
+.kavla-navigation-panel .tlui-button:focus-visible {
   outline: 2px solid #000 !important;
   outline-offset: -4px !important;
 }

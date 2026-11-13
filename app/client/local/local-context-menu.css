@@ -30,8 +30,3 @@
   background: #e2e8f0;
   opacity: 1;
 }
-
-.tlui-menu[data-testid^="context-menu"] .tlui-button:focus-visible {
-  outline: 2px solid #000 !important;
-  outline-offset: -4px !important;
-}
