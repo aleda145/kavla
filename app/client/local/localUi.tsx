@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState, type ComponentProps, type R
 import "../canvas-menu.css";
 import "./local-toolbar.css";
 import "./local-style-panel.css";
+import "./local-context-menu.css";
 import {
   CenteredTopPanelContainer,
   DefaultKeyboardShortcutsDialog,
