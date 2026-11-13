@@ -10,6 +10,7 @@ import { extractTableNames } from "../../util/parseSql";
 import { crosses, readRoute, type Bounds, type Route } from "./arrowGeometry";
 import { resetConnectorLane } from "./connectorLanes";
 import type { LayoutDirection } from "./layoutQueryBranches";
+import { createLayoutBudget } from "./layoutBudget";
 
 export function getAutoPlacementRadius(
   parent: Pick<Bounds, "w" | "h">,
@@ -26,8 +27,10 @@ export function getAutoPlacementSearch(
   child: Pick<Bounds, "w" | "h">,
   obstacles: Bounds[],
   routes: Route[],
-  gap: number
-): { initialRadius: number; radius: number; candidates: Bounds[] } {
+  gap: number,
+  options: { firstOnly?: boolean; canContinue?: () => boolean } = {}
+): { initialRadius: number; radius: number; candidates: Bounds[]; limited: boolean } {
+  const canContinue = options.canContinue ?? createLayoutBudget(20, 100_000);
   const originX = center.x + (center.w - child.w) / 2;
   const originY = center.y + (center.h - child.h) / 2;
   const reachX = (center.w + child.w) / 2 + gap;
@@ -37,6 +40,7 @@ export function getAutoPlacementSearch(
   // Search a circle around the parent on all sides. Expand only when there
   // is no shape-sized empty space inside it, never to satisfy flow preference.
   while (true) {
+    if (!canContinue()) return { initialRadius, radius, candidates: [], limited: true };
     const xs = new Set([originX, originX - reachX, originX + reachX]);
     const ys = new Set([originY, originY - reachY, originY + reachY]);
     const addEdges = (other: Bounds, clearances: number[]) => {
@@ -55,9 +59,13 @@ export function getAutoPlacementSearch(
         ys.add(other.y + other.h + clearance);
       }
     };
-    for (const other of obstacles) addEdges(other, [28, 64]);
+    for (const other of obstacles) {
+      if (!canContinue()) return { initialRadius, radius, candidates: [], limited: true };
+      addEdges(other, [28, 64]);
+    }
     for (const route of routes) {
       for (let i = 1; i < route.points.length; i++) {
+        if (!canContinue()) return { initialRadius, radius, candidates: [], limited: true };
         const a = route.points[i - 1],
           b = route.points[i];
         addEdges(
@@ -70,6 +78,7 @@ export function getAutoPlacementSearch(
     for (const x of xs) {
       if (Math.abs(x - originX) > radius) continue;
       for (const y of ys) {
+        if (!canContinue()) return { initialRadius, radius, candidates, limited: true };
         if (Math.hypot(x - originX, y - originY) > radius) continue;
         if (
           obstacles.some(
@@ -82,9 +91,10 @@ export function getAutoPlacementSearch(
         )
           continue;
         candidates.push({ x, y, w: child.w, h: child.h });
+        if (options.firstOnly) return { initialRadius, radius, candidates, limited: false };
       }
     }
-    if (candidates.length) return { initialRadius, radius, candidates };
+    if (candidates.length) return { initialRadius, radius, candidates, limited: false };
     radius *= 1.5;
   }
 }
@@ -342,7 +352,11 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
       // crowded boards, and keep the best nearby placement found so far.
       if (++probes >= 96) break;
     }
-    if (!best) return;
+    if (!best) {
+      // Keep the creator's nearby fallback if searching ran out of budget.
+      pending.delete(shape.id);
+      return;
+    }
     // Remove before updating so the placement itself cannot become another insertion.
     pending.delete(shape.id);
     editor.updateShape(positionUpdate(best));

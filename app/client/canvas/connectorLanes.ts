@@ -7,10 +7,16 @@ import {
   type TLShapeId,
 } from "tldraw";
 import { crosses, readRoute, type Route } from "./arrowGeometry";
+import { createLayoutBudget } from "./layoutBudget";
 
 type Side = "left" | "right" | "top" | "bottom";
 type Connector = { arrow: TLArrowShape; binding: TLArrowBinding; side: Side; cross: number };
 const laneGap = 14;
+const routingEditors = new WeakSet<Editor>();
+
+export function isRoutingConnectorLanes(editor: Editor): boolean {
+  return routingEditors.has(editor);
+}
 
 // Stored as optional metadata on ordinary tldraw arrows/bindings, so documents
 // remain readable without this routing pass. Only automatically assigned ports
@@ -49,7 +55,7 @@ export function resetConnectorLane(editor: Editor, arrow: TLArrowShape): void {
 
 // Measure overlapping parallel stretches and perpendicular crossings involving
 // this bundle. Shared endpoints don't count as crossings.
-function congestion(routes: Route[], ids: Set<TLShapeId>) {
+function congestion(routes: Route[], ids: Set<TLShapeId>, canContinue: () => boolean) {
   let overlap = 0;
   let crossings = 0;
   for (let i = 0; i < routes.length; i++) {
@@ -60,6 +66,7 @@ function congestion(routes: Route[], ids: Set<TLShapeId>) {
         const p = routes[i].points[a - 1],
           q = routes[i].points[a];
         for (let b = 1; b < routes[j].points.length; b++) {
+          if (!canContinue()) return;
           const r = routes[j].points[b - 1],
             s = routes[j].points[b];
           const horizontal = Math.abs(p.y - q.y) < 0.01;
@@ -99,45 +106,60 @@ function congestion(routes: Route[], ids: Set<TLShapeId>) {
 // A visible crossing is preferable to arrows disappearing into one shared line.
 // Once overlap is equal, prefer fewer crossings. Node collisions are checked
 // separately and are never introduced to improve this score.
-function betterRouting(candidate: ReturnType<typeof congestion>, current: ReturnType<typeof congestion>): boolean {
+function betterRouting(
+  candidate: NonNullable<ReturnType<typeof congestion>>,
+  current: NonNullable<ReturnType<typeof congestion>>
+): boolean {
   if (candidate.overlap < current.overlap - 0.01) return true;
   return Math.abs(candidate.overlap - current.overlap) < 0.01 && candidate.crossings < current.crossings;
 }
 
 export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): void {
-  if (editor.getIsReadonly()) return;
-  // An arrow can be in a departure bundle and an arrival bundle. Recompute
-  // its connected component together, so neither end loses its assigned lanes.
-  if (nodeIds) {
-    nodeIds = new Set(nodeIds);
-    const neighbors = new Map<TLShapeId, TLShapeId[]>();
-    for (const shape of editor.getCurrentPageShapes()) {
-      if (shape.type !== "arrow" || shape.meta.kavlaConnector !== true) continue;
-      const { start, end } = getArrowBindings(editor, shape as TLArrowShape);
-      if (!start || !end) continue;
-      neighbors.set(start.toId, [...(neighbors.get(start.toId) ?? []), end.toId]);
-      neighbors.set(end.toId, [...(neighbors.get(end.toId) ?? []), start.toId]);
-    }
-    const pending = [...nodeIds];
-    for (let i = 0; i < pending.length; i++) {
-      for (const next of neighbors.get(pending[i]) ?? []) {
-        if (nodeIds.has(next)) continue;
-        nodeIds.add(next);
-        pending.push(next);
-      }
-    }
+  if (editor.getIsReadonly() || routingEditors.has(editor)) return;
+  routingEditors.add(editor);
+  try {
+    editor.run(() => routeLanes(editor, nodeIds));
+  } finally {
+    routingEditors.delete(editor);
   }
+}
+
+function routeLanes(editor: Editor, nodeIds?: Set<TLShapeId>): void {
+  const canContinue = createLayoutBudget(50, 200_000);
+  // Callers supply both endpoints of changed connectors. Handle their arrival
+  // and departure bundles without walking the entire connected component.
   resetConnectorLanes(editor, nodeIds);
   const shapes = editor.getCurrentPageShapes();
   const arrowIds = shapes.filter((shape) => shape.type === "arrow").map((shape) => shape.id);
-  const routes = () =>
-    arrowIds.flatMap((id) => {
+  const affectedIds = new Set(
+    arrowIds.filter((id) => {
+      const arrow = editor.getShape<TLArrowShape>(id)!;
+      const { start, end } = getArrowBindings(editor, arrow);
+      return (
+        arrow.meta.kavlaConnector === true &&
+        (!nodeIds || [start, end].some((binding) => binding && nodeIds.has(binding.toId)))
+      );
+    })
+  );
+  const cachedRoutes = new Map<TLShapeId, Route>();
+  for (const id of arrowIds) {
+    if (!canContinue()) return;
+    const route = readRoute(editor, id);
+    if (route) cachedRoutes.set(id, route);
+  }
+  const routes = (changedIds = affectedIds) => {
+    for (const id of changedIds) {
       const route = readRoute(editor, id);
-      return route ? [route] : [];
-    });
+      if (route) cachedRoutes.set(id, route);
+      else cachedRoutes.delete(id);
+    }
+    return [...cachedRoutes.values()];
+  };
   const groups = new Map<string, Connector[]>();
   for (const shape of shapes) {
+    if (!canContinue()) return;
     if (shape.type !== "arrow" || shape.meta.kavlaConnector !== true || editor.isShapeOrAncestorLocked(shape)) continue;
+    if (!affectedIds.has(shape.id)) continue;
     const arrow = shape as TLArrowShape;
     const { start, end } = getArrowBindings(editor, arrow);
     if (arrow.props.kind !== "elbow" || !start || !end || start.toId === end.toId) continue;
@@ -177,6 +199,7 @@ export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
     return box ? [{ id: shape.id, box }] : [];
   });
   for (const initialGroup of groups.values()) {
+    if (!canContinue()) return;
     // Earlier bundles may have adjusted the opposite end or the same bend.
     // Snapshot the current records rather than restoring stale arrow props.
     const group = initialGroup.map((connector) => ({
@@ -204,14 +227,16 @@ export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
       );
     const baselineRoutes = routes();
     const baselineHits = nodeHits(baselineRoutes);
-    const baseline = congestion(baselineRoutes, ids);
+    const baseline = congestion(baselineRoutes, ids, canContinue);
+    if (!baseline) return;
     let bestScore = baseline;
     let best: { arrow: TLArrowShape; binding: TLArrowBinding }[] | undefined;
     const consider = () => {
-      const currentRoutes = routes();
+      if (!canContinue()) return;
+      const currentRoutes = routes(ids);
       if ([...nodeHits(currentRoutes)].some((hit) => !baselineHits.has(hit))) return;
-      const score = congestion(currentRoutes, ids);
-      if (!betterRouting(score, bestScore)) return;
+      const score = congestion(currentRoutes, ids, canContinue);
+      if (!score || !betterRouting(score, bestScore)) return;
       bestScore = score;
       best = group.map(({ arrow, binding }) => ({
         arrow: editor.getShape<TLArrowShape>(arrow.id)!,
@@ -221,6 +246,7 @@ export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
     // Try both port orders: incoming and outgoing edges sharing a side may
     // need the opposite ordering to avoid crossing within the bundle.
     for (const order of [group, [...group].reverse()]) {
+      if (!canContinue()) break;
       editor.updateBindings(
         order.map(({ binding }, i) => {
           const cross = 0.5 + ((i - (order.length - 1) / 2) * spacing) / crossSize;
@@ -259,6 +285,7 @@ export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
         const high = Math.min(...ranges.map((range) => Math.max(range.lo, range.hi) - range.offset));
         if (high >= low) {
           for (const fraction of [0.5, 0.25, 0.75]) {
+            if (!canContinue()) break;
             const corridor = low + (high - low) * fraction;
             editor.updateShapes<TLArrowShape>(
               order.map(({ arrow }, i) => ({
@@ -307,6 +334,9 @@ export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
       );
     } else {
       editor.updateBindings(group.map(({ binding }) => ({ id: binding.id, type: "arrow", props: binding.props })));
+      editor.updateShapes<TLArrowShape>(
+        group.map(({ arrow }) => ({ id: arrow.id, type: "arrow", props: { elbowMidPoint: arrow.props.elbowMidPoint } }))
+      );
     }
   }
 
@@ -314,7 +344,8 @@ export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
   // terminal segment cannot be shifted by an elbow midpoint at all.
   for (let pass = 0; pass < 4; pass++) {
     let changed = false;
-    for (const id of arrowIds) {
+    for (const id of affectedIds) {
+      if (!canContinue()) return;
       const arrow = editor.getShape<TLArrowShape>(id)!;
       if (arrow.meta.kavlaConnector !== true || arrow.props.kind !== "elbow" || editor.isShapeOrAncestorLocked(arrow))
         continue;
@@ -334,7 +365,8 @@ export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
       if (info?.type !== "elbow") continue;
       const paths = routes();
       const ids = new Set([id]);
-      const baseline = congestion(paths, ids);
+      const baseline = congestion(paths, ids, canContinue);
+      if (!baseline) return;
       if (baseline.overlap < 0.01) continue;
       const originalRoute = paths.find((route) => route.id === id);
       if (!originalRoute || originalRoute.points.length < 2) continue;
@@ -346,11 +378,12 @@ export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
         editor.updateShape<TLArrowShape>({ id, type: "arrow", props: { elbowMidPoint: arrow.props.elbowMidPoint } });
       };
       const consider = () => {
-        const nextPaths = routes();
+        if (!canContinue()) return;
+        const nextPaths = routes(ids);
         const nextRoute = nextPaths.find((route) => route.id === id);
         if (!nextRoute || obstacles.some(({ id, box }) => !hits.has(id) && crosses(nextRoute, id, box))) return;
-        const score = congestion(nextPaths, ids);
-        if (!betterRouting(score, bestScore)) return;
+        const score = congestion(nextPaths, ids, canContinue);
+        if (!score || !betterRouting(score, bestScore)) return;
         bestScore = score;
         best = {
           midpoint: editor.getShape<TLArrowShape>(id)!.props.elbowMidPoint,
@@ -383,6 +416,7 @@ export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
           .sort((a, b) => Math.abs(a - current) - Math.abs(b - current))
           .slice(0, 64);
         for (const position of positions) {
+          if (!canContinue()) break;
           const midpoint = (position - origin - range.lo) / (range.hi - range.lo);
           editor.updateShape<TLArrowShape>({ id, type: "arrow", props: { elbowMidPoint: midpoint } });
           consider();
@@ -392,6 +426,7 @@ export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
       }
       if (bestScore.overlap > 0.01 || bestScore.crossings > 0) {
         for (const binding of [start, end]) {
+          if (!canContinue()) break;
           if (Math.abs(editor.getShapePageTransform(binding.toId).rotation()) > 0.00001) continue;
           const box = editor.getShapePageBounds(binding.toId);
           if (!box) continue;
@@ -417,6 +452,7 @@ export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
             .sort((a, b) => Math.abs(a - current) - Math.abs(b - current))
             .slice(0, 24);
           for (const position of positions) {
+            if (!canContinue()) break;
             const cross = (position - crossOrigin) / crossSize;
             editor.updateBinding<TLArrowBinding>({
               id: binding.id,

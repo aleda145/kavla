@@ -12,7 +12,7 @@ import {
   type TLShape,
   type TLShapeId,
 } from "tldraw";
-import { routeConnectorLanes } from "./canvas/connectorLanes";
+import { isRoutingConnectorLanes, routeConnectorLanes } from "./canvas/connectorLanes";
 
 function getArrowBindableTargetAtPointer(editor: Editor): TLShape | undefined {
   return editor.getShapeAtPoint(editor.inputs.currentPagePoint, {
@@ -44,6 +44,7 @@ export class KavlaArrowBindingUtil extends ArrowBindingUtil {
   private laneNodes = new Set<TLShapeId>();
 
   private queueLanes(binding: TLArrowBinding) {
+    if (isRoutingConnectorLanes(this.editor)) return;
     if (!this.isKavlaConnectorArrow(binding.fromId)) return;
     this.laneNodes.add(binding.toId);
     const arrow = this.editor.getShape<TLArrowShape>(binding.fromId);
@@ -78,6 +79,7 @@ export class KavlaArrowBindingUtil extends ArrowBindingUtil {
     // A user adjusting the port takes ownership of that route.
     const { normalizedAnchor, isPrecise, isExact, snap } = options.bindingAfter.props;
     if (
+      !isRoutingConnectorLanes(this.editor) &&
       options.bindingAfter.meta.kavlaLane === true &&
       (options.bindingAfter.meta.kavlaLaneAnchor !== `${normalizedAnchor.x},${normalizedAnchor.y}` ||
         !isPrecise ||
@@ -103,6 +105,7 @@ export class KavlaArrowBindingUtil extends ArrowBindingUtil {
     const before = options.shapeBefore as TLArrowShape;
     const after = options.shapeAfter as TLArrowShape;
     if (
+      !isRoutingConnectorLanes(this.editor) &&
       typeof after.meta.kavlaLaneMidpoint === "number" &&
       after.props.elbowMidPoint !== after.meta.kavlaLaneAssignedMidpoint
     )
