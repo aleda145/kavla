@@ -8,7 +8,7 @@ import {
 } from "tldraw";
 import { extractTableNames } from "../../util/parseSql";
 import { crosses, readRoute, type Bounds, type Route } from "./arrowGeometry";
-import { resetConnectorLane } from "./connectorLanes";
+import { captureConnectorLanes, resetConnectorLane } from "./connectorLanes";
 import type { LayoutDirection } from "./layoutQueryBranches";
 import { createLayoutBudget } from "./layoutBudget";
 
@@ -92,6 +92,7 @@ export function getAutoPlacementSearch(
           continue;
         candidates.push({ x, y, w: child.w, h: child.h });
         if (options.firstOnly) return { initialRadius, radius, candidates, limited: false };
+        if (candidates.length >= 2048) return { initialRadius, radius, candidates, limited: true };
       }
     }
     if (candidates.length) return { initialRadius, radius, candidates, limited: false };
@@ -190,7 +191,7 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
     const box = occupied.get(id);
     return upstream && box ? directionBetween(upstream, box) : (flow.get(id) ?? "RIGHT");
   };
-  const insert = (shape: TLShape, inputs: TLShapeId[]) => {
+  const insert = (shape: TLShape, inputs: TLShapeId[], canContinue: () => boolean) => {
     const box = occupied.get(shape.id);
     if (!box) return;
     const bindings = editor.getBindingsToShape<TLArrowBinding>(shape.id, "arrow");
@@ -272,96 +273,122 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
       const route = paths.get(id);
       return route ? [route] : [];
     });
-    for (const id of adjacentArrows) {
-      const arrow = editor.getShape<TLArrowShape>(id);
-      if (arrow) resetConnectorLane(editor, arrow);
-      dirtyArrows.add(id);
-    }
-    refreshPaths();
-    // Keep space for both the current lanes and the natural routes used as the
-    // baseline when lanes are recomputed after the insertion.
-    const existingPaths = [...previousPaths, ...paths.values()].filter(
-      (route) => !connectorIds.has(route.id) && ![...route.ends].some((id) => pending.has(id))
-    );
-    const origin = editor.getShapePageTransform(shape).applyToPoint({ x: 0, y: 0 });
-    const positionUpdate = (candidate: { x: number; y: number }) => {
-      const point = editor.getPointInParentSpace(shape, {
-        x: origin.x + candidate.x - box.x,
-        y: origin.y + candidate.y - box.y,
-      });
-      return { id: shape.id, type: shape.type, x: point.x, y: point.y };
-    };
-    const fixedObstacles = obstacles.filter(([id]) => !pending.has(id));
-    const connectorHits = (candidate: Bounds) => {
-      if (!connectorIds.size) return 0;
-      // Probe only this new node. tldraw's operation batches these changes, so
-      // intermediate candidates aren't rendered or separate undo steps.
-      editor.updateShape(positionUpdate(candidate));
-      try {
-        const hits = new Set<TLShapeId>();
-        for (const id of connectorIds) {
-          const route = readRoute(editor, id);
-          if (!route || [...route.ends].some((end) => end !== shape.id && pending.has(end))) continue;
-          for (const [id, obstacle] of fixedObstacles) {
-            if (crosses(route, id, obstacle)) hits.add(id);
-          }
-        }
-        return hits.size;
-      } finally {
-        editor.updateShape({ id: shape.id, type: shape.type, x: shape.x, y: shape.y });
-      }
-    };
-    const center = anchor ?? box;
-    const originX = center.x + (center.w - box.w) / 2;
-    const originY = center.y + (center.h - box.h) / 2;
-    const gap = views.has(shape.type) ? 48 : 120;
-    const search = getAutoPlacementSearch(
-      center,
-      box,
-      obstacles.map(([, bounds]) => bounds),
-      existingPaths,
-      gap
-    );
-    const candidates = search.candidates.map((candidate) => {
-      const { x, y } = candidate;
-      const distance = Math.hypot(x - originX, y - originY);
-      const direction = directionBetween(center, candidate);
-      const edgeGap = {
-        RIGHT: x - center.x - center.w,
-        LEFT: center.x - x - box.w,
-        DOWN: y - center.y - center.h,
-        UP: center.y - y - box.h,
-      }[direction];
-      // Keep a comfortable connector gap when possible. Both that gap and
-      // flow direction are preferences, so tight local pockets remain usable.
-      const score = distance + (direction === preferredSide ? 0 : 240) + (anchor ? Math.max(0, gap - edgeGap) * 2 : 0);
-      const hits = new Set(
-        existingPaths.filter((route) => crosses(route, shape.id, candidate)).map((route) => route.id)
-      ).size;
-      return { ...candidate, direction, score, hits };
-    });
-    candidates.sort((a, b) => a.hits - b.hits || a.score - b.score);
-    let probes = 0;
-    for (const candidate of candidates) {
-      if (best && (candidate.hits > best.hits || (candidate.hits === best.hits && candidate.score >= best.score)))
-        continue;
-      const hits = candidate.hits + connectorHits(candidate);
-      if (!best || hits < best.hits || (hits === best.hits && candidate.score < best.score))
-        best = { ...candidate, hits };
-      // Geometry checks are cheap. Bound actual tldraw route probes on very
-      // crowded boards, and keep the best nearby placement found so far.
-      if (++probes >= 96) break;
-    }
-    if (!best) {
-      // Keep the creator's nearby fallback if searching ran out of budget.
+    if (!canContinue()) {
       pending.delete(shape.id);
       return;
     }
-    // Remove before updating so the placement itself cannot become another insertion.
-    pending.delete(shape.id);
-    editor.updateShape(positionUpdate(best));
-    flow.set(shape.id, views.has(shape.type) ? preferred : best.direction);
-    index(editor.getShape(shape.id)!);
+    const restoreLanes = captureConnectorLanes(editor, new Set([shape.id, ...inputs, ...(anchorId ? [anchorId] : [])]));
+    try {
+      for (const id of adjacentArrows) {
+        const arrow = editor.getShape<TLArrowShape>(id);
+        if (arrow) resetConnectorLane(editor, arrow);
+        dirtyArrows.add(id);
+      }
+      refreshPaths();
+      // Keep space for both the current lanes and the natural routes used as the
+      // baseline when lanes are recomputed after the insertion.
+      const existingPaths = [...previousPaths, ...paths.values()].filter(
+        (route) => !connectorIds.has(route.id) && ![...route.ends].some((id) => pending.has(id))
+      );
+      const origin = editor.getShapePageTransform(shape).applyToPoint({ x: 0, y: 0 });
+      const positionUpdate = (candidate: { x: number; y: number }) => {
+        const point = editor.getPointInParentSpace(shape, {
+          x: origin.x + candidate.x - box.x,
+          y: origin.y + candidate.y - box.y,
+        });
+        return { id: shape.id, type: shape.type, x: point.x, y: point.y };
+      };
+      const fixedObstacles = obstacles.filter(([id]) => !pending.has(id));
+      const connectorHits = (candidate: Bounds): number | undefined => {
+        if (!canContinue()) return;
+        if (!connectorIds.size) return 0;
+        // Probe only this new node. tldraw's operation batches these changes, so
+        // intermediate candidates aren't rendered or separate undo steps.
+        editor.updateShape(positionUpdate(candidate));
+        try {
+          const hits = new Set<TLShapeId>();
+          for (const id of connectorIds) {
+            if (!canContinue()) return;
+            const route = readRoute(editor, id);
+            if (!route || [...route.ends].some((end) => end !== shape.id && pending.has(end))) continue;
+            for (const [id, obstacle] of fixedObstacles) {
+              if (!canContinue()) return;
+              if (crosses(route, id, obstacle)) hits.add(id);
+            }
+          }
+          return hits.size;
+        } finally {
+          editor.updateShape({ id: shape.id, type: shape.type, x: shape.x, y: shape.y });
+        }
+      };
+      const center = anchor ?? box;
+      const originX = center.x + (center.w - box.w) / 2;
+      const originY = center.y + (center.h - box.h) / 2;
+      const gap = views.has(shape.type) ? 48 : 120;
+      const searchBudget = createLayoutBudget(20, 100_000);
+      const search = getAutoPlacementSearch(
+        center,
+        box,
+        obstacles.map(([, bounds]) => bounds),
+        existingPaths,
+        gap,
+        { canContinue: () => canContinue() && searchBudget() }
+      );
+      const candidates: (Bounds & { direction: LayoutDirection; score: number })[] = [];
+      for (const candidate of search.candidates) {
+        if (!canContinue()) break;
+        const { x, y } = candidate;
+        const distance = Math.hypot(x - originX, y - originY);
+        const direction = directionBetween(center, candidate);
+        const edgeGap = {
+          RIGHT: x - center.x - center.w,
+          LEFT: center.x - x - box.w,
+          DOWN: y - center.y - center.h,
+          UP: center.y - y - box.h,
+        }[direction];
+        // Keep a comfortable connector gap when possible. Both that gap and
+        // flow direction are preferences, so tight local pockets remain usable.
+        const score =
+          distance + (direction === preferredSide ? 0 : 240) + (anchor ? Math.max(0, gap - edgeGap) * 2 : 0);
+        candidates.push({ ...candidate, direction, score });
+      }
+      // Rank cheaply before evaluating routes. The candidate cap bounds sorting,
+      // and the shared budget covers both scoring and live tldraw probes.
+      candidates.sort((a, b) => a.score - b.score);
+      let probes = 0;
+      candidateLoop: for (const candidate of candidates) {
+        if (!canContinue() || (best?.hits === 0 && candidate.score >= best.score)) break;
+        const crossedArrows = new Set<TLShapeId>();
+        for (const route of existingPaths) {
+          if (!canContinue()) break candidateLoop;
+          if (crosses(route, shape.id, candidate)) crossedArrows.add(route.id);
+          if (best && crossedArrows.size >= best.hits && candidate.score >= best.score) continue candidateLoop;
+        }
+        const connectorHitCount = connectorHits(candidate);
+        // An interrupted measurement is unknown, never a zero-collision result.
+        if (connectorHitCount === undefined) break;
+        const hits = crossedArrows.size + connectorHitCount;
+        if (!best || hits < best.hits || (hits === best.hits && candidate.score < best.score))
+          best = { ...candidate, hits };
+        // Geometry checks are cheap. Bound actual tldraw route probes on very
+        // crowded boards, and keep the best nearby placement found so far.
+        if (++probes >= 96) break;
+      }
+      if (!best) {
+        // Keep the creator's nearby fallback if searching ran out of budget.
+        pending.delete(shape.id);
+        return;
+      }
+      // Remove before updating so the placement itself cannot become another insertion.
+      pending.delete(shape.id);
+      editor.updateShape(positionUpdate(best));
+      flow.set(shape.id, views.has(shape.type) ? preferred : best.direction);
+      index(editor.getShape(shape.id)!);
+    } finally {
+      // Natural routes were only needed for measurement. Preserve the existing
+      // lanes until the binding utility can finish a new routing pass.
+      restoreLanes();
+    }
   };
   const disposers = [
     editor.sideEffects.registerAfterCreateHandler("shape", (shape, source) => {
@@ -447,10 +474,15 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
       }
       const batch = new Set(dirty);
       dirty.clear();
+      const canContinue = createLayoutBudget(50, 200_000);
       const visiting = new Set<TLShapeId>();
       const done = new Set<TLShapeId>();
       const visit = (id: TLShapeId) => {
         if (done.has(id) || visiting.has(id) || !pending.has(id)) return;
+        if (!canContinue()) {
+          pending.delete(id); // Keep the starting position for the rest of a large batch.
+          return;
+        }
         const shape = editor.getShape(id);
         if (!shape || editor.isShapeOrAncestorLocked(shape)) {
           pending.delete(id);
@@ -462,7 +494,8 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
         visiting.delete(id);
         done.add(id);
         if (inputs.some((input) => pending.has(input))) return;
-        if (inputs.length || shape.type === "data-source" || shape.type === "summary-shape") insert(shape, inputs);
+        if (inputs.length || shape.type === "data-source" || shape.type === "summary-shape")
+          insert(shape, inputs, canContinue);
       };
       placing = true;
       try {

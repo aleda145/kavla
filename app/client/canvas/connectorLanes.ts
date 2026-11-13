@@ -18,6 +18,69 @@ export function isRoutingConnectorLanes(editor: Editor): boolean {
   return routingEditors.has(editor);
 }
 
+// Snapshot only routing fields. Restore them on an interrupted pass without
+// undoing node moves or other changes made by the caller.
+export function captureConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): () => void {
+  const snapshots = editor.getCurrentPageShapes().flatMap((shape) => {
+    if (shape.type !== "arrow" || shape.meta.kavlaConnector !== true || editor.isShapeOrAncestorLocked(shape))
+      return [];
+    const arrow = shape as TLArrowShape;
+    const { start, end } = getArrowBindings(editor, arrow);
+    const bindings = [start, end].filter((binding): binding is TLArrowBinding => !!binding);
+    if (nodeIds && !bindings.some((binding) => nodeIds.has(binding.toId))) return [];
+    return [{ arrow, bindings }];
+  });
+  return () => {
+    for (const { arrow, bindings } of snapshots) {
+      const currentArrow = editor.getShape<TLArrowShape>(arrow.id);
+      if (!currentArrow) continue;
+      for (const binding of bindings) {
+        const current = editor.getBinding(binding.id) as TLArrowBinding | undefined;
+        if (!current) continue;
+        if (
+          current.props.normalizedAnchor.x === binding.props.normalizedAnchor.x &&
+          current.props.normalizedAnchor.y === binding.props.normalizedAnchor.y &&
+          current.props.isPrecise === binding.props.isPrecise &&
+          current.props.isExact === binding.props.isExact &&
+          current.props.snap === binding.props.snap &&
+          (current.meta.kavlaLane ?? null) === (binding.meta.kavlaLane ?? null) &&
+          (current.meta.kavlaLaneAnchor ?? null) === (binding.meta.kavlaLaneAnchor ?? null)
+        )
+          continue;
+        editor.updateBinding<TLArrowBinding>({
+          id: binding.id,
+          type: "arrow",
+          props: {
+            normalizedAnchor: binding.props.normalizedAnchor,
+            isPrecise: binding.props.isPrecise,
+            isExact: binding.props.isExact,
+            snap: binding.props.snap,
+          },
+          meta: {
+            kavlaLane: binding.meta.kavlaLane ?? null,
+            kavlaLaneAnchor: binding.meta.kavlaLaneAnchor ?? null,
+          },
+        });
+      }
+      if (
+        currentArrow.props.elbowMidPoint === arrow.props.elbowMidPoint &&
+        (currentArrow.meta.kavlaLaneMidpoint ?? null) === (arrow.meta.kavlaLaneMidpoint ?? null) &&
+        (currentArrow.meta.kavlaLaneAssignedMidpoint ?? null) === (arrow.meta.kavlaLaneAssignedMidpoint ?? null)
+      )
+        continue;
+      editor.updateShape<TLArrowShape>({
+        id: arrow.id,
+        type: "arrow",
+        props: { elbowMidPoint: arrow.props.elbowMidPoint },
+        meta: {
+          kavlaLaneMidpoint: arrow.meta.kavlaLaneMidpoint ?? null,
+          kavlaLaneAssignedMidpoint: arrow.meta.kavlaLaneAssignedMidpoint ?? null,
+        },
+      });
+    }
+  };
+}
+
 // Stored as optional metadata on ordinary tldraw arrows/bindings, so documents
 // remain readable without this routing pass. Only automatically assigned ports
 // are restored; user-drawn arrows and manually anchored connectors are untouched.
@@ -118,14 +181,25 @@ export function routeConnectorLanes(editor: Editor, nodeIds?: Set<TLShapeId>): v
   if (editor.getIsReadonly() || routingEditors.has(editor)) return;
   routingEditors.add(editor);
   try {
-    editor.run(() => routeLanes(editor, nodeIds));
+    editor.run(() => {
+      const restore = captureConnectorLanes(editor, nodeIds);
+      const canContinue = createLayoutBudget(50, 200_000);
+      let complete = false;
+      try {
+        routeLanes(editor, nodeIds, canContinue);
+        complete = canContinue();
+      } finally {
+        // Arrival and departure bundles can share arrows. Roll back the whole
+        // routing pass on exhaustion, so partial bundles never mix with old ones.
+        if (!complete) restore();
+      }
+    });
   } finally {
     routingEditors.delete(editor);
   }
 }
 
-function routeLanes(editor: Editor, nodeIds?: Set<TLShapeId>): void {
-  const canContinue = createLayoutBudget(50, 200_000);
+function routeLanes(editor: Editor, nodeIds: Set<TLShapeId> | undefined, canContinue: () => boolean): void {
   // Callers supply both endpoints of changed connectors. Handle their arrival
   // and departure bundles without walking the entire connected component.
   resetConnectorLanes(editor, nodeIds);
