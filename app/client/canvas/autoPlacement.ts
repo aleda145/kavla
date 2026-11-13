@@ -1,5 +1,4 @@
 import {
-  atom,
   getArrowBindings,
   type Editor,
   type TLArrowBinding,
@@ -90,15 +89,9 @@ export function getAutoPlacementSearch(
   }
 }
 
-const storageKey = "kavla.auto-placement";
-export const autoPlacement = atom(
-  "Auto placement",
-  typeof localStorage !== "undefined" && localStorage.getItem(storageKey) === "true"
-);
-export function toggleAutoPlacement() {
-  const enabled = !autoPlacement.get();
-  localStorage.setItem(storageKey, String(enabled));
-  autoPlacement.set(enabled);
+const autoPlacementEditors = new WeakSet<Editor>();
+export function hasAutoPlacement(editor: Editor): boolean {
+  return autoPlacementEditors.has(editor);
 }
 
 const nodeTypes = new Set([
@@ -119,6 +112,7 @@ function directionBetween(a: Bounds, b: Bounds): LayoutDirection {
 }
 
 export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): () => void {
+  autoPlacementEditors.add(editor);
   // Build occupancy once, then maintain it from changes. Placement never runs
   // ELK or walks the existing DAG; only the new batch is dependency-ordered.
   const occupied = new Map<TLShapeId, Bounds>();
@@ -363,7 +357,6 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
       if (
         known ||
         source !== "user" ||
-        !autoPlacement.get() ||
         !canPlace() ||
         editor.getAncestorPageId(shape) !== editor.getCurrentPageId() ||
         !nodeTypes.has(shape.type) ||
@@ -433,7 +426,7 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
     }),
     editor.sideEffects.registerOperationCompleteHandler(() => {
       if (placing || !dirty.size) return;
-      if (!autoPlacement.get() || !canPlace() || editor.getIsReadonly()) {
+      if (!canPlace() || editor.getIsReadonly()) {
         pending.clear();
         dirty.clear();
         return;
@@ -465,5 +458,8 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
       }
     }),
   ];
-  return () => disposers.forEach((dispose) => dispose());
+  return () => {
+    disposers.forEach((dispose) => dispose());
+    autoPlacementEditors.delete(editor);
+  };
 }

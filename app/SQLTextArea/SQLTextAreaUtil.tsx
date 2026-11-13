@@ -12,6 +12,7 @@ import { SQLTextAreaMigrations } from "./sql-text-area-migrations";
 import { SQLTextAreaProps } from "./sql-text-area-props";
 import { SQLTextAreaShape } from "./sql-text-area-types";
 import { connectShapes, disconnectShapes, setShapeUpstreamConnections } from "../util/shapeConnections";
+import { getFallbackNodePosition } from "../client/canvas/fallbackNodePosition";
 
 import { getUniqueName } from "../util/getUniqueName";
 import { useData } from "../client/useLocalServer";
@@ -132,8 +133,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       this.editor.createShape({
         type: "sql-result-table",
         id: newShapeId,
-        x: currentShape.x,
-        y: currentShape.y + this.editor.getShapeGeometry(currentShape).bounds.height + 60,
+        ...getFallbackNodePosition(this.editor, currentShape.id, "below"),
         props: {
           sourceShapeId: currentShape.id,
           w: 400,
@@ -350,8 +350,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       this.editor.createShape({
         type: "sql-text-area",
         id: newShapeId,
-        x: shape.x + this.editor.getShapeGeometry(shape).bounds.width + 60,
-        y: shape.y,
+        ...getFallbackNodePosition(this.editor, shape.id),
         props: {
           text: `SELECT\n  *\nFROM\n  ${shape.props.name}`,
         },
@@ -372,8 +371,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       this.editor.createShape({
         type: "chart-shape",
         id: newShapeId,
-        x: shape.x,
-        y: shape.y - 460,
+        ...getFallbackNodePosition(this.editor, shape.id, "above", 400),
         props: {
           sourceShapeId: shape.id,
           chartType: "scatter",

@@ -1,6 +1,7 @@
 import { createShapeId, type Editor, useToasts } from "tldraw";
 import { RefreshCw, Search } from "lucide-react";
 import { connectShapes } from "../util/shapeConnections";
+import { getFallbackNodePosition } from "../client/canvas/fallbackNodePosition";
 import { type TableDownloadFormat } from "../util/downloadTable";
 import { TableDownloadButtons } from "@/components/TableDownloadButtons";
 import { useData } from "../client/useLocalServer";
@@ -101,8 +102,7 @@ export function DataSourceActionBar({
     editor.createShape({
       type: "sql-text-area",
       id: newShapeId,
-      x: shape.x + shape.props.w + 60,
-      y: shape.y,
+      ...getFallbackNodePosition(editor, shape.id),
       props: {
         w: newWidth,
         text: query,
