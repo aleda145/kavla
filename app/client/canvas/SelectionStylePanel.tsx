@@ -14,7 +14,6 @@ import {
   useToasts,
   useValue,
 } from "tldraw";
-import { executeSQLShape } from "../../SQLTextArea/executeSQLShape";
 import type { SQLDependencyShape } from "../../SQLTextArea/sqlDependencies";
 import { getAutoExpandedSQLShapeSize } from "../../SQLTextArea/sqlShapeSize";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
@@ -27,7 +26,6 @@ import {
 } from "../../SQLTextArea/selectionOperations";
 import { getUniqueName } from "../../util/getUniqueName";
 import { connectShapes } from "../../util/shapeConnections";
-import { useData } from "../useLocalServer";
 import { getSelectedQueryIds, isBizMode, setQueriesBizMode } from "./bizMode";
 import { getLayoutActionAvailability, getLayoutInProgress } from "./layoutActions";
 import { getLayoutSelection, isLayoutNode } from "./layoutSelection";
@@ -53,7 +51,7 @@ const operations = [
   {
     operation: "EXCEPT",
     label: "Except",
-    description: "Keep rows in A that are absent from the other inputs. Choose A before running.",
+    description: "Keep rows in A that are absent from the other inputs. Choose A before creating.",
   },
   {
     operation: "DIFF",
@@ -148,7 +146,6 @@ function getSelectedInputs(editor: Editor): SQLDependencyShape[] {
 
 export function SelectionStylePanel(props: TLUiStylePanelProps) {
   const editor = useEditor();
-  const data = useData();
   const actions = useActions();
   const selection = useValue(
     "selection controls",
@@ -210,7 +207,7 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
     }
   }, [setup]);
 
-  const runOperation = async (operation: SelectionOperation, inputIds: TLShapeId[], keys: KeyMapping[] = []) => {
+  const createOperation = (operation: SelectionOperation, inputIds: TLShapeId[], keys: KeyMapping[] = []) => {
     if (editor.getIsReadonly()) return;
     const bounds = editor.getSelectionPageBounds();
     if (!bounds) return;
@@ -250,8 +247,7 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
         editor.select(id);
       });
       editor.zoomToSelection({ animation: { duration: 250 } });
-      const result = await executeSQLShape(editor, data, id, sql, new AbortController().signal);
-      if (!result.success) throw new Error(result.error || `The ${operation} query failed.`);
+      editor.getContainer().focus();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (editor.getShape(id)) {
@@ -268,9 +264,9 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
   const selectOperation = (operation: SelectionOperation, button: HTMLButtonElement) => {
     const selectedInputs = getSelectedInputs(editor);
     if (selectedInputs.length < 2) return;
+    const panel = button.closest<HTMLElement>(".tlui-style-panel");
+    if (!panel) throw new Error("Selection operation needs a style panel.");
     if (operation === "JOIN" || operation === "EXCEPT" || operation === "DIFF") {
-      const panel = button.closest<HTMLElement>(".tlui-style-panel");
-      if (!panel) throw new Error("Selection operation needs a style panel.");
       returnFocus.current = { panel, testId: `selection.${operation.toLowerCase()}` };
       setSetup({
         operation,
@@ -279,7 +275,7 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
         inputIds: selectedInputs.map((input) => input.id),
       });
     } else {
-      void runOperation(
+      createOperation(
         operation,
         selectedInputs.map((input) => input.id)
       );
@@ -294,11 +290,10 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
           inputs={setupInputs}
           height={setup.height}
           onBack={() => setSetup(null)}
-          onRun={(ids, keys) => {
+          onCreate={(ids, keys) => {
             returnFocus.current = null;
             setSetup(null);
-            void runOperation(setup.operation, ids, keys);
-            editor.getContainer().focus();
+            createOperation(setup.operation, ids, keys);
           }}
         />
       </DefaultStylePanel>

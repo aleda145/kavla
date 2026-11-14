@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDownUp, ArrowLeft, Play, Plus, X } from "lucide-react";
+import { ArrowDownUp, ArrowLeft, Plus, X } from "lucide-react";
 import { TldrawUiButton } from "tldraw";
 import type { SQLDependencyShape } from "../../SQLTextArea/sqlDependencies";
 import { buildSelectionQuery, getSelectionSchema, type KeyMapping } from "../../SQLTextArea/selectionOperations";
@@ -10,13 +10,13 @@ export function SelectionOperationPanel({
   operation,
   inputs: selectedInputs,
   height,
-  onRun,
+  onCreate,
   onBack,
 }: {
   operation: "JOIN" | "EXCEPT" | "DIFF";
   inputs: SQLDependencyShape[];
   height: number;
-  onRun: (inputIds: SQLDependencyShape["id"][], keys: KeyMapping[]) => void;
+  onCreate: (inputIds: SQLDependencyShape["id"][], keys: KeyMapping[]) => void;
   onBack: () => void;
 }) {
   const root = useRef<HTMLDivElement>(null);
@@ -235,13 +235,13 @@ export function SelectionOperationPanel({
       <div className="kavla-selection-setup-footer">
         <TldrawUiButton
           type="icon"
-          title={incompleteKeys ? "Choose a column for each input" : error || `Create and run ${title} query`}
-          aria-label={`Create and run ${title} query`}
+          title={incompleteKeys ? "Choose a column for each input" : error || `Create ${title} query`}
+          aria-label={`Create ${title} query`}
           disabled={Boolean(error)}
-          onClick={() => onRun(inputIds, needsKeys ? keys : [])}
+          onClick={() => onCreate(inputIds, needsKeys ? keys : [])}
         >
-          <Play size={14} aria-hidden />
-          <span className="kavla-control-label">Run {title.toLowerCase()}</span>
+          <Plus size={14} aria-hidden />
+          <span className="kavla-control-label">Create {title.toLowerCase()}</span>
         </TldrawUiButton>
       </div>
     </div>
