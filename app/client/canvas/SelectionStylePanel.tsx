@@ -1,4 +1,15 @@
-import { CircleMinus, Columns3, Diff, Layers, Merge, Scan } from "lucide-react";
+import {
+  BriefcaseBusiness,
+  CircleMinus,
+  Code2,
+  Columns3,
+  Diff,
+  Layers,
+  LayoutDashboard,
+  Loader2,
+  Merge,
+  Scan,
+} from "lucide-react";
 import {
   createShapeId,
   DefaultStylePanel,
@@ -8,6 +19,7 @@ import {
   type TLShapeId,
   type TLUiStylePanelProps,
   useEditor,
+  useActions,
   useDialogs,
   useRelevantStyles,
   useToasts,
@@ -27,6 +39,9 @@ import {
 import { getUniqueName } from "../../util/getUniqueName";
 import { connectShapes } from "../../util/shapeConnections";
 import { useData } from "../useLocalServer";
+import { getSelectedQueryIds, isBizMode, setQueriesBizMode } from "./bizMode";
+import { getLayoutActionAvailability, getLayoutInProgress } from "./layoutActions";
+import { getLayoutSelection, isLayoutNode } from "./layoutSelection";
 import { SelectionOperationDialog } from "./SelectionOperationDialog";
 
 const operations = [
@@ -92,6 +107,22 @@ function getSelectedInputs(editor: Editor): SQLDependencyShape[] {
 export function SelectionStylePanel(props: TLUiStylePanelProps) {
   const editor = useEditor();
   const data = useData();
+  const actions = useActions();
+  const selection = useValue(
+    "selection controls",
+    () => {
+      const queryIds = editor.isIn("select") ? getSelectedQueryIds(editor) : [];
+      return {
+        ...getLayoutActionAvailability(editor),
+        hasNodes: editor.isIn("select") && getLayoutSelection(editor).some(isLayoutNode),
+        layingOut: getLayoutInProgress(editor).get(),
+        queryIds,
+        allBiz: queryIds.length > 0 && queryIds.every((id) => isBizMode(editor, id)),
+        allSQL: queryIds.length > 0 && queryIds.every((id) => !isBizMode(editor, id)),
+      };
+    },
+    [editor]
+  );
   const styles = useRelevantStyles();
   const { addToast } = useToasts();
   const { addDialog } = useDialogs();
@@ -181,6 +212,82 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
   return (
     <DefaultStylePanel {...props}>
       <DefaultStylePanelContent styles={styles} />
+      {selection.hasNodes && (
+        <div
+          className="tlui-style-panel__section"
+          role="group"
+          aria-label="Selected nodes"
+          style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", padding: 4 }}
+        >
+          <TldrawUiButton
+            type="icon"
+            data-testid="selection.layout"
+            aria-label="Auto layout selected nodes"
+            aria-keyshortcuts="Shift+A"
+            aria-busy={selection.layingOut}
+            title="Auto layout selected nodes (Shift+A)"
+            disabled={!selection.canLayout}
+            style={{ width: "100%", minWidth: 0, height: 32, padding: 4, gap: 4, fontSize: 11 }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            onClick={() => void actions["layout-kavla-nodes"].onSelect("style-panel")}
+          >
+            {selection.layingOut ? (
+              <Loader2 size={16} className="animate-spin" aria-hidden />
+            ) : (
+              <LayoutDashboard size={16} aria-hidden />
+            )}
+            <span className="kavla-control-label">Layout</span>
+          </TldrawUiButton>
+          <TldrawUiButton
+            type="icon"
+            data-testid="selection.fit"
+            aria-label="Fit selected query nodes to their content"
+            aria-keyshortcuts="Shift+F"
+            title="Fit selected query nodes to their content (Shift+F)"
+            disabled={!selection.canFit}
+            style={{ width: "100%", minWidth: 0, height: 32, padding: 4, gap: 4, fontSize: 11 }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            onClick={() => void actions["fit-query-nodes"].onSelect("style-panel")}
+          >
+            <Scan size={16} aria-hidden />
+            <span className="kavla-control-label">Fit</span>
+          </TldrawUiButton>
+        </div>
+      )}
+      {selection.queryIds.length > 0 && (
+        <div
+          className="tlui-style-panel__section"
+          role="group"
+          aria-label="Selected query mode"
+          style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", padding: 4 }}
+        >
+          {(["SQL", "Biz"] as const).map((mode) => {
+            const isBiz = mode === "Biz";
+            const active = isBiz ? selection.allBiz : selection.allSQL;
+            const Icon = isBiz ? BriefcaseBusiness : Code2;
+            return (
+              <TldrawUiButton
+                key={mode}
+                type="icon"
+                data-testid={`selection.mode-${mode.toLowerCase()}`}
+                aria-label={`Show ${mode} mode for selected queries`}
+                aria-pressed={active}
+                isActive={active}
+                title={`Show ${isBiz ? "query flows" : "SQL"} for selected queries (Shift+B to toggle)`}
+                style={{ width: "100%", minWidth: 0, height: 32, padding: 4, gap: 4, fontSize: 11 }}
+                onPointerDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                onClick={() => setQueriesBizMode(editor, getSelectedQueryIds(editor), isBiz)}
+              >
+                <Icon size={16} aria-hidden />
+                <span className="kavla-control-label">{mode}</span>
+              </TldrawUiButton>
+            );
+          })}
+        </div>
+      )}
       {inputs.length >= 2 && (
         <div
           className="tlui-style-panel__section"

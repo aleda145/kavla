@@ -1,5 +1,5 @@
 import type { Editor, TLUiOverrides } from "tldraw";
-import { isBizMode, setBizMode } from "./canvas/bizMode";
+import { getSelectedQueryIds, isBizMode, setQueriesBizMode } from "./canvas/bizMode";
 import { toggleJustIcons } from "./justIcons";
 
 export function applyCanvasPreferences(editor: Editor) {
@@ -32,11 +32,14 @@ export const canvasPreferenceActions: NonNullable<TLUiOverrides["actions"]> = (e
   }
   actions["toggle-biz-mode"] = {
     id: "toggle-biz-mode",
-    label: "Toggle SQL/Biz mode",
+    label: "Toggle SQL/Biz mode for selection",
     icon: "sql",
     kbd: "!b",
     readonlyOk: true,
-    onSelect: () => setBizMode(editor, !isBizMode(editor)),
+    onSelect: () => {
+      const ids = getSelectedQueryIds(editor);
+      setQueriesBizMode(editor, ids, !ids.every((id) => isBizMode(editor, id)));
+    },
   };
   actions["toggle-just-icons"] = {
     id: "toggle-just-icons",
