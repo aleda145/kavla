@@ -4,6 +4,7 @@ import { TldrawUiButton } from "tldraw";
 import type { SQLDependencyShape } from "../../SQLTextArea/sqlDependencies";
 import { buildSelectionQuery, getSelectionSchema, type KeyMapping } from "../../SQLTextArea/selectionOperations";
 import { getSelectionOperationDefaults, suggestSelectionKey } from "../../SQLTextArea/selectionOperationDefaults";
+import { SelectionOperationSelect } from "./SelectionOperationSelect";
 
 export function SelectionOperationPanel({
   operation,
@@ -39,34 +40,20 @@ export function SelectionOperationPanel({
     const element = root.current;
     const panel = element?.closest<HTMLElement>(".tlui-style-panel");
     const body = element?.querySelector<HTMLElement>(".kavla-selection-setup-body");
-    const selects = element?.querySelectorAll("select");
-    if (!element || !panel || !body || !selects?.length) return;
+    const options = element?.querySelectorAll<HTMLElement>("[data-selection-option-measure]");
+    if (!element || !panel || !body || !options?.length) return;
 
-    // Let the browser measure the options, including its native dropdown arrow.
-    const measure = selects[0].cloneNode(false) as HTMLSelectElement;
-    measure.setAttribute("aria-hidden", "true");
-    measure.tabIndex = -1;
-    Object.assign(measure.style, {
-      position: "absolute",
-      visibility: "hidden",
-      width: "auto",
-      maxWidth: "none",
-      font: getComputedStyle(selects[0]).font,
-    });
-    for (const select of selects) {
-      for (const option of select.options) measure.appendChild(option.cloneNode(true));
-    }
-    element.appendChild(measure);
+    // Measure the actual picker typography, padding, border and chevron.
+    const optionWidth = Math.max(...Array.from(options, (option) => option.offsetWidth));
     const bodyStyle = getComputedStyle(body);
     const panelStyle = getComputedStyle(panel);
     const width =
-      measure.offsetWidth +
+      optionWidth +
       parseFloat(bodyStyle.paddingLeft) +
       parseFloat(bodyStyle.paddingRight) +
       (body.offsetWidth - body.clientWidth) +
       parseFloat(panelStyle.borderLeftWidth) +
       parseFloat(panelStyle.borderRightWidth);
-    measure.remove();
     panel.style.setProperty("--kavla-selection-setup-width", `${Math.max(150, Math.ceil(width))}px`);
     return () => {
       panel.style.removeProperty("--kavla-selection-setup-width");
@@ -121,38 +108,26 @@ export function SelectionOperationPanel({
         <strong>{title}</strong>
       </div>
       <div className="kavla-selection-setup-body">
-        <p
-          className="kavla-selection-setup-hint"
-          title="Defaults are suggested from column and dataset names. Check them before running."
-        >
-          Review, then run.
-        </p>
         {operation === "EXCEPT" ? (
           <>
-            <label>
+            <div className="kavla-selection-setup-field">
               <span>Keep rows from</span>
-              <select
+              <SelectionOperationSelect
+                label="Keep rows from"
                 value={inputIds[0]}
-                title={inputs[0].props.name}
-                onChange={(event) => {
-                  const first = event.currentTarget.value as SQLDependencyShape["id"];
+                options={selectedInputs.map((input) => ({ value: input.id, label: input.props.name }))}
+                onSelect={(value) => {
+                  const first = value as SQLDependencyShape["id"];
                   setInputIds([first, ...inputIds.filter((id) => id !== first)]);
                 }}
-              >
-                {selectedInputs.map((input) => (
-                  <option key={input.id} value={input.id}>
-                    {input.props.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+              />
+            </div>
             <p>Remove rows in:</p>
             {inputs.slice(1).map((input) => (
               <span className="kavla-selection-setup-name" key={input.id} title={input.props.name}>
                 {input.props.name}
               </span>
             ))}
-            <p className="kavla-selection-setup-hint">Distinct rows. Columns match by position.</p>
           </>
         ) : (
           <>
@@ -179,35 +154,39 @@ export function SelectionOperationPanel({
                     <ArrowDownUp size={14} aria-hidden />
                   </TldrawUiButton>
                 </div>
-                <label>
+                <div className="kavla-selection-setup-field">
                   <span>Compare by</span>
-                  <select
+                  <SelectionOperationSelect
+                    label="Compare by"
                     value={useKeys ? "keys" : "rows"}
-                    onChange={(event) => setUseKeys(event.currentTarget.value === "keys")}
-                  >
-                    <option value="rows">Whole rows</option>
-                    <option value="keys">Matching keys</option>
-                  </select>
-                </label>
+                    options={[
+                      { value: "rows", label: "Whole rows" },
+                      { value: "keys", label: "Matching keys" },
+                    ]}
+                    onSelect={(value) => setUseKeys(value === "keys")}
+                  />
+                </div>
               </>
             )}
             {needsKeys && (
               <>
-                {operation === "JOIN" && <p>Keep matching rows.</p>}
                 {keys.map((mapping, keyIndex) => (
                   <fieldset key={keyIndex}>
                     <legend>Key {keyIndex + 1}</legend>
                     {inputs.map((input, inputIndex) => (
-                      <label key={input.id}>
+                      <div key={input.id} className="kavla-selection-setup-field">
                         <span className="kavla-selection-setup-name" title={input.props.name}>
                           {input.props.name}
                         </span>
-                        <select
-                          aria-label={`Key ${keyIndex + 1} for ${input.props.name}`}
-                          title={mapping[inputIndex] || "Choose a column"}
+                        <SelectionOperationSelect
+                          label={`Key ${keyIndex + 1} for ${input.props.name}`}
                           value={mapping[inputIndex]}
-                          onChange={(event) => {
-                            const value = event.currentTarget.value;
+                          options={(getSelectionSchema(input) ?? []).map((column) => ({
+                            value: column.name,
+                            label: column.name,
+                            type: column.type,
+                          }))}
+                          onSelect={(value) => {
                             setKeys(
                               keys.map((key, index) =>
                                 index === keyIndex
@@ -216,15 +195,8 @@ export function SelectionOperationPanel({
                               )
                             );
                           }}
-                        >
-                          <option value="">Choose column</option>
-                          {getSelectionSchema(input)?.map((column) => (
-                            <option key={column.name} value={column.name}>
-                              {column.name} ({column.type})
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                        />
+                      </div>
                     ))}
                     {keys.length > 1 && (
                       <TldrawUiButton
@@ -251,13 +223,6 @@ export function SelectionOperationPanel({
                   <span className="kavla-control-label">Add key</span>
                 </TldrawUiButton>
               </>
-            )}
-            {operation === "DIFF" && (
-              <p className="kavla-selection-setup-hint">
-                {useKeys
-                  ? "Keys must be unique. Finds added, removed and changed rows."
-                  : "Distinct rows. Finds added and removed rows."}
-              </p>
             )}
           </>
         )}

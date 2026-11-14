@@ -163,30 +163,106 @@ html[data-kavla-just-icons] .tlui-style-panel .kavla-selection-operation {
   overflow-wrap: anywhere;
 }
 
-.kavla-selection-setup label {
+.kavla-selection-setup-field {
   display: grid;
   gap: 3px;
   min-width: 0;
   font-weight: 600;
 }
 
-.kavla-selection-setup select {
+.kavla-selection-select {
+  position: relative;
+  min-width: 0;
+}
+
+.kavla-selection-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
   width: 100%;
   min-width: 0;
-  height: 28px;
-  padding: 2px 4px;
-  border: 1px solid #000;
+  height: 32px;
+  padding: 4px 8px;
+  border: 2px solid #000;
+  border-radius: 4px;
+  color: #000;
+  font:
+    700 12px / 1.35 Inter,
+    sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kavla-selection-select-trigger > span,
+.kavla-selection-select-option > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kavla-selection-select-trigger > svg {
+  flex-shrink: 0;
+}
+
+.kavla-selection-select-trigger:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.kavla-selection-select-trigger:is(:hover, :focus-visible, [data-state="open"]) {
+  outline: none !important;
+  filter: brightness(0.95);
+}
+
+.kavla-selection-select-measure {
+  position: absolute;
+  height: 0;
+  max-width: 100%;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.kavla-selection-select-measure > span {
+  width: max-content;
+}
+
+.tlui-menu.kavla-selection-select-menu {
+  width: var(--radix-dropdown-menu-trigger-width);
+  min-width: 0;
+  max-width: var(--radix-dropdown-menu-content-available-width);
+  max-height: min(240px, var(--radix-dropdown-menu-content-available-height));
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 2px solid #000;
   border-radius: 4px;
   background: #fff;
   color: #000;
-  font: inherit;
-  font-weight: 400;
-  text-overflow: ellipsis;
+  box-shadow: none;
 }
 
-.kavla-selection-setup select:is(:hover, :focus-visible) {
-  outline: none;
-  background: #e2e8f0;
+.kavla-selection-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 8px;
+  border: 0;
+  color: #000;
+  font:
+    700 12px / 1.35 Inter,
+    sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kavla-selection-select-option:is([data-highlighted], [data-selected="true"]) {
+  outline: none !important;
+  filter: brightness(0.95);
 }
 
 .kavla-selection-setup fieldset {
@@ -223,10 +299,6 @@ html[data-kavla-just-icons] .tlui-style-panel .kavla-selection-operation {
 .kavla-selection-setup-inputs > .tlui-button {
   grid-column: 2;
   grid-row: 1 / 3;
-}
-
-.kavla-selection-setup-hint {
-  color: #475569;
 }
 
 .kavla-selection-setup-error {
