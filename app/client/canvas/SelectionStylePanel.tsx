@@ -1,4 +1,5 @@
 import { BriefcaseBusiness, Code2, LayoutDashboard, Loader2, Scan } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   createShapeId,
   DefaultStylePanel,
@@ -9,7 +10,6 @@ import {
   type TLUiStylePanelProps,
   useEditor,
   useActions,
-  useDialogs,
   useRelevantStyles,
   useToasts,
   useValue,
@@ -31,7 +31,7 @@ import { useData } from "../useLocalServer";
 import { getSelectedQueryIds, isBizMode, setQueriesBizMode } from "./bizMode";
 import { getLayoutActionAvailability, getLayoutInProgress } from "./layoutActions";
 import { getLayoutSelection, isLayoutNode } from "./layoutSelection";
-import { SelectionOperationDialog } from "./SelectionOperationDialog";
+import { SelectionOperationPanel } from "./SelectionOperationPanel";
 
 const operations = [
   {
@@ -167,12 +167,48 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
   );
   const styles = useRelevantStyles();
   const { addToast } = useToasts();
-  const { addDialog } = useDialogs();
+  const [setup, setSetup] = useState<{
+    operation: "JOIN" | "EXCEPT" | "DIFF";
+    selectionKey: string;
+    height: number;
+    inputIds: TLShapeId[];
+  } | null>(null);
+  const returnFocus = useRef<{ panel: Element; testId: string } | null>(null);
+  const selectionKey = useValue(
+    "selection operation context",
+    () =>
+      JSON.stringify([
+        editor.getCurrentPageId(),
+        editor.getIsReadonly(),
+        editor.isIn("select"),
+        [...editor.getSelectedShapeIds()].sort(),
+      ]),
+    [editor]
+  );
   const inputs = useValue(
     "selection operation inputs",
     () => (!editor.getIsReadonly() && editor.isIn("select") ? getSelectedInputs(editor) : []),
     [editor]
   );
+  const setupInputs =
+    setup?.inputIds.map((id) => inputs.find((input) => input.id === id)).filter((input) => input !== undefined) ?? [];
+  const validSetup =
+    setup !== null && setup.selectionKey === selectionKey && setupInputs.length === setup.inputIds.length;
+
+  useEffect(() => {
+    if (setup && !validSetup) {
+      returnFocus.current = null;
+      setSetup(null);
+    }
+  }, [setup, validSetup]);
+
+  useLayoutEffect(() => {
+    if (!setup && returnFocus.current) {
+      const { panel, testId } = returnFocus.current;
+      panel.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)?.focus();
+      returnFocus.current = null;
+    }
+  }, [setup]);
 
   const runOperation = async (operation: SelectionOperation, inputIds: TLShapeId[], keys: KeyMapping[] = []) => {
     if (editor.getIsReadonly()) return;
@@ -229,19 +265,18 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
     }
   };
 
-  const selectOperation = (operation: SelectionOperation) => {
+  const selectOperation = (operation: SelectionOperation, button: HTMLButtonElement) => {
     const selectedInputs = getSelectedInputs(editor);
     if (selectedInputs.length < 2) return;
     if (operation === "JOIN" || operation === "EXCEPT" || operation === "DIFF") {
-      addDialog({
-        component: (dialogProps) => (
-          <SelectionOperationDialog
-            {...dialogProps}
-            operation={operation}
-            inputs={selectedInputs}
-            onRun={(ids, keys) => void runOperation(operation, ids, keys)}
-          />
-        ),
+      const panel = button.closest<HTMLElement>(".tlui-style-panel");
+      if (!panel) throw new Error("Selection operation needs a style panel.");
+      returnFocus.current = { panel, testId: `selection.${operation.toLowerCase()}` };
+      setSetup({
+        operation,
+        selectionKey,
+        height: panel.clientHeight,
+        inputIds: selectedInputs.map((input) => input.id),
       });
     } else {
       void runOperation(
@@ -250,6 +285,25 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
       );
     }
   };
+
+  if (validSetup && setup) {
+    return (
+      <DefaultStylePanel {...props}>
+        <SelectionOperationPanel
+          operation={setup.operation}
+          inputs={setupInputs}
+          height={setup.height}
+          onBack={() => setSetup(null)}
+          onRun={(ids, keys) => {
+            returnFocus.current = null;
+            setSetup(null);
+            void runOperation(setup.operation, ids, keys);
+            editor.getContainer().focus();
+          }}
+        />
+      </DefaultStylePanel>
+    );
+  }
 
   return (
     <DefaultStylePanel {...props}>
@@ -356,7 +410,7 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
                 className="kavla-selection-operation"
                 onPointerDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => event.stopPropagation()}
-                onClick={() => selectOperation(operation)}
+                onClick={(event) => selectOperation(operation, event.currentTarget)}
               >
                 <SelectionOperationIcon operation={operation} />
                 <span className="kavla-control-label">{label}</span>

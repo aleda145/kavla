@@ -116,3 +116,150 @@ html[data-kavla-just-icons] .tlui-style-panel .kavla-selection-operation {
 .tlui-style-panel .kavla-selection-operation:disabled {
   opacity: 0.4;
 }
+
+.kavla-selection-setup {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.kavla-selection-setup-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+}
+
+.kavla-selection-setup-header strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.kavla-selection-setup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 4px 8px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.kavla-selection-setup-body > * {
+  flex-shrink: 0;
+}
+
+.kavla-selection-setup p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.kavla-selection-setup label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.kavla-selection-setup select {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 2px 4px;
+  border: 1px solid #000;
+  border-radius: 4px;
+  background: #fff;
+  color: #000;
+  font: inherit;
+  font-weight: 400;
+  text-overflow: ellipsis;
+}
+
+.kavla-selection-setup select:is(:hover, :focus-visible) {
+  outline: none;
+  background: #e2e8f0;
+}
+
+.kavla-selection-setup fieldset {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.kavla-selection-setup legend {
+  padding: 0 0 4px;
+  font-weight: 800;
+}
+
+.kavla-selection-setup-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kavla-selection-setup-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 6px 4px;
+}
+
+.kavla-selection-setup-inputs > div {
+  min-width: 0;
+}
+
+.kavla-selection-setup-inputs > .tlui-button {
+  grid-column: 2;
+  grid-row: 1 / 3;
+}
+
+.kavla-selection-setup-hint {
+  color: #475569;
+}
+
+.kavla-selection-setup-error {
+  color: #b91c1c;
+}
+
+.kavla-selection-setup-footer {
+  padding: 4px;
+}
+
+.tlui-style-panel .kavla-selection-setup .tlui-button {
+  min-width: 0;
+  height: 28px;
+  padding: 4px;
+  gap: 4px;
+  color: #000;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tlui-style-panel .kavla-selection-setup-header .tlui-button {
+  width: 28px;
+}
+
+.tlui-style-panel .kavla-selection-setup-footer .tlui-button {
+  width: 100%;
+}
+
+.tlui-style-panel .kavla-selection-setup .tlui-button:focus-visible {
+  outline: none !important;
+}
+
+.tlui-style-panel .kavla-selection-setup .tlui-button:focus-visible::after {
+  opacity: 1;
+}
+
+.tlui-style-panel .kavla-selection-setup .tlui-button:disabled {
+  opacity: 0.4;
+}
