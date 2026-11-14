@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDownUp, ArrowLeft, Play, Plus, X } from "lucide-react";
 import { TldrawUiButton } from "tldraw";
 import type { SQLDependencyShape } from "../../SQLTextArea/sqlDependencies";
@@ -34,6 +34,44 @@ export function SelectionOperationPanel({
     error = cause instanceof Error ? cause.message : String(cause);
   }
   const title = operation === "JOIN" ? "Join" : operation === "DIFF" ? "Diff" : "Except";
+
+  useLayoutEffect(() => {
+    const element = root.current;
+    const panel = element?.closest<HTMLElement>(".tlui-style-panel");
+    const body = element?.querySelector<HTMLElement>(".kavla-selection-setup-body");
+    const selects = element?.querySelectorAll("select");
+    if (!element || !panel || !body || !selects?.length) return;
+
+    // Let the browser measure the options, including its native dropdown arrow.
+    const measure = selects[0].cloneNode(false) as HTMLSelectElement;
+    measure.setAttribute("aria-hidden", "true");
+    measure.tabIndex = -1;
+    Object.assign(measure.style, {
+      position: "absolute",
+      visibility: "hidden",
+      width: "auto",
+      maxWidth: "none",
+      font: getComputedStyle(selects[0]).font,
+    });
+    for (const select of selects) {
+      for (const option of select.options) measure.appendChild(option.cloneNode(true));
+    }
+    element.appendChild(measure);
+    const bodyStyle = getComputedStyle(body);
+    const panelStyle = getComputedStyle(panel);
+    const width =
+      measure.offsetWidth +
+      parseFloat(bodyStyle.paddingLeft) +
+      parseFloat(bodyStyle.paddingRight) +
+      (body.offsetWidth - body.clientWidth) +
+      parseFloat(panelStyle.borderLeftWidth) +
+      parseFloat(panelStyle.borderRightWidth);
+    measure.remove();
+    panel.style.setProperty("--kavla-selection-setup-width", `${Math.max(150, Math.ceil(width))}px`);
+    return () => {
+      panel.style.removeProperty("--kavla-selection-setup-width");
+    };
+  });
 
   useEffect(() => {
     back.current?.focus();
