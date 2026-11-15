@@ -2,6 +2,7 @@ import { BriefcaseBusiness, Code2, LayoutDashboard, Loader2, Scan } from "lucide
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   createShapeId,
+  defaultShapeUtils,
   DefaultStylePanel,
   DefaultStylePanelContent,
   TldrawUiButton,
@@ -30,6 +31,8 @@ import { getSelectedQueryIds, isBizMode, setQueriesBizMode } from "./bizMode";
 import { getLayoutActionAvailability, getLayoutInProgress } from "./layoutActions";
 import { getLayoutSelection, isLayoutNode } from "./layoutSelection";
 import { SelectionOperationPanel } from "./SelectionOperationPanel";
+
+const drawingShapeTypes = new Set<string>(defaultShapeUtils.map((util) => util.type));
 
 const operations = [
   {
@@ -151,11 +154,16 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
     "selection controls",
     () => {
       const queryIds = editor.isIn("select") ? getSelectedQueryIds(editor) : [];
+      const selectedShapes = editor.getSelectedShapes();
       return {
         ...getLayoutActionAvailability(editor),
         hasNodes: editor.isIn("select") && getLayoutSelection(editor).some(isLayoutNode),
         layingOut: getLayoutInProgress(editor).get(),
         queryIds,
+        onlyKavlaShapes:
+          editor.isIn("select") &&
+          selectedShapes.length > 0 &&
+          selectedShapes.every((shape) => !drawingShapeTypes.has(shape.type)),
         allBiz: queryIds.length > 0 && queryIds.every((id) => isBizMode(editor, id)),
         allSQL: queryIds.length > 0 && queryIds.every((id) => !isBizMode(editor, id)),
       };
@@ -302,7 +310,7 @@ export function SelectionStylePanel(props: TLUiStylePanelProps) {
 
   return (
     <DefaultStylePanel {...props}>
-      <DefaultStylePanelContent styles={styles} />
+      {!selection.onlyKavlaShapes && <DefaultStylePanelContent styles={styles} />}
       {selection.hasNodes && (
         <div
           className="tlui-style-panel__section"
