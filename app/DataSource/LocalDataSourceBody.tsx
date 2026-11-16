@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileSpreadsheet, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import type { Editor } from "tldraw";
 import { useData, type CliSource } from "../client/useLocalServer";
 import { SchemaTable } from "./ColumnProfileTable";
@@ -145,23 +145,14 @@ export function LocalDataSourceBody({
                 </div>
               )}
               {shape.props.excelImport && (
-                <div>
-                  <div className="mt-1 text-xs text-slate-600">
-                    {shape.props.excelImport.sheet} · {rangeLabel(shape.props.excelImport)}
+                <>
+                  <div>
+                    <strong>Sheet:</strong> {shape.props.excelImport.sheet}
                   </div>
-                  <button
-                    type="button"
-                    className={`${buttonClass} mt-2 mb-2`}
-                    disabled={shape.props.isRunning}
-                    title="Edit Excel selection"
-                    aria-label="Edit Excel selection"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={onEditExcel}
-                  >
-                    <FileSpreadsheet size={16} />
-                    <span className="kavla-control-label">Edit Excel selection</span>
-                  </button>
-                </div>
+                  <div>
+                    <strong>Range:</strong> {rangeLabel(shape.props.excelImport)}
+                  </div>
+                </>
               )}
               <SampledRowCount editor={editor} shape={shape} runRemoteQuery={runRemoteQuery} />
               {shape.props.metadata && (
@@ -220,6 +211,7 @@ export function LocalDataSourceBody({
           editor={editor}
           isSelectingSource={isSelectingSource}
           onClearSelectedColumns={onClearSelectedColumns}
+          onEditExcel={onEditExcel}
           onKeepCurrentSource={() => {
             setIsSelectingSource(false);
             resetPicker();

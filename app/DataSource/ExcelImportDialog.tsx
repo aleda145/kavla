@@ -7,6 +7,7 @@ import {
   cellLabel,
   columnLabel,
   excelColumns,
+  getAutomaticExcelSelection,
   parseCell,
   rangeLabel,
   suggestExcelSelection,
@@ -17,40 +18,74 @@ import {
 } from "./excel-import";
 import "./excel-import.css";
 
-type ImportOptions = { file?: File; config?: ExcelImportConfig };
-type DialogProps = ImportOptions & { onClose: (result: ExcelImportResult | null) => void };
+type ImportOptions = { file?: File; config?: ExcelImportConfig; autoDetect?: boolean };
+type DialogProps = ImportOptions & {
+  preparedWorkbook?: ExcelWorkbook;
+  importError?: string;
+  onClose: (result: ExcelImportResult | null) => void;
+};
 let dialogQueue: Promise<unknown> = Promise.resolve();
 
 export function openExcelImport(options: ImportOptions): Promise<ExcelImportResult | null> {
   const documentId = getActiveLocalSession()?.documentId;
-  const task = dialogQueue.then(
-    () =>
-      new Promise<ExcelImportResult | null>((resolve) => {
-        if (getActiveLocalSession()?.documentId !== documentId) {
-          resolve(null);
-          return;
+  const task = dialogQueue.then(async () => {
+    if (getActiveLocalSession()?.documentId !== documentId) return null;
+    let preparedWorkbook: ExcelWorkbook | undefined;
+    let importError: string | undefined;
+    if (options.autoDetect && options.file) {
+      const file = options.file;
+      preparedWorkbook = await withBackendActivity(async () => {
+        const body = new FormData();
+        body.set("file", file);
+        const response = await backendRequest("/api/session/uploads/excel/preview", { method: "POST", body });
+        return response.json() as Promise<ExcelWorkbook>;
+      });
+      if (getActiveLocalSession()?.documentId !== documentId) return null;
+      const selection = getAutomaticExcelSelection(preparedWorkbook);
+      if (selection) {
+        try {
+          const result = await withBackendActivity(async () => {
+            const body = new FormData();
+            body.set("file", file);
+            body.set("config", JSON.stringify(selection));
+            body.set("expectedRowCount", String(selection.endRow));
+            const response = await backendRequest("/api/session/uploads/excel", { method: "POST", body });
+            return response.json() as Promise<ExcelImportResult>;
+          });
+          return getActiveLocalSession()?.documentId === documentId ? result : null;
+        } catch (error) {
+          importError = `Automatic import failed. Review the selection and try again. ${error instanceof Error ? error.message : String(error)}`;
         }
-        const container = document.createElement("div");
-        document.body.appendChild(container);
-        const root = createRoot(container);
-        const close = (result: ExcelImportResult | null) => {
-          root.unmount();
-          container.remove();
-          resolve(result);
-        };
-        root.render(<ExcelImportDialog {...options} onClose={close} />);
-      })
-  );
+      }
+    }
+    return new Promise<ExcelImportResult | null>((resolve) => {
+      if (getActiveLocalSession()?.documentId !== documentId) {
+        resolve(null);
+        return;
+      }
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      const close = (result: ExcelImportResult | null) => {
+        root.unmount();
+        container.remove();
+        resolve(result);
+      };
+      root.render(
+        <ExcelImportDialog {...options} preparedWorkbook={preparedWorkbook} importError={importError} onClose={close} />
+      );
+    });
+  });
   dialogQueue = task.catch(() => undefined);
   return task;
 }
 
-function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps) {
+function ExcelImportDialog({ file, config: initialConfig, preparedWorkbook, importError, onClose }: DialogProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const controller = useRef(new AbortController());
   const [workbook, setWorkbook] = useState<ExcelWorkbook | null>(null);
   const [config, setConfig] = useState<ExcelImportConfig | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(importError ?? null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pickHeader, setPickHeader] = useState(!initialConfig);
@@ -87,12 +122,14 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
       }
     };
     window.addEventListener("kavla:backend-reset", reset);
-    void backendRequest("/api/session/uploads/excel/preview", {
-      method: "POST",
-      body: requestBody(),
-      signal: abort.signal,
-    })
-      .then((response) => response.json() as Promise<ExcelWorkbook>)
+    const readWorkbook = preparedWorkbook
+      ? Promise.resolve(preparedWorkbook)
+      : backendRequest("/api/session/uploads/excel/preview", {
+          method: "POST",
+          body: requestBody(),
+          signal: abort.signal,
+        }).then((response) => response.json() as Promise<ExcelWorkbook>);
+    void readWorkbook
       .then((result) => {
         if (abort.signal.aborted) return;
         setWorkbook(result);
@@ -281,14 +318,6 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
               Skip empty rows
             </label>
           </fieldset>
-          <div className="excel-help">
-            {pickHeader
-              ? "Click a row to use as headers. The selection includes all columns through the last row."
-              : "Drag to select a range, or type one above. The first row becomes the header."}{" "}
-            <span className="excel-header-key">
-              {config.headerRow === null ? "No header" : `Header: row ${config.headerRow + 1}`}
-            </span>
-          </div>
           {sheet.columnCount > 0 && sheet.rows.length > 0 ? (
             <SpreadsheetGrid
               key={sheet.name}

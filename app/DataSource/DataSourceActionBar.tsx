@@ -1,5 +1,5 @@
 import { createShapeId, type Editor, useToasts } from "tldraw";
-import { RefreshCw, Search } from "lucide-react";
+import { FileSpreadsheet, RefreshCw, Search } from "lucide-react";
 import { connectShapes } from "../util/shapeConnections";
 import { getFallbackNodePosition } from "../client/canvas/fallbackNodePosition";
 import { type TableDownloadFormat } from "../util/downloadTable";
@@ -13,6 +13,7 @@ interface DataSourceActionBarProps {
   editor: Editor;
   isSelectingSource: boolean;
   onClearSelectedColumns: () => void;
+  onEditExcel: () => void;
   onKeepCurrentSource: () => void;
   onOpenSourcePicker: () => void;
   selectedColumns: Set<string>;
@@ -24,6 +25,7 @@ export function DataSourceActionBar({
   editor,
   isSelectingSource,
   onClearSelectedColumns,
+  onEditExcel,
   onKeepCurrentSource,
   onOpenSourcePicker,
   selectedColumns,
@@ -135,6 +137,20 @@ export function DataSourceActionBar({
       }}
     >
       {shape.props.filename && <TableDownloadButtons buttonClassName={buttonClassName} onDownload={handleDownload} />}
+
+      {shape.props.excelImport && (
+        <button
+          type="button"
+          onClick={onEditExcel}
+          onPointerDown={(event) => event.stopPropagation()}
+          disabled={shape.props.isRunning}
+          title="Edit Excel selection"
+          className={buttonClassName}
+          style={{ width: "100%", justifyContent: "center", backgroundColor: "#fff" }}
+        >
+          <FileSpreadsheet size={16} /> <span className="kavla-control-label">Excel</span>
+        </button>
+      )}
 
       <button
         onClick={handleSourceSelection}

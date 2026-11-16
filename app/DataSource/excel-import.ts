@@ -72,3 +72,52 @@ export function suggestExcelSelection(sheet: ExcelSheet, workbookId = ""): Excel
     skipEmptyRows: true,
   };
 }
+
+export function getAutomaticExcelSelection(workbook: ExcelWorkbook): ExcelImportConfig | null {
+  // Ignore empty sheets, but never silently choose between multiple tables.
+  const sheets = workbook.sheets.filter((sheet) => sheet.rows.some((row) => row.some((value) => value.trim() !== "")));
+  if (sheets.length !== 1) return null;
+  const sheet = sheets[0];
+  const headers = sheet.rows[0]?.map((value) => value.trim()) ?? [];
+  if (!headers.length || headers.length !== sheet.columnCount) return null;
+  const names = new Set<string>();
+  for (const header of headers) {
+    const name = header.toLowerCase();
+    if (
+      !/\p{L}/u.test(header) ||
+      Number.isFinite(Number(header)) ||
+      /^\d{4}-\d{2}-\d{2}(?:$|[T ])/i.test(header) ||
+      /[\r\n]/.test(header) ||
+      header.length > 128 ||
+      /^(?:true|false|null|nan|undefined|#[\w/?!]+)$/i.test(header) ||
+      names.has(name)
+    )
+      return null;
+    names.add(name);
+  }
+
+  let endRow = sheet.rows.length - 1;
+  while (endRow > 0 && sheet.rows[endRow].every((value) => value.trim() === "")) endRow--;
+  if (endRow < 1) return null;
+
+  // Inspect every row, including far below the first apparent table. Missing
+  // cells are normal CSV data; Excel may omit trailing empty cells entirely.
+  // Empty separators or repeated headers still suggest separate data blocks.
+  for (let index = 1; index <= endRow; index++) {
+    const row = sheet.rows[index];
+    if (row.length > headers.length || row.every((value) => value.trim() === "")) return null;
+    if (headers.every((header, col) => (row[col] ?? "").trim().toLowerCase() === header.toLowerCase())) return null;
+  }
+
+  return {
+    workbookId: "",
+    sheet: sheet.name,
+    startRow: 0,
+    endRow,
+    startCol: 0,
+    endCol: headers.length - 1,
+    headerRow: 0,
+    columns: excelColumns(0, headers.length - 1),
+    skipEmptyRows: true,
+  };
+}

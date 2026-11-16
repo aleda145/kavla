@@ -146,16 +146,6 @@
   font-size: 11px;
   line-height: 1.6;
 }
-.excel-header-key {
-  margin-left: 10px;
-  padding: 2px 5px;
-  color: #000;
-  border-radius: 3px;
-  white-space: nowrap;
-}
-.excel-header-key {
-  background: #fde047;
-}
 .excel-grid {
   flex: 1;
   min-height: 120px;
