@@ -72,7 +72,7 @@ export async function ingestLocalDataSourceFile(
   file: File
 ): Promise<LocalDataSourceProps | null> {
   if (isExcelFile(file)) {
-    const result = await openExcelImport({ file });
+    const result = await openExcelImport({ file, autoDetect: true });
     return result ? excelDataSourceProps(editor, shapeId, result) : null;
   }
   const result = await withBackendActivity(async () => {

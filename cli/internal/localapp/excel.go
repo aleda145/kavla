@@ -314,6 +314,14 @@ func (s *Server) handleExcelImport(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, 400, err)
 		return
 	}
+	var expectedRowCount int64
+	if value := r.FormValue("expectedRowCount"); value != "" {
+		expectedRowCount, err = strconv.ParseInt(value, 10, 64)
+		if err != nil || expectedRowCount < 1 {
+			writeAPIError(w, 400, fmt.Errorf("expected row count must be a positive integer"))
+			return
+		}
+	}
 	workbook, err := readExcelWorkbook(r.Context(), data, filename)
 	if err != nil {
 		writeAPIError(w, 422, err)
@@ -383,6 +391,10 @@ func (s *Server) handleExcelImport(w http.ResponseWriter, r *http.Request) {
 	stats, err := querySession.GetSourceStats(ctx, tableRef)
 	if err != nil {
 		writeAPIError(w, 500, err)
+		return
+	}
+	if expectedRowCount > 0 && stats["rowCount"] != expectedRowCount {
+		writeAPIError(w, 422, fmt.Errorf("import read %d rows, but the worksheet contains %d data rows; choose the header and range manually", stats["rowCount"], expectedRowCount))
 		return
 	}
 	complete = true
