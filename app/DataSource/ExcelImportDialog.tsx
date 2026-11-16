@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createRoot } from "react-dom/client";
-import { Check, FileSpreadsheet, Loader2, MousePointer2, RotateCcw, X } from "lucide-react";
+import { Check, ChevronDown, FileSpreadsheet, Loader2, MousePointer2, X } from "lucide-react";
 import { backendRequest, withBackendActivity } from "../client/backendCompute";
 import { getActiveLocalSession } from "../client/local/localSession";
 import {
@@ -9,7 +9,6 @@ import {
   excelColumns,
   parseCell,
   rangeLabel,
-  selectionPreview,
   suggestExcelSelection,
   type ExcelImportConfig,
   type ExcelImportResult,
@@ -54,12 +53,21 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [pickHeader, setPickHeader] = useState(false);
+  const [pickHeader, setPickHeader] = useState(!initialConfig);
   const sheetSelections = useRef(new Map<string, ExcelImportConfig>());
   const [rangeText, setRangeText] = useState("");
   const [rangeError, setRangeError] = useState<string | null>(null);
   const sheet = workbook?.sheets.find((candidate) => candidate.name === config?.sheet);
-  const preview = useMemo(() => (sheet && config ? selectionPreview(sheet, config) : null), [sheet, config]);
+  const dataRowCount = useMemo(() => {
+    if (!config || !sheet?.rows.length) return 0;
+    const firstRow = config.headerRow === null ? config.startRow : config.headerRow + 1;
+    if (!config.skipEmptyRows) return Math.max(0, config.endRow - firstRow + 1);
+    let count = 0;
+    for (let row = firstRow; row <= config.endRow; row++) {
+      if (config.columns.some((col) => (sheet.rows[row]?.[col] ?? "") !== "")) count++;
+    }
+    return count;
+  }, [config, sheet]);
 
   const requestBody = () => {
     const body = new FormData();
@@ -93,7 +101,8 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
           result.sheets.find((candidate) => candidate.columnCount > 0) ??
           result.sheets[0];
         if (!firstSheet) throw new Error("This workbook contains no worksheets.");
-        setConfig(initialConfig ?? suggestExcelSelection(firstSheet));
+        const selection = initialConfig ?? suggestExcelSelection(firstSheet);
+        setConfig({ ...selection, columns: excelColumns(selection.startCol, selection.endCol) });
       })
       .catch((reason: unknown) => {
         if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason));
@@ -118,7 +127,8 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
       (previous.startRow === startRow &&
         previous.endRow === endRow &&
         previous.startCol === startCol &&
-        previous.endCol === endCol)
+        previous.endCol === endCol &&
+        previous.headerRow === startRow)
         ? previous
         : {
             ...previous,
@@ -127,7 +137,7 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
             startCol,
             endCol,
             columns: excelColumns(startCol, endCol),
-            headerRow: previous.headerRow === null ? null : Math.max(startRow, Math.min(endRow, previous.headerRow)),
+            headerRow: startRow,
           }
     );
   };
@@ -150,9 +160,10 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
     }
     setRangeError(null);
     updateRange(start.row, end.row, start.col, end.col);
+    setPickHeader(false);
   };
   const importSelection = async () => {
-    if (!config || !preview?.count || !config.columns.length || saving || rangeError) return;
+    if (!config || !dataRowCount || !config.columns.length || saving || rangeError) return;
     setSaving(true);
     setError(null);
     try {
@@ -211,21 +222,27 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
         <>
           <fieldset className="excel-controls" disabled={saving}>
             <label>
-              Sheet
-              <select
-                value={config.sheet}
-                onChange={(event) => {
-                  const next = workbook.sheets.find((candidate) => candidate.name === event.target.value)!;
-                  sheetSelections.current.set(config.sheet, config);
-                  setConfig(sheetSelections.current.get(next.name) ?? suggestExcelSelection(next, config.workbookId));
-                  setPickHeader(false);
-                  setError(null);
-                }}
-              >
-                {workbook.sheets.map((candidate) => (
-                  <option key={candidate.name}>{candidate.name}</option>
-                ))}
-              </select>
+              Sheet ({workbook.sheets.length})
+              <span className="excel-sheet-dropdown">
+                <select
+                  aria-label="Choose worksheet"
+                  value={config.sheet}
+                  onChange={(event) => {
+                    const next = workbook.sheets.find((candidate) => candidate.name === event.target.value)!;
+                    sheetSelections.current.set(config.sheet, config);
+                    setConfig(sheetSelections.current.get(next.name) ?? suggestExcelSelection(next, config.workbookId));
+                    setPickHeader(!sheetSelections.current.has(next.name));
+                    setError(null);
+                  }}
+                >
+                  {workbook.sheets.map((candidate) => (
+                    <option key={candidate.name} value={candidate.name}>
+                      {candidate.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={16} aria-hidden="true" />
+              </span>
             </label>
             <label>
               Range
@@ -234,7 +251,7 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
                 value={rangeText}
                 onChange={(event) => {
                   setRangeText(event.target.value);
-                  setRangeError("Apply the range with Enter or leave this field.");
+                  setRangeError(null);
                 }}
                 onBlur={applyRangeText}
                 onKeyDown={(event) => {
@@ -246,49 +263,14 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
                 spellCheck={false}
               />
             </label>
-            <label>
-              Header row
-              <div className="excel-inline">
-                <input
-                  type="checkbox"
-                  aria-label="Use a header row"
-                  checked={config.headerRow !== null}
-                  onChange={(event) =>
-                    setConfig({ ...config, headerRow: event.target.checked ? config.startRow : null })
-                  }
-                />
-                <input
-                  aria-label="Header row number"
-                  type="number"
-                  min={config.startRow + 1}
-                  max={config.endRow + 1}
-                  disabled={config.headerRow === null}
-                  value={config.headerRow === null ? "" : config.headerRow + 1}
-                  onChange={(event) => {
-                    const row = Number(event.target.value) - 1;
-                    if (Number.isInteger(row) && row >= config.startRow && row <= config.endRow)
-                      setConfig({ ...config, headerRow: row });
-                  }}
-                />
-              </div>
-            </label>
             <button
               type="button"
               className={pickHeader ? "excel-active" : ""}
+              aria-pressed={pickHeader}
               onClick={() => setPickHeader(!pickHeader)}
             >
               <MousePointer2 size={16} />
-              {pickHeader ? "Click a header row…" : "Pick header"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setConfig(suggestExcelSelection(sheet, config.workbookId));
-                setPickHeader(false);
-              }}
-            >
-              <RotateCcw size={16} />
-              Suggest selection
+              {pickHeader ? "Click your header row…" : "Pick header row"}
             </button>
             <label className="excel-checkbox">
               <input
@@ -300,9 +282,12 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
             </label>
           </fieldset>
           <div className="excel-help">
-            Drag cells, row numbers, or column letters to select a range. Uncheck columns to leave them out.{" "}
-            <span className="excel-range-key">Blue: selected data</span>{" "}
-            <span className="excel-header-key">Yellow: header</span>
+            {pickHeader
+              ? "Click a row to use as headers. The selection includes all columns through the last row."
+              : "Drag to select a range, or type one above. The first row becomes the header."}{" "}
+            <span className="excel-header-key">
+              {config.headerRow === null ? "No header" : `Header: row ${config.headerRow + 1}`}
+            </span>
           </div>
           {sheet.columnCount > 0 && sheet.rows.length > 0 ? (
             <SpreadsheetGrid
@@ -314,61 +299,25 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
               onHeader={(row) => {
                 setConfig({
                   ...config,
-                  startRow: Math.min(config.startRow, row),
-                  endRow: Math.max(config.endRow, row),
+                  startRow: row,
+                  endRow: sheet.rows.length - 1,
+                  startCol: 0,
+                  endCol: sheet.columnCount - 1,
                   headerRow: row,
+                  columns: excelColumns(0, sheet.columnCount - 1),
                 });
                 setPickHeader(false);
               }}
               onRange={updateRange}
-              onColumn={(col) =>
-                setConfig({
-                  ...config,
-                  columns: config.columns.includes(col)
-                    ? config.columns.filter((value) => value !== col)
-                    : [...config.columns, col].sort((a, b) => a - b),
-                })
-              }
             />
           ) : (
             <div className="excel-loading">This sheet is empty. Choose another sheet.</div>
           )}
-          <section className="excel-preview" aria-label="Import preview">
-            <div className="excel-preview-title">
-              <strong>Import preview</strong>
-              <span>
-                {preview?.count.toLocaleString()} rows · {config.columns.length} columns
-                {preview && preview.count > 8 ? " · first 8 rows shown" : ""}
-              </span>
+          {!dataRowCount && sheet.rows.length > 0 && (
+            <div className="excel-help" role="status">
+              Choose a header with data rows below it.
             </div>
-            <div className="excel-preview-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    {preview?.headers.map((header, index) => (
-                      <th key={index}>{header}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview?.rows.map((row, index) => (
-                    <tr key={index}>
-                      {row.map((value, col) => (
-                        <td key={col} title={value}>
-                          {value || <span className="excel-null">NULL</span>}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {!config.columns.length ? (
-              <p>Select at least one column.</p>
-            ) : !preview?.count ? (
-              <p>Select a range containing data rows below the header.</p>
-            ) : null}
-          </section>
+          )}
         </>
       ) : null}
       {(error || rangeError) && (
@@ -378,8 +327,7 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
       )}
       <footer className="excel-footer">
         <span>
-          Formula cells use saved results. Blank cells become NULL.
-          {initialConfig ? " The previous table stays available." : ""}
+          {config ? `${dataRowCount.toLocaleString()} rows · ${config.columns.length.toLocaleString()} columns` : ""}
         </span>
         <button type="button" disabled={saving} onClick={() => onClose(null)}>
           Cancel
@@ -387,7 +335,7 @@ function ExcelImportDialog({ file, config: initialConfig, onClose }: DialogProps
         <button
           type="button"
           className="excel-import-button"
-          disabled={loading || saving || !preview?.count || !config?.columns.length || Boolean(rangeError)}
+          disabled={loading || saving || !dataRowCount || !config?.columns.length || Boolean(rangeError)}
           onClick={() => void importSelection()}
         >
           {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
@@ -409,11 +357,10 @@ type GridProps = {
   pickHeader: boolean;
   onHeader: (row: number) => void;
   onRange: (startRow: number, endRow: number, startCol: number, endCol: number) => void;
-  onColumn: (col: number) => void;
 };
 type DragSelection = { row: number; col: number; mode: "cell" | "row" | "column"; x: number; y: number };
 
-function SpreadsheetGrid({ sheet, config, disabled, pickHeader, onHeader, onRange, onColumn }: GridProps) {
+function SpreadsheetGrid({ sheet, config, disabled, pickHeader, onHeader, onRange }: GridProps) {
   const viewport = useRef<HTMLDivElement>(null);
   const drag = useRef<DragSelection | null>(null);
   const [windowSize, setWindowSize] = useState({ top: 0, left: 0, width: 1000, height: 300 });
@@ -543,16 +490,6 @@ function SpreadsheetGrid({ sheet, config, disabled, pickHeader, onHeader, onRang
               style={{ left: ROW_HEADER_WIDTH + col * CELL_WIDTH, width: CELL_WIDTH }}
               onPointerDown={(event) => start(event, config.startRow, col, "column")}
             >
-              {col >= config.startCol && col <= config.endCol && (
-                <input
-                  type="checkbox"
-                  aria-label={`Import column ${columnLabel(col)}`}
-                  disabled={disabled}
-                  checked={included.has(col)}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onChange={() => onColumn(col)}
-                />
-              )}
               {columnLabel(col)}
             </div>
           ))}

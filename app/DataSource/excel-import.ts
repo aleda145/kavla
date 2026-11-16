@@ -60,49 +60,15 @@ export function suggestExcelSelection(sheet: ExcelSheet, workbookId = ""): Excel
       startRow = index;
     }
   });
-  let endRow = startRow;
-  while (endRow + 1 < sheet.rows.length && sheet.rows[endRow + 1].some((value) => value !== "")) endRow++;
-  let startCol = sheet.columnCount;
-  let endCol = 0;
-  for (let row = startRow; row <= endRow; row++) {
-    sheet.rows[row]?.forEach((value, col) => {
-      if (value !== "") {
-        startCol = Math.min(startCol, col);
-        endCol = Math.max(endCol, col);
-      }
-    });
-  }
-  startCol = Math.min(startCol, endCol);
-  const first = sheet.rows[startRow]?.slice(startCol, endCol + 1).filter(Boolean) ?? [];
-  const looksLikeHeader = first.length > 0 && first.every((value) => !/^(?:[-+]?\d[\d.,% ]*|true|false)$/i.test(value));
   return {
     workbookId,
     sheet: sheet.name,
     startRow,
-    endRow,
-    startCol,
-    endCol,
-    headerRow: looksLikeHeader ? startRow : null,
-    columns: excelColumns(startCol, endCol),
+    endRow: Math.max(0, sheet.rows.length - 1),
+    startCol: 0,
+    endCol: Math.max(0, sheet.columnCount - 1),
+    headerRow: startRow,
+    columns: excelColumns(0, sheet.columnCount - 1),
     skipEmptyRows: true,
   };
-}
-
-export function selectionPreview(sheet: ExcelSheet, config: ExcelImportConfig) {
-  const names = new Set<string>();
-  const headers = config.columns.map((col) => {
-    const base = (config.headerRow === null ? "" : sheet.rows[config.headerRow]?.[col]?.trim()) || `column_${col + 1}`;
-    let name = base;
-    for (let suffix = 2; names.has(name.toLowerCase()); suffix++) name = `${base}_${suffix}`;
-    names.add(name.toLowerCase());
-    return name;
-  });
-  const rows: string[][] = [];
-  let count = 0;
-  for (let row = config.headerRow === null ? config.startRow : config.headerRow + 1; row <= config.endRow; row++) {
-    if (config.skipEmptyRows && !config.columns.some((col) => (sheet.rows[row]?.[col] ?? "") !== "")) continue;
-    count++;
-    if (rows.length < 8) rows.push(config.columns.map((col) => sheet.rows[row]?.[col] ?? ""));
-  }
-  return { headers, rows, count };
 }
