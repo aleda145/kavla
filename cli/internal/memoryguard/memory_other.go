@@ -13,3 +13,7 @@ func enable(_ kavlaconfig.MemorySettings) (uint64, error) {
 func fallbackBudget(_ int) (uint64, uint64, error) {
 	return 0, 0, nil
 }
+
+func ReadSystemLimits() SystemLimits {
+	return SystemLimits{}
+}

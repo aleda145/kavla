@@ -93,7 +93,14 @@ func runWorker() error {
 		}),
 	}
 	defer server.Close()
-	if err := json.NewEncoder(os.Stdout).Encode(ready{Address: listener.Addr().String(), Statuses: eng.SourceStatuses(), Memory: memory, SwapLimitMiB: config.Memory.SwapLimitMiB}); err != nil {
+	info := ready{Address: listener.Addr().String(), Statuses: eng.SourceStatuses(), Memory: memory, SystemLimits: memoryguard.ReadSystemLimits()}
+	if limit, threads, err := eng.StartupSettings(ctx); err != nil {
+		log.Printf("Could not read DuckDB startup settings: %v", err)
+	} else {
+		info.DuckDBMemoryLimit = limit
+		info.DuckDBThreads = threads
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(info); err != nil {
 		return err
 	}
 	done := make(chan error, 1)

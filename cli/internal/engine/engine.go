@@ -224,6 +224,11 @@ func (e *Engine) execStartupSQL(ctx context.Context, sql string) error {
 	return nil
 }
 
+func (e *Engine) StartupSettings(ctx context.Context) (memoryLimit string, threads int, err error) {
+	err = e.db.QueryRowContext(ctx, "SELECT current_setting('memory_limit'), current_setting('threads')").Scan(&memoryLimit, &threads)
+	return memoryLimit, threads, err
+}
+
 func sqlStringList(values []string) string {
 	quoted := make([]string, 0, len(values))
 	for _, value := range values {
