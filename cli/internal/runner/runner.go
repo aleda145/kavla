@@ -89,15 +89,15 @@ func formatBytes(b int) string {
 func Execute(ctx context.Context, req QueryRequest, t Transport, eng QueryEngine) (*ExecuteResult, error) {
 	// 1. Query once at the default row limit
 	if req.PreviewRowLimit > 0 {
-		t.Log("Querying with LIMIT %d...\n", req.PreviewRowLimit)
+		t.Verbose("Querying with LIMIT %d", req.PreviewRowLimit)
 	} else {
-		t.Log("Querying without an implicit row limit...\n")
+		t.Verbose("Querying without an implicit row limit")
 	}
 	wrappedSQL, err := PreparePreviewSQLContext(ctx, req, eng, req.PreviewRowLimit)
 	if err != nil {
 		return nil, err
 	}
-	t.Verbose("Prepared preview SQL for source '%s':\n%s\n", req.SourceName, wrappedSQL)
+	t.Verbose("Prepared preview SQL source=%q sql=%q", req.SourceName, wrappedSQL)
 
 	reader, err := eng.Query(ctx, wrappedSQL)
 	if err != nil {
@@ -140,14 +140,14 @@ func Execute(ctx context.Context, req QueryRequest, t Transport, eng QueryEngine
 		return nil, err
 	}
 
-	t.Log("Got %d rows in %d Arrow batch(es), %d columns\n", totalRows, len(records), schema.NumFields())
+	t.Verbose("Got %d rows in %d Arrow batches, %d columns", totalRows, len(records), schema.NumFields())
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
 	if req.ResultFormat != ResultFormatParquet {
 		// 3. Try Arrow IPC first to avoid an unnecessary Parquet encode for small previews.
-		t.Log("Serializing to Arrow IPC...\n")
+		t.Verbose("Serializing to Arrow IPC")
 		buf, err := serializeArrowIPC(schema, records)
 		if err != nil {
 			return nil, err
@@ -156,7 +156,7 @@ func Execute(ctx context.Context, req QueryRequest, t Transport, eng QueryEngine
 			return nil, err
 		}
 
-		t.Log("Arrow IPC size: %s (limit: %s)\n", formatBytes(buf.Len()), formatBytes(maxArrowPreviewSize))
+		t.Verbose("Arrow IPC size: %s (limit: %s)", formatBytes(buf.Len()), formatBytes(maxArrowPreviewSize))
 
 		// 4. If Arrow fits, send it directly.
 		if req.ResultFormat == ResultFormatArrow || buf.Len() <= maxArrowPreviewSize {
@@ -164,9 +164,9 @@ func Execute(ctx context.Context, req QueryRequest, t Transport, eng QueryEngine
 				return nil, fmt.Errorf("Arrow result is %s, exceeding the hosted transport limit of %s; reduce the query result or allow Parquet output", formatBytes(buf.Len()), formatBytes(limit))
 			}
 			if req.ResultFormat == ResultFormatArrow {
-				t.Log("Arrow IPC requested, staging result for local download\n")
+				t.Verbose("Arrow IPC requested, staging result for local download")
 			} else {
-				t.Log("Arrow IPC fits in WebSocket, sending directly\n")
+				t.Verbose("Arrow IPC fits in WebSocket, sending directly")
 			}
 			result := &ExecuteResult{
 				RowCount: totalRows,
@@ -179,9 +179,9 @@ func Execute(ctx context.Context, req QueryRequest, t Transport, eng QueryEngine
 			return result, err
 		}
 
-		t.Log("Arrow IPC too large, serializing to Parquet (Snappy)...\n")
+		t.Verbose("Arrow IPC too large, serializing to Parquet (Snappy)")
 	} else {
-		t.Log("Serializing local result to Parquet (Snappy)...\n")
+		t.Verbose("Serializing local result to Parquet (Snappy)")
 	}
 
 	// 5. Encode Parquet when requested by the local app or when Arrow is too large.
@@ -193,7 +193,7 @@ func Execute(ctx context.Context, req QueryRequest, t Transport, eng QueryEngine
 		return nil, err
 	}
 
-	t.Log("Parquet size: %s\n", formatBytes(buf.Len()))
+	t.Verbose("Parquet size: %s", formatBytes(buf.Len()))
 	rowsToSend := totalRows
 	if limit := maxTransportResultSize(t); limit > 0 && buf.Len() > limit {
 		var truncateErr error
@@ -203,7 +203,7 @@ func Execute(ctx context.Context, req QueryRequest, t Transport, eng QueryEngine
 		}
 		t.Log("Hosted result truncated to %d rows (%s transport limit)\n", rowsToSend, formatBytes(limit))
 	}
-	t.Log("Sending Parquet result\n")
+	t.Verbose("Sending Parquet result")
 	result := &ExecuteResult{
 		RowCount: rowsToSend,
 		DataSize: int64(buf.Len()),

@@ -66,11 +66,7 @@ func (s *Server) applyCLIConfig(config *kavlaconfig.Config) error {
 	if s.canvases != nil {
 		return s.canvases.applySources(config)
 	}
-	nextSession := session.NewWithAllowedDirectories(config.Sources, []string{s.transientDir, s.document.workingDir})
-	nextSession.SetLogger(s.logCLIOutput)
-	if s.verbose {
-		nextSession.SetVerboseLogger(s.logCLIOutput)
-	}
+	nextSession := s.newQuerySession(s.document, config.Sources)
 	if err := nextSession.Start(); err != nil {
 		return fmt.Errorf("start updated CLI sources: %w", err)
 	}

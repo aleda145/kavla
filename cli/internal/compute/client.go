@@ -43,6 +43,7 @@ type Client struct {
 	cancel          context.CancelFunc
 	config          configuration
 	logf            func(string, ...interface{})
+	verbosef        func(string, ...interface{})
 	transport       *http.Transport
 	http            *http.Client
 	gate            chan struct{}
@@ -58,8 +59,8 @@ type Client struct {
 	restoredViews   map[string]bool
 }
 
-func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), directories []string) (*Client, error) {
-	c := NewLazy(ctx, sources, logf, directories)
+func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf, verbosef func(string, ...interface{}), directories []string) (*Client, error) {
+	c := NewLazy(ctx, sources, logf, verbosef, directories)
 	if _, err := c.call(ctx, request{Op: "initialize"}); err != nil {
 		_ = c.Close()
 		return nil, err
@@ -69,16 +70,16 @@ func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf 
 
 // NewLazy keeps canvas opening independent of native compute and source I/O.
 // The first compute request starts the supervised worker through the same gate.
-func NewLazy(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), directories []string) *Client {
+func NewLazy(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf, verbosef func(string, ...interface{}), directories []string) *Client {
 	if logf == nil {
 		logf = log.Printf
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	transport := &http.Transport{MaxIdleConnsPerHost: 1, IdleConnTimeout: time.Minute}
 	c := &Client{
-		ctx: ctx, cancel: cancel, logf: logf, transport: transport,
+		ctx: ctx, cancel: cancel, logf: logf, verbosef: verbosef, transport: transport,
 		http: &http.Client{Transport: transport}, gate: make(chan struct{}, 1),
-		config: configuration{Sources: sources, Directories: slices.Clone(directories)},
+		config: configuration{Sources: sources, Directories: slices.Clone(directories), Verbose: verbosef != nil},
 	}
 	for name, source := range sources {
 		c.statuses = append(c.statuses, engine.SourceStatus{Name: name, Type: source.Type})
@@ -147,20 +148,31 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 				var status engine.SourceStatus
 				if err := json.Unmarshal([]byte(data), &status); err == nil {
 					c.updateWorkerSourceStatuses(p, []engine.SourceStatus{status})
+					if status.Error != "" {
+						c.logWorker(p, "Source %q unavailable: %s", status.Name, status.Error)
+					}
 					continue
 				}
 			}
-			c.logf("[DuckDB %d] %s\n", cmd.Process.Pid, scanner.Text())
+			c.logWorker(p, "%s", scanner.Text())
 		}
 		// Keep draining even if a native extension emits an unusually long line.
+		if err := scanner.Err(); err != nil {
+			c.logWorker(p, "Stopped forwarding DuckDB stderr: %v", err)
+		}
 		_, _ = io.Copy(io.Discard, stderr)
 	}()
 	go func() {
-		_ = cmd.Wait()
+		waitErr := cmd.Wait()
 		if err := spilldir.Cleanup(); err != nil {
-			c.logf("Clean up DuckDB spill files after worker exit: %v\n", err)
+			c.logWorker(p, "Could not clean up DuckDB spill files: %v", err)
 		}
 		close(p.done)
+		if waitErr != nil {
+			c.logWorker(p, "DuckDB worker exited: %v", waitErr)
+		} else {
+			c.verboseWorker(p, "DuckDB worker exited")
+		}
 		c.mu.Lock()
 		isCurrent := c.worker == p
 		c.mu.Unlock()
@@ -184,6 +196,7 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 		// so logging cannot block their query threads on a full pipe.
 		_, _ = io.Copy(io.Discard, stdout)
 	}()
+	c.verboseWorker(p, "Starting DuckDB worker")
 	select {
 	case result := <-startup:
 		if result.Error != "" {
@@ -219,7 +232,7 @@ func (c *Client) ensureWorker(ctx context.Context) (_ *process, startupErr error
 		default:
 			return p, nil
 		}
-		c.logf("DuckDB service exited. Restoring compute; the canvas is still open.\n")
+		c.verboseWorker(p, "Restarting DuckDB after worker exit")
 	}
 	c.mu.Lock()
 	c.worker = nil
@@ -229,6 +242,7 @@ func (c *Client) ensureWorker(ctx context.Context) (_ *process, startupErr error
 	c.notifySourcesChanged()
 	defer func() {
 		if startupErr != nil {
+			c.logf("Could not start DuckDB worker: %v", startupErr)
 			c.mu.Lock()
 			c.workerError = startupErr.Error()
 			c.mu.Unlock()
@@ -271,22 +285,22 @@ func (c *Client) ensureWorker(ctx context.Context) (_ *process, startupErr error
 	c.workerError = ""
 	c.mu.Unlock()
 	if info.Memory.Warning != "" {
-		c.logf("Warning: %s. Continuing in a separate DuckDB process without a verified compute-only hard cap.\n", info.Memory.Warning)
+		c.logWorker(next, "Warning: %s. Continuing without a verified compute-only hard cap.", info.Memory.Warning)
 	}
 	if !info.Memory.Configured {
-		c.logf("DuckDB service %d started; no Kavla memory cap configured; using DuckDB's automatic memory budget. Existing OS and container limits still apply.\n", next.cmd.Process.Pid)
+		c.verboseWorker(next, "DuckDB worker ready with its automatic memory budget (OS and container limits still apply)")
 	} else if info.Memory.Limit == 0 {
-		c.logf("DuckDB service %d started; no compute-only RAM or swap cap.\n", next.cmd.Process.Pid)
+		c.verboseWorker(next, "DuckDB worker ready without a compute-only RAM or swap cap")
 		if info.Memory.InheritedLimit > 0 {
-			c.logf("Inherited cgroup memory limit: %.2f GiB; this may be shared with the canvas server and other processes. Container OOM can stop the entire application.\n", float64(info.Memory.InheritedLimit)/(1<<30))
+			c.verboseWorker(next, "Inherited cgroup memory limit: %.2f GiB (may be shared with the canvas server and other processes). Container OOM can stop the entire application.", float64(info.Memory.InheritedLimit)/(1<<30))
 		} else {
-			c.logf("No inherited cgroup memory limit detected. In Docker, configure --memory and --memory-swap.\n")
+			c.verboseWorker(next, "No inherited cgroup memory limit detected. In Docker, configure --memory and --memory-swap.")
 		}
 		if info.Memory.DuckDBLimit > 0 {
-			c.logf("Cooperative DuckDB budget per engine: %.2f GiB; native allocations and combined worker usage can exceed it.\n", float64(info.Memory.DuckDBLimit)/(1<<30))
+			c.verboseWorker(next, "Cooperative DuckDB budget per engine: %.2f GiB (native allocations and combined worker usage can exceed it)", float64(info.Memory.DuckDBLimit)/(1<<30))
 		}
 	} else {
-		c.logf("DuckDB service %d started; compute processes share a %.2f GiB memory cap; DuckDB budget %.2f GiB; configured swap limit %d MiB.\n", next.cmd.Process.Pid, float64(info.Memory.Limit)/(1<<30), float64(info.Memory.DuckDBLimit)/(1<<30), info.SwapLimitMiB)
+		c.verboseWorker(next, "DuckDB worker ready with a %.2f GiB shared compute cap, %.2f GiB DuckDB budget, and %d MiB swap limit", float64(info.Memory.Limit)/(1<<30), float64(info.Memory.DuckDBLimit)/(1<<30), info.SwapLimitMiB)
 	}
 	return next, nil
 }
@@ -328,6 +342,9 @@ func (c *Client) send(ctx context.Context, p *process, req request) (*http.Respo
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+p.token)
 	httpReq.Header.Set("Content-Type", "application/json")
+	if ctx.Err() == nil {
+		c.logSQL(ctx, p, req)
+	}
 	result, err := c.http.Do(httpReq)
 	if err != nil {
 		if req.Op != "estimate-ready" {
@@ -584,7 +601,7 @@ func (c *Client) Suspend(ctx context.Context) error {
 	case <-timer.C:
 		p.kill()
 	}
-	c.logf("DuckDB service %d stopped for an inactive canvas; compute will restart on demand.\n", p.cmd.Process.Pid)
+	c.verboseWorker(p, "Stopped DuckDB for an inactive canvas. Compute will restart on demand.")
 	return nil
 }
 

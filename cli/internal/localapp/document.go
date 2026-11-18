@@ -163,6 +163,13 @@ func (d *Document) Path() string {
 	return d.path
 }
 
+func (d *Document) nameLocked() string {
+	if d.manifest.DocumentName != "" {
+		return d.manifest.DocumentName
+	}
+	return strings.TrimSuffix(filepath.Base(d.path), filepath.Ext(d.path))
+}
+
 func (d *Document) Manifest() Manifest {
 	d.mu.RLock()
 	defer d.mu.RUnlock()

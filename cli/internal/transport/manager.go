@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
+	"time"
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
+	"github.com/aleda145/kavla/cli/internal/logging"
 	"github.com/aleda145/kavla/cli/internal/runner"
 	"github.com/aleda145/kavla/cli/internal/session"
 	"nhooyr.io/websocket"
@@ -28,6 +31,7 @@ type DisconnectEvent struct {
 
 type Manager struct {
 	client              *Client
+	canvasName          string
 	session             *session.Session
 	sessionMu           sync.RWMutex
 	verbose             bool
@@ -42,12 +46,16 @@ type Manager struct {
 	doneOnce sync.Once
 }
 
-func NewManager(workerURL, roomID, token string, sources map[string]kavlaconfig.SourceConfig, verbose bool) *Manager {
+func NewManager(workerURL, roomID, roomName, token string, sources map[string]kavlaconfig.SourceConfig, verbose bool) *Manager {
+	if strings.TrimSpace(roomName) == "" {
+		roomName = roomID
+	}
 	return &Manager{
-		client:  NewClient(workerURL, roomID, token),
-		session: session.New(sources),
-		verbose: verbose,
-		Done:    make(chan DisconnectEvent, 1),
+		client:     NewClient(workerURL, roomID, token),
+		canvasName: roomName,
+		session:    session.New(sources),
+		verbose:    verbose,
+		Done:       make(chan DisconnectEvent, 1),
 	}
 }
 
@@ -56,7 +64,9 @@ func (m *Manager) Prepare() error {
 		return nil
 	}
 	m.session.SetLogger(m.Log)
-	m.session.SetVerboseLogger(m.Verbose)
+	if m.verbose {
+		m.session.SetVerboseLogger(m.Log)
+	}
 	if err := m.session.StartLazy(); err != nil {
 		return fmt.Errorf("start CLI sources: %w", err)
 	}
@@ -118,7 +128,7 @@ func (m *Manager) watchSourceStatuses(querySession *session.Session) {
 		if err := m.client.SendJSON(map[string]interface{}{
 			"type": "cli_sources", "payload": hostedSourceList(sources),
 		}); err != nil && m.context.Err() == nil {
-			fmt.Printf("Could not send CLI source status: %v\n", err)
+			log.Printf("(%s) Could not send CLI source status: %v", m.canvasName, err)
 			go m.Stop(DisconnectReasonReadError, err)
 		}
 	})
@@ -204,18 +214,10 @@ func (m *Manager) Stop(reason DisconnectReason, err error) {
 }
 
 func (m *Manager) Log(format string, args ...interface{}) {
-	line := fmt.Sprintf(format, args...)
-	fmt.Print(line)
-	clean := strings.TrimRight(line, "\r\n")
-	if clean != "" {
-		_ = m.client.SendOutput(clean)
-	}
-}
-
-func (m *Manager) Verbose(format string, args ...interface{}) {
-	if m.verbose {
-		m.Log(format, args...)
-	}
+	now := time.Now()
+	line := logging.Entry(now, fmt.Sprintf("(%s) %s", m.canvasName, fmt.Sprintf(format, args...)))
+	fmt.Println(line)
+	_ = m.client.SendOutput(line, now)
 }
 
 func classifyDisconnect(err error) DisconnectEvent {

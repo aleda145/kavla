@@ -69,9 +69,11 @@ func runConnect(args []string) error {
 	}
 
 	fmt.Print("Checking canvas ownership... ")
-	if err := checkRoomOwnership(authURL, config.Token, roomID, validation.User.ID); err != nil {
+	checkedName, err := checkRoomOwnership(authURL, config.Token, roomID, validation.User.ID)
+	if err != nil {
 		return fmt.Errorf("\n%w", err)
 	}
+	roomName = firstNonEmpty(checkedName, roomName)
 	fmt.Println("OK")
 	if roomName != "" {
 		fmt.Printf("Connecting CLI sources to %q...\n", roomName)
@@ -80,7 +82,7 @@ func runConnect(args []string) error {
 	}
 
 	apiURL := firstNonEmpty(connectURL, config.APIURL, auth.DefaultAPIURL)
-	manager := transport.NewManager(apiURL, roomID, config.Token, config.Sources, verbose)
+	manager := transport.NewManager(apiURL, roomID, roomName, config.Token, config.Sources, verbose)
 	if err := manager.Prepare(); err != nil {
 		return err
 	}

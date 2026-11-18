@@ -208,8 +208,9 @@ func (e *Engine) markSourceUnavailable(status SourceStatus, err error) {
 	e.sourceStatuses[status.Name] = status
 	if e.sourceStatusChanged != nil {
 		e.sourceStatusChanged(status)
+	} else {
+		e.logf("Source '%s' (%s): unavailable: %v\n", status.Name, status.Type, err)
 	}
-	e.logf("Source '%s' (%s): unavailable: %v\n", status.Name, status.Type, err)
 }
 
 func (e *Engine) SetSourceStatusHandler(handler func(SourceStatus)) {
@@ -612,7 +613,6 @@ func (e *Engine) GetTablesContext(ctx context.Context, sourceName string) ([]str
 		return nil, err
 	}
 
-	log.Printf("[Engine] GetTables found %d tables for source %s", len(tables), sourceName)
 	return tables, nil
 }
 

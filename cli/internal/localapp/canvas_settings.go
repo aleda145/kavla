@@ -25,11 +25,7 @@ func (c *canvasRegistry) applySources(config *kavlaconfig.Config) error {
 		if active {
 			return fmt.Errorf("stop active Agent runs before changing sources")
 		}
-		next := session.NewWithAllowedDirectories(config.Sources, []string{runtime.transientDir, runtime.document.workingDir})
-		next.SetLogger(runtime.logCLIOutput)
-		if runtime.verbose {
-			next.SetVerboseLogger(runtime.logCLIOutput)
-		}
+		next := runtime.newQuerySession(runtime.document, config.Sources)
 		if err := next.StartLazy(); err != nil {
 			return err
 		}

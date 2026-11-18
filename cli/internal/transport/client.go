@@ -210,12 +210,12 @@ func (c *Client) ResolveBlobURL(r2ObjectKey string) (string, error) {
 	return payload, nil
 }
 
-func (c *Client) SendOutput(line string) error {
+func (c *Client) SendOutput(line string, at time.Time) error {
 	return c.SendJSON(map[string]interface{}{
 		"type": "cli_output",
 		"payload": map[string]interface{}{
 			"line":      line,
-			"timestamp": time.Now().UnixMilli(),
+			"timestamp": at.UnixMilli(),
 		},
 	})
 }

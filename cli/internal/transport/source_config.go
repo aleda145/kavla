@@ -72,7 +72,9 @@ func (m *Manager) configureSources(request sources.ConfigChange) (interface{}, e
 	}
 	next := session.New(config.Sources)
 	next.SetLogger(m.Log)
-	next.SetVerboseLogger(m.Verbose)
+	if m.verbose {
+		next.SetVerboseLogger(m.Log)
+	}
 	if err := next.StartLazy(); err != nil {
 		return nil, fmt.Errorf("start updated CLI sources: %w", err)
 	}

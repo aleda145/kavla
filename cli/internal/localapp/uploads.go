@@ -150,11 +150,7 @@ func (s *Server) switchDocumentBeforePublish(ctx context.Context, document *Docu
 	previous := s.queries
 	var next *session.Session
 	if previous != nil {
-		next = session.NewWithAllowedDirectories(previous.Sources(), []string{s.transientDir, document.workingDir})
-		next.SetLogger(s.logCLIOutput)
-		if s.verbose {
-			next.SetVerboseLogger(s.logCLIOutput)
-		}
+		next = s.newQuerySession(document, previous.Sources())
 		if err := next.StartLazy(); err != nil {
 			return err
 		}

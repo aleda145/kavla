@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
+	"log"
 	"time"
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
@@ -70,7 +70,7 @@ func runDocument(documentPath string, browser browserMode, action, host string, 
 	}
 	rememberDocument := func(_ string, activeDocumentPath string) {
 		if err := kavlaconfig.RememberDocumentPath(activeDocumentPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Could not remember the open Kavla document: %v\n", err)
+			log.Printf("Could not remember the open Kavla document %q: %v", activeDocumentPath, err)
 		}
 	}
 	server.SetDocumentChangeHandler(rememberDocument)

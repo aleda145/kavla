@@ -31,11 +31,6 @@ func (c *Client) PreparePreviewSQLContext(ctx context.Context, executionEngine, 
 	return result.SQL, err
 }
 
-func (c *Client) PrepareRemoteFileMountSQL(source, fileName, path string) (string, error) {
-	result, err := c.call(c.ctx, request{Op: "prepare-mount", Source: source, FileName: fileName, Path: path})
-	return result.SQL, err
-}
-
 func (c *Client) MountRemoteFileSource(ctx context.Context, source, fileName, path string) error {
 	_, err := c.call(ctx, request{Op: "mount", Source: source, FileName: fileName, Path: path})
 	return err
@@ -156,7 +151,6 @@ func (c *Client) EstimateQuery(ctx context.Context, executionEngine, source, sql
 		case <-p.done:
 			// The normal path starts a replacement worker.
 		default:
-			c.logf("Dry run dispatched for %s \n", source)
 			ctx, cancel := context.WithCancel(ctx)
 			stop := context.AfterFunc(c.ctx, cancel)
 			defer func() { stop(); cancel() }()
@@ -166,7 +160,6 @@ func (c *Client) EstimateQuery(ctx context.Context, executionEngine, source, sql
 		}
 	}
 	// A source that has not loaded yet still needs the serialized startup path.
-	c.logf("Dry run waiting for query gate to initialize %s\n", source)
 	result, err := c.call(ctx, req)
 	return result.Estimate, err
 }
