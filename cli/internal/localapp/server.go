@@ -24,6 +24,7 @@ import (
 
 	"github.com/aleda145/kavla/cli/internal/agent"
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
+	"github.com/aleda145/kavla/cli/internal/logging"
 	"github.com/aleda145/kavla/cli/internal/runner"
 	"github.com/aleda145/kavla/cli/internal/session"
 	"github.com/aleda145/kavla/cli/internal/sources"
@@ -155,13 +156,11 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		_ = os.RemoveAll(transientDir)
 		return nil, fmt.Errorf("secure temporary query result directory: %w", err)
 	}
-	querySession := session.NewWithAllowedDirectories(sources, []string{transientDir, document.workingDir})
 	server := &Server{
 		document:          document,
 		runtimeID:         uuid.NewString(),
 		assets:            assets,
 		verbose:           verbose,
-		queries:           querySession,
 		transientDir:      transientDir,
 		transientResults:  make(map[string]transientResult),
 		eventSubscribers:  make(map[chan cliRuntimeEvent]struct{}),
@@ -170,13 +169,11 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		agentThreads:      make(map[string]struct{}),
 		agentSubscribers:  make(map[chan cliRuntimeEvent]struct{}),
 	}
+	querySession := server.newQuerySession(document, sources)
+	server.queries = querySession
 	if err := server.loadAgentConfig(); err != nil {
 		_ = os.RemoveAll(transientDir)
 		return nil, err
-	}
-	querySession.SetLogger(server.logCLIOutput)
-	if verbose {
-		querySession.SetVerboseLogger(server.logCLIOutput)
 	}
 	if err := querySession.StartLazy(); err != nil {
 		_ = os.RemoveAll(transientDir)
@@ -198,18 +195,51 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 	return server, nil
 }
 
-func (s *Server) logCLIOutput(format string, args ...interface{}) {
-	line := fmt.Sprintf(format, args...)
-	fmt.Print(line)
-	entry := cliOutputLine{Line: line, Timestamp: time.Now().UnixMilli()}
+func (s *Server) newQuerySession(document *Document, sources map[string]kavlaconfig.SourceConfig) *session.Session {
+	document.mu.RLock()
+	workingDir, originalName := document.workingDir, document.nameLocked()
+	document.mu.RUnlock()
+	querySession := session.NewWithAllowedDirectories(sources, []string{s.transientDir, workingDir})
+	logf := func(format string, args ...interface{}) {
+		// The working copy survives renames and is replaced on a canvas switch.
+		// Keep late logs from the outgoing worker attributed to its own canvas.
+		canvas := originalName
+		s.document.mu.RLock()
+		if s.document.workingDir == workingDir {
+			canvas = s.document.nameLocked()
+		}
+		s.document.mu.RUnlock()
+		s.writeCLIOutput(fmt.Sprintf("(%s) %s", canvas, fmt.Sprintf(format, args...)))
+	}
+	querySession.SetLogger(logf)
+	if s.verbose {
+		querySession.SetVerboseLogger(logf)
+	}
+	return querySession
+}
 
+func (s *Server) logCLIOutput(format string, args ...interface{}) {
+	message := fmt.Sprintf(format, args...)
+	if s.document != nil {
+		s.document.mu.RLock()
+		name := s.document.nameLocked()
+		s.document.mu.RUnlock()
+		message = fmt.Sprintf("(%s) %s", name, message)
+	}
+	s.writeCLIOutput(message)
+}
+
+func (s *Server) writeCLIOutput(message string) {
 	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	now := time.Now()
+	line := logging.Entry(now, message)
+	fmt.Println(line)
+	entry := cliOutputLine{Line: line, Timestamp: now.UnixMilli()}
 	s.output = append(s.output, entry)
 	if len(s.output) > maxCLIOutputLines {
 		s.output = append([]cliOutputLine(nil), s.output[len(s.output)-maxCLIOutputLines:]...)
 	}
-	s.outputMu.Unlock()
-
 	s.broadcastRuntimeEvent(cliRuntimeEvent{name: "output", data: entry})
 }
 
@@ -274,7 +304,7 @@ func (s *Server) Start(host string, port int, fallbackIfPortIsBusy bool) (string
 	}
 	actualPort := tcpAddress.Port
 	if usedFallbackPort {
-		fmt.Printf("Default port %d is already in use; using port %d instead.\n", port, actualPort)
+		s.logCLIOutput("Default port %d is already in use, using port %d", port, actualPort)
 	}
 	internalHost := host
 	advertisedHost := host
@@ -1318,10 +1348,12 @@ func (s *Server) logExport(kind, name string, rowCount *int64, format string, si
 	if rowCount != nil {
 		rowLabel = fmt.Sprintf("%d rows", *rowCount)
 	}
+	if name != "" {
+		kind += " (" + name + ")"
+	}
 	s.logCLIOutput(
-		"Exported %s '%s' as %s: %s, %s\n",
+		"Exported %s as %s: %s, %s\n",
 		kind,
-		name,
 		strings.ToUpper(format),
 		rowLabel,
 		formatExportBytes(size),

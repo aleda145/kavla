@@ -25,6 +25,8 @@ func init() {
 	if len(os.Args) != 2 || os.Args[1] != workerArgument {
 		return
 	}
+	// The parent adds the timestamp and worker identity when it forwards stderr.
+	log.SetFlags(0)
 	if err := runWorker(); err != nil {
 		_ = json.NewEncoder(os.Stdout).Encode(ready{Error: err.Error()})
 		os.Exit(1)
@@ -55,7 +57,11 @@ func runWorker() error {
 	if err != nil {
 		return err
 	}
-	eng, err := engine.NewLazyWithAllowedDirectories(config.Sources, log.Printf, config.Directories)
+	logDetails := func(string, ...interface{}) {}
+	if config.Verbose {
+		logDetails = log.Printf
+	}
+	eng, err := engine.NewLazyWithAllowedDirectories(config.Sources, logDetails, config.Directories)
 	if err != nil {
 		return err
 	}
@@ -128,8 +134,6 @@ func serveOperation(eng *engine.Engine, w http.ResponseWriter, r *http.Request) 
 		result.Estimate, err = eng.EstimateReadyQuery(ctx, req.ExecutionEngine, req.Source, req.SQL)
 	case "preview":
 		result.SQL, err = eng.PreparePreviewSQLContext(ctx, req.ExecutionEngine, req.Source, req.SQL, req.Limit)
-	case "prepare-mount":
-		result.SQL, err = eng.PrepareRemoteFileMountSQL(req.Source, req.FileName, req.Path)
 	case "mount":
 		err = eng.MountRemoteFileSource(ctx, req.Source, req.FileName, req.Path)
 	case "create-view":

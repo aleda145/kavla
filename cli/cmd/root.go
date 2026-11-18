@@ -2,11 +2,12 @@ package cmd
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/aleda145/kavla/cli/internal/logging"
 	"github.com/aleda145/kavla/cli/internal/updater"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -24,6 +25,7 @@ stored in the CLI config, not in .kavla documents or the hosted canvas.`,
 }
 
 func Execute() {
+	logging.ConfigureStandardLogger()
 	executedCommand, err := rootCmd.ExecuteC()
 	if err != nil {
 		os.Exit(1)
@@ -40,12 +42,12 @@ func maybeNotifyAboutUpdate(command *cobra.Command) {
 	result, err := updater.New().Check(ctx, Version)
 	if err != nil {
 		if verbose {
-			fmt.Fprintf(os.Stderr, "Update check failed: %v\n", err)
+			log.Printf("Update check failed: %v", err)
 		}
 		return
 	}
 	if result.ShouldNotify {
-		fmt.Fprintf(os.Stderr, "A new Kavla version is available: %s (current: %s). View releases to update manually: %s\n", result.LatestVersion, result.CurrentVersion, updater.ReleasesURL)
+		log.Printf("A new Kavla version is available: %s (current: %s). View releases to update manually: %s", result.LatestVersion, result.CurrentVersion, updater.ReleasesURL)
 	}
 }
 

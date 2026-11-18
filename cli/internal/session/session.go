@@ -102,7 +102,7 @@ func (s *Session) verbose(format string, args ...interface{}) {
 
 func (s *Session) Start() error {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	eng, err := compute.New(s.ctx, s.sources, s.logf, s.allowedDirectories)
+	eng, err := compute.New(s.ctx, s.sources, s.logf, s.verbosef, s.allowedDirectories)
 	if err != nil {
 		s.cancel()
 		s.ctx = nil
@@ -115,7 +115,7 @@ func (s *Session) Start() error {
 
 func (s *Session) StartLazy() error {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	s.engine = compute.NewLazy(s.ctx, s.sources, s.logf, s.allowedDirectories)
+	s.engine = compute.NewLazy(s.ctx, s.sources, s.logf, s.verbosef, s.allowedDirectories)
 	return nil
 }
 
@@ -195,18 +195,15 @@ func (s *Session) HandleQuery(client Client, req runner.QueryRequest) {
 	})
 }
 
-func (s *Session) ExecuteQuery(parent context.Context, client Client, req runner.QueryRequest) error {
-	queryCtx, queryLabel, finish := s.beginActiveQuery(parent, req)
-	defer finish()
-
-	s.log("\nQuery from source '%s':\n%s\n", req.SourceName, strings.TrimSpace(req.SQL))
+func (s *Session) ExecuteQuery(parent context.Context, client Client, req runner.QueryRequest) (queryErr error) {
+	queryCtx, finish := s.beginActiveQuery(parent, req)
+	defer func() { finish(queryErr) }()
+	started := time.Now()
 
 	if err := s.mountRemoteFileSources(queryCtx, client, req.MountedFileSources); err != nil {
 		if queryCtx.Err() != nil {
-			s.log("Query cancelled for %s\n", queryLabel)
 			return context.Canceled
 		}
-		s.log("Query failed: %v\n", err)
 		return err
 	}
 
@@ -217,23 +214,16 @@ func (s *Session) ExecuteQuery(parent context.Context, client Client, req runner
 	}, s.engine)
 	if err != nil {
 		if queryCtx.Err() != nil {
-			s.log("Query cancelled for %s\n", queryLabel)
 			return context.Canceled
 		}
-		s.log("Query failed: %v\n", err)
 		return err
 	}
 
-	s.log("%d rows sent, %d bytes to canvas\n", result.RowCount, result.DataSize)
+	s.verbose("Query sent %d rows (%d bytes) in %s", result.RowCount, result.DataSize, time.Since(started).Round(time.Millisecond))
 	return nil
 }
 
-func (s *Session) beginActiveQuery(parent context.Context, req runner.QueryRequest) (context.Context, string, func()) {
-	queryLabel := req.QueryName
-	if queryLabel == "" {
-		queryLabel = req.ShapeId
-	}
-
+func (s *Session) beginActiveQuery(parent context.Context, req runner.QueryRequest) (context.Context, func(error)) {
 	queryCtx, cancel := context.WithCancel(s.ctx)
 	stopParentCancellation := context.AfterFunc(parent, cancel)
 	s.mu.Lock()
@@ -244,11 +234,13 @@ func (s *Session) beginActiveQuery(parent context.Context, req runner.QueryReque
 	queryID := s.nextQueryID
 	s.queries[req.ShapeId] = activeQuery{
 		cancel: cancel,
-		name:   queryLabel,
+		name:   req.QueryName,
 		id:     queryID,
 	}
 	s.mu.Unlock()
-	finish := func() {
+	queryCtx = compute.WithQueryLog(queryCtx, req.QueryName, req.SQL)
+	finish := func(err error) {
+		canceled := queryCtx.Err()
 		stopParentCancellation()
 		cancel()
 		s.mu.Lock()
@@ -256,18 +248,16 @@ func (s *Session) beginActiveQuery(parent context.Context, req runner.QueryReque
 			delete(s.queries, req.ShapeId)
 		}
 		s.mu.Unlock()
+		if err != nil && canceled == nil {
+			s.log("Query failed: %v", err)
+		}
 	}
-	return queryCtx, queryLabel, finish
+	return queryCtx, finish
 }
 
-func (s *Session) RunQuery(parent context.Context, client Client, req runner.QueryRequest) (*QueryResult, error) {
-	queryCtx, queryLabel, finish := s.beginActiveQuery(parent, req)
-	defer finish()
-	if req.Restore {
-		s.log("Rerunning query '%s' to fetch results\n", queryLabel)
-	} else {
-		s.log("\nQuery from source '%s':\n%s\n", req.SourceName, strings.TrimSpace(req.SQL))
-	}
+func (s *Session) RunQuery(parent context.Context, client Client, req runner.QueryRequest) (_ *QueryResult, queryErr error) {
+	queryCtx, finish := s.beginActiveQuery(parent, req)
+	defer func() { finish(queryErr) }()
 
 	if err := s.mountRemoteFileSources(queryCtx, client, req.MountedFileSources); err != nil {
 		return nil, err
@@ -289,7 +279,6 @@ func (s *Session) RunQuery(parent context.Context, client Client, req runner.Que
 	}
 	if err := s.engine.CreateResultView(queryCtx, req.ShapeId, preparedSQL); err != nil {
 		if queryCtx.Err() != nil {
-			s.log("Query cancelled for %s\n", queryLabel)
 			return nil, context.Canceled
 		}
 		return nil, err
@@ -307,11 +296,8 @@ func (s *Session) RunQuery(parent context.Context, client Client, req runner.Que
 		schema[index] = ResultColumn{Name: field.Name, Type: field.Type}
 	}
 	s.mu.Lock()
-	s.results[req.ShapeId] = QueryResultMetadata{Name: queryLabel, RowCount: rowCount}
+	s.results[req.ShapeId] = QueryResultMetadata{Name: strings.TrimSpace(req.QueryName), RowCount: rowCount}
 	s.mu.Unlock()
-	if !req.Restore {
-		s.log("Prepared a %d-row query result for browser access\n", rowCount)
-	}
 	var scan *sources.QueryScan
 	if readScan {
 		scan, err = s.engine.ReadQueryScan(queryCtx, req.SourceName, req.SQL, startedAt, time.Now())
@@ -322,9 +308,10 @@ func (s *Session) RunQuery(parent context.Context, client Client, req runner.Que
 			// Keep successful results usable when metadata permissions are missing,
 			// but expose the failure to the footer instead of reporting zero bytes.
 			scan = &sources.QueryScan{Error: err.Error()}
-			s.log("Read scanned bytes: %v\n", err)
+			s.log("Could not read scanned bytes: %v", err)
 		}
 	}
+	s.verbose("Query returned %d rows in %s", rowCount, time.Since(startedAt).Round(time.Millisecond))
 	return &QueryResult{RowCount: rowCount, Schema: schema, Scan: scan}, nil
 }
 
@@ -381,11 +368,7 @@ func (s *Session) mountRemoteFileSources(ctx context.Context, client Client, mou
 			return fmt.Errorf("failed to resolve canvas file for %q: %w", mountedFileSource.SourceName, err)
 		}
 
-		mountSQL, err := s.engine.PrepareRemoteFileMountSQL(mountedFileSource.SourceName, mountedFileSource.FileName, blobURL)
-		if err != nil {
-			return err
-		}
-		s.verbose("Prepared remote mount SQL for source %q:\n%s\n", mountedFileSource.SourceName, mountSQL)
+		s.verbose("Mounting canvas file source=%q", mountedFileSource.SourceName)
 
 		if err := s.engine.MountRemoteFileSource(ctx, mountedFileSource.SourceName, mountedFileSource.FileName, blobURL); err != nil {
 			return err
@@ -575,7 +558,7 @@ func (s *Session) DropUploadedFile(ctx context.Context, name string) error {
 func (s *Session) Compute(ctx context.Context, query string) (array.RecordReader, error) {
 	// The compute client keeps the session context attached until the streamed
 	// Arrow reader is released, rather than cancelling it when headers arrive.
-	return s.engine.Query(ctx, "SELECT * FROM ("+strings.TrimRight(strings.TrimSpace(query), ";")+")")
+	return s.engine.Query(compute.WithQueryLog(ctx, "", query), "SELECT * FROM ("+strings.TrimRight(strings.TrimSpace(query), ";")+")")
 }
 func (s *Session) ValidateQuery(ctx context.Context, query string) error {
 	ctx, cancel := s.OperationContext(ctx)

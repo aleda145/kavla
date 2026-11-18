@@ -44,41 +44,42 @@ func fetchRooms(authURL, token string) ([]Room, error) {
 	return rooms, nil
 }
 
-func checkRoomOwnership(authURL, token, roomID, userID string) error {
+func checkRoomOwnership(authURL, token, roomID, userID string) (string, error) {
 	endpoint := strings.TrimRight(authURL, "/") + "/api/collections/rooms/records/" + url.PathEscape(roomID)
 	request, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	request.Header.Set("Authorization", token)
 	response, err := hostedHTTPClient.Do(request)
 	if err != nil {
-		return fmt.Errorf("could not reach Kavla authentication: %w", err)
+		return "", fmt.Errorf("could not reach Kavla authentication: %w", err)
 	}
 	defer response.Body.Close()
 	switch response.StatusCode {
 	case http.StatusNotFound:
-		return fmt.Errorf("canvas not found; check its ID and your access")
+		return "", fmt.Errorf("canvas not found; check its ID and your access")
 	case http.StatusUnauthorized:
-		return fmt.Errorf("login expired; run 'kavla login' again")
+		return "", fmt.Errorf("login expired; run 'kavla login' again")
 	case http.StatusForbidden:
-		return fmt.Errorf("you do not have access to this canvas")
+		return "", fmt.Errorf("you do not have access to this canvas")
 	case http.StatusOK:
 	default:
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
-		return fmt.Errorf("check canvas access (HTTP %d): %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return "", fmt.Errorf("check canvas access (HTTP %d): %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var room struct {
+		Name  string `json:"name"`
 		Owner string `json:"owner"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&room); err != nil {
-		return fmt.Errorf("parse canvas access: %w", err)
+		return "", fmt.Errorf("parse canvas access: %w", err)
 	}
 	if room.Owner != "" && userID != "" && room.Owner != userID {
-		return fmt.Errorf("only the canvas owner can connect CLI sources; collaborators cannot attach a CLI")
+		return "", fmt.Errorf("only the canvas owner can connect CLI sources; collaborators cannot attach a CLI")
 	}
-	return nil
+	return room.Name, nil
 }
 
 func pickRoom(rooms []Room) int {

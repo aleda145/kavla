@@ -21,6 +21,7 @@ type configuration struct {
 	Directories []string
 	Token       string
 	Memory      kavlaconfig.MemorySettings
+	Verbose     bool
 }
 
 type ready struct {
