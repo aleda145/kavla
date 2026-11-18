@@ -18,5 +18,6 @@ func openExternalBrowser(url string) error {
 	default:
 		return fmt.Errorf("unsupported platform %s", runtime.GOOS)
 	}
+	detachExternalBrowser(command)
 	return command.Start()
 }
