@@ -25,6 +25,14 @@ type Status struct {
 	Warning        string
 }
 
+// SystemLimits describes the worker's OS limits. Nil means unavailable. A
+// cgroup limit of MaxUint64 means no cap was found in the visible hierarchy.
+type SystemLimits struct {
+	CgroupRAMBytes  *uint64
+	CgroupSwapBytes *uint64
+	TotalSwapBytes  *uint64
+}
+
 // Enable is process-wide. Only publish Limit after verifying enforcement;
 // neither a Go GC limit nor DuckDB's buffer budget contains native allocations.
 func Enable(settings kavlaconfig.MemorySettings) (Status, error) {

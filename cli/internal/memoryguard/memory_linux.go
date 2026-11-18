@@ -163,6 +163,42 @@ func fallbackBudget(percent int) (uint64, uint64, error) {
 	return budget, inherited, err
 }
 
+func ReadSystemLimits() SystemLimits {
+	var limits SystemLimits
+	var info unix.Sysinfo_t
+	if err := unix.Sysinfo(&info); err == nil {
+		total := uint64(info.Totalswap) * uint64(info.Unit)
+		limits.TotalSwapBytes = &total
+	}
+	if path, err := currentCgroup(); err == nil {
+		limits.CgroupRAMBytes = visibleCgroupLimit(path, "memory.max")
+		limits.CgroupSwapBytes = visibleCgroupLimit(path, "memory.swap.max")
+	}
+	return limits
+}
+
+func visibleCgroupLimit(path, name string) *uint64 {
+	limit := ^uint64(0)
+	found := false
+	for {
+		value, err := readLimit(filepath.Join(path, name))
+		if err == nil {
+			limit = min(limit, value)
+			found = true
+		} else if !os.IsNotExist(err) {
+			return nil
+		}
+		if path == cgroupRoot {
+			break
+		}
+		path = filepath.Dir(path)
+	}
+	if !found {
+		return nil
+	}
+	return &limit
+}
+
 func currentCgroup() (string, error) {
 	data, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {

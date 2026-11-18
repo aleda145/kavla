@@ -128,6 +128,7 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 	}
 	cmd.Stdout = stdoutChild
 	cmd.Stderr = stderrChild
+	started := time.Now()
 	if err := cmd.Start(); err != nil {
 		_ = control.Close()
 		_ = stdout.Close()
@@ -204,6 +205,7 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 			return nil, ready{}, fmt.Errorf("start DuckDB service: %s", result.Error)
 		}
 		p.address = "http://" + result.Address + "/execute"
+		c.logWorkerStarted(p, result, time.Since(started))
 		return p, result, nil
 	case <-ctx.Done():
 		p.kill()
@@ -284,24 +286,6 @@ func (c *Client) ensureWorker(ctx context.Context) (_ *process, startupErr error
 	c.statuses = info.Statuses
 	c.workerError = ""
 	c.mu.Unlock()
-	if info.Memory.Warning != "" {
-		c.logWorker(next, "Warning: %s. Continuing without a verified compute-only hard cap.", info.Memory.Warning)
-	}
-	if !info.Memory.Configured {
-		c.verboseWorker(next, "DuckDB worker ready with its automatic memory budget (OS and container limits still apply)")
-	} else if info.Memory.Limit == 0 {
-		c.verboseWorker(next, "DuckDB worker ready without a compute-only RAM or swap cap")
-		if info.Memory.InheritedLimit > 0 {
-			c.verboseWorker(next, "Inherited cgroup memory limit: %.2f GiB (may be shared with the canvas server and other processes). Container OOM can stop the entire application.", float64(info.Memory.InheritedLimit)/(1<<30))
-		} else {
-			c.verboseWorker(next, "No inherited cgroup memory limit detected. In Docker, configure --memory and --memory-swap.")
-		}
-		if info.Memory.DuckDBLimit > 0 {
-			c.verboseWorker(next, "Cooperative DuckDB budget per engine: %.2f GiB (native allocations and combined worker usage can exceed it)", float64(info.Memory.DuckDBLimit)/(1<<30))
-		}
-	} else {
-		c.verboseWorker(next, "DuckDB worker ready with a %.2f GiB shared compute cap, %.2f GiB DuckDB budget, and %d MiB swap limit", float64(info.Memory.Limit)/(1<<30), float64(info.Memory.DuckDBLimit)/(1<<30), info.SwapLimitMiB)
-	}
 	return next, nil
 }
 

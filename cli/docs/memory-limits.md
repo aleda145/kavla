@@ -48,12 +48,16 @@ For example, `limit_percent: 60` with `duckdb_percent_of_limit: 70` gives each
 engine a 42% available RAM budget. Keep headroom for allocations outside
 DuckDB's buffer manager.
 
-`swap_limit_mib` is the shared OS swap allowance in MiB (a non-negative integer);
-0 disables swap for compute when enforcement is active. For example, 1024 allows
+`swap_limit_mib` is the shared OS swap allowance in MiB (a non-negative integer).
+Zero disables swap for compute when enforcement is active. For example, 1024 allows
 up to 1 GiB of swap in addition to the RAM cap. This does not control DuckDB's own
-spill files.
+spill files. By default, the worker follows the system and cgroup swap settings.
+On Linux, the startup log reports the system's total swap and the tightest swap
+cap visible in the worker's cgroup hierarchy. The DuckDB buffer limit is a separate
+setting that does not measure process RAM or swap usage.
 Invalid values and unknown memory keys are rejected. `kavla config view` displays
-the effective settings without exposing credentials.
+the resolved configuration without exposing credentials. The startup log shows
+the limits observed by the worker.
 
 `enforcement` controls what happens when the compute-only boundary is unavailable:
 
@@ -86,7 +90,8 @@ manual unit setup or root access is required on a supported desktop. The shared
 transient `kavlacompute.slice` uses the configured RAM and swap limits (after opting in,
 `MemoryMax` is 50% of available RAM and `MemorySwapMax=0`). All compute workers for
 the same user share this budget.
-Tighter inherited cgroup limits are retained in each worker's scope.
+Kavla accounts for inherited RAM limits when sizing the worker's scope. The
+scope's swap allowance comes from `swap_limit_mib`.
 
 The worker checks the actual cgroup v2 `memory.max` and `memory.swap.max` files
 before claiming enforcement. If systemd, the user bus, `busctl`, the delegated

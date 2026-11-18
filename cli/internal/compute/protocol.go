@@ -25,11 +25,13 @@ type configuration struct {
 }
 
 type ready struct {
-	Address      string
-	Statuses     []engine.SourceStatus
-	Memory       memoryguard.Status
-	SwapLimitMiB int64
-	Error        string
+	Address           string
+	Statuses          []engine.SourceStatus
+	Memory            memoryguard.Status
+	SystemLimits      memoryguard.SystemLimits
+	DuckDBMemoryLimit string
+	DuckDBThreads     int
+	Error             string
 }
 
 type request struct {
