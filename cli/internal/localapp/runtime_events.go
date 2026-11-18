@@ -77,12 +77,21 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 	var editorEvents <-chan cliRuntimeEvent
 	if s.canvases != nil {
 		client := r.URL.Query().Get("client")
+		if client != "" {
+			s.canvases.browserOnce.Do(func() { close(s.canvases.browserConnected) })
+		}
 		previousGeneration := r.URL.Query().Get("generation")
 		transfer := r.URL.Query().Get("transfer") == "true"
 		// Waiting for the other browser must not block its save requests or
 		// shared settings changes. This connection is already tracked for shutdown.
 		s.canvases.settings.RUnlock()
 		settingsHeld = false
+		if previousRuntime := r.URL.Query().Get("runtime"); previousRuntime != "" && previousRuntime != s.runtimeID {
+			_ = write("editor", cliRuntimeEvent{name: "restarted", data: map[string]string{
+				"message": "Kavla restarted. Reload to open the saved canvas.",
+			}})
+			return
+		}
 		var token, generation, event string
 		if transfer {
 			if err := write("editor", cliRuntimeEvent{name: "opening", data: map[string]string{"message": "Waiting for the other session to save…"}}); err != nil {
@@ -130,7 +139,9 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 			s.ownerCancel = nil
 			s.scheduleIdleComputeLocked()
 		}()
-		if err := write("editor", cliRuntimeEvent{name: "ready", data: map[string]string{"token": token, "generation": generation}}); err != nil {
+		if err := write("editor", cliRuntimeEvent{name: "ready", data: map[string]string{
+			"token": token, "generation": generation, "runtime": s.runtimeID,
+		}}); err != nil {
 			return
 		}
 	}

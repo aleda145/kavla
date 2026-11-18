@@ -30,6 +30,9 @@ type canvasRegistry struct {
 	runtimes map[string]*Server
 	last     string
 	closing  bool
+
+	browserConnected chan struct{}
+	browserOnce      sync.Once
 }
 
 type savedCanvasRegistry struct {
@@ -219,7 +222,13 @@ func newCanvasRegistry(root *Server) (*canvasRegistry, error) {
 	if err != nil {
 		return nil, err
 	}
-	registry := &canvasRegistry{root: root, path: filepath.Join(filepath.Dir(configPath), "canvases.json"), files: make(map[string]string), runtimes: make(map[string]*Server)}
+	registry := &canvasRegistry{
+		root:             root,
+		path:             filepath.Join(filepath.Dir(configPath), "canvases.json"),
+		files:            make(map[string]string),
+		runtimes:         make(map[string]*Server),
+		browserConnected: make(chan struct{}),
+	}
 	data, err := os.ReadFile(registry.path)
 	if err == nil {
 		var saved savedCanvasRegistry
@@ -254,6 +263,14 @@ func newCanvasRegistry(root *Server) (*canvasRegistry, error) {
 	root.canvases, root.canvasName = registry, name
 	registry.runtimes[name] = root
 	return registry, nil
+}
+
+// BrowserConnected closes when the first canvas client connects to this server.
+func (s *Server) BrowserConnected() <-chan struct{} {
+	if s.canvases == nil {
+		return nil
+	}
+	return s.canvases.browserConnected
 }
 
 // Called with mu held once the registry has been published.

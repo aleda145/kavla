@@ -576,6 +576,12 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
   }, [isNavigating, isRestoring, isLoadingCanvas, showLoadingOverlay, connection.status, stageCurrentCanvas, addToast]);
 
   useEffect(() => {
+    if (connection.status === "restarted" && !documentDirtyRef.current && !hasPendingBackendOperations()) {
+      window.location.reload();
+    }
+  }, [connection.status]);
+
+  useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if ((!isDocumentDirty && !hasPendingBackendOperations()) || navigationCommittedRef.current) return;
       event.preventDefault();
@@ -954,6 +960,10 @@ export default function LocalKavlaApp() {
   }, [connection.status]);
 
   useEffect(() => {
+    if (connection.status === "restarted" && !session) window.location.reload();
+  }, [connection.status, session]);
+
+  useEffect(() => {
     if (connection.status !== "ready" || session) return;
     let cancelled = false;
     discoverLocalSession()
@@ -970,7 +980,7 @@ export default function LocalKavlaApp() {
 
   if (initializationError) return <CanvasUnavailable message={initializationError} canChoose />;
   if (!session) {
-    if (connection.status === "blocked" || connection.status === "transferred")
+    if (connection.status === "blocked" || connection.status === "transferred" || connection.status === "restarted")
       return <CanvasUnavailable message={connection.message} canChoose canTransfer={connection.status === "blocked"} />;
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-[#f8f7f4]">

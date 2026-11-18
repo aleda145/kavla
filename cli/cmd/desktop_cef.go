@@ -17,6 +17,8 @@ import (
 	"github.com/aleda145/kavla/cli/internal/localapp"
 )
 
+const defaultRunBrowser = browserAutomatic
+
 // The CEF shell is a separate native process. Go retains ownership of the
 // document, HTTP server, and save-on-close behavior.
 func runDesktop(server *localapp.Server, launchURL, _ string, _ func(string, string)) (result error) {

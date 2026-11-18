@@ -2,11 +2,15 @@ import { useSyncExternalStore } from "react";
 import { randomUUID } from "../util/randomUUID";
 
 export type RuntimeEvent = { stream: "cli" | "agent" | "editor"; name: string; data: unknown };
-type ConnectionState = { status: "connecting" | "ready" | "disconnected" | "blocked" | "transferred"; message: string };
+type ConnectionState = {
+  status: "connecting" | "ready" | "disconnected" | "blocked" | "transferred" | "restarted";
+  message: string;
+};
 const canvasPath = window.location.pathname.replace(/\/$/, "");
 const clientId = randomUUID();
 let token: string | null = null;
 let generation: string | null = null;
+let runtime: string | null = null;
 let socket: WebSocket | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let state: ConnectionState = { status: "connecting", message: "Opening canvas…" };
@@ -59,6 +63,7 @@ export function connectCanvas(transfer = false): void {
   url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("client", clientId);
   if (generation) url.searchParams.set("generation", generation);
+  if (runtime) url.searchParams.set("runtime", runtime);
   if (transfer) url.searchParams.set("transfer", "true");
   const connection = new WebSocket(url);
   socket = connection;
@@ -71,15 +76,16 @@ export function connectCanvas(transfer = false): void {
       if (event.name === "opening") {
         publish("connecting", (event.data as { message: string }).message);
       } else if (event.name === "ready") {
-        const data = event.data as { token: string; generation: string };
+        const data = event.data as { token: string; generation: string; runtime?: string };
         token = data.token;
         generation = data.generation;
+        runtime = data.runtime ?? null;
         publish("ready", "");
       } else if (event.name === "save-request" || event.name === "transfer-cancelled") {
         if (event.name === "save-request") snapshots.set("editor:save-request", event);
         else snapshots.delete("editor:save-request");
         eventListeners.forEach((listener) => listener(event));
-      } else if (event.name === "blocked" || event.name === "transferred") {
+      } else if (event.name === "blocked" || event.name === "transferred" || event.name === "restarted") {
         snapshots.delete("editor:save-request");
         token = null;
         stopped = true;
@@ -111,6 +117,7 @@ export function connectCanvas(transfer = false): void {
 export function saveAndOpenCanvas(): void {
   disconnectCanvas();
   generation = null;
+  runtime = null;
   snapshots.clear();
   connectCanvas(true);
 }

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
@@ -28,10 +26,14 @@ var openCmd = &cobra.Command{
 }
 
 func runOpen(documentPath string, skipBrowser bool, host string, port int, fallbackFromDefaultPort bool) error {
-	return runDocument(documentPath, skipBrowser, "Opening", host, port, fallbackFromDefaultPort)
+	browser := browserAutomatic
+	if skipBrowser {
+		browser = browserDisabled
+	}
+	return runDocument(documentPath, browser, "Opening", host, port, fallbackFromDefaultPort)
 }
 
-func runDocument(documentPath string, skipBrowser bool, action, host string, port int, fallbackFromDefaultPort bool) error {
+func runDocument(documentPath string, browser browserMode, action, host string, port int, fallbackFromDefaultPort bool) error {
 	if err := ensureBundledTitanicSource(); err != nil {
 		return err
 	}
@@ -77,25 +79,10 @@ func runDocument(documentPath string, skipBrowser bool, action, host string, por
 	fmt.Printf("%s %s\n", action, document.Path())
 	fmt.Printf("Kavla is ready at %s\n", launchURL)
 	server.CheckForUpdates()
-	if !skipBrowser {
+	if browser == browserAutomatic {
 		return runDesktop(server, launchURL, document.Manifest().DocumentName, rememberDocument)
 	}
-
-	fmt.Println("Press Ctrl+C to save and close Kavla.")
-
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(signals)
-	<-signals
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	fmt.Println("Saving Kavla document...")
-	if err := server.Close(ctx); err != nil {
-		return fmt.Errorf("close Kavla document: %w", err)
-	}
-	fmt.Println("Saved.")
-	return nil
+	return runBrowserServer(server, launchURL, browser)
 }
 
 func init() {

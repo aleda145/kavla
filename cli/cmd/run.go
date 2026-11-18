@@ -27,7 +27,8 @@ var runCmd = &cobra.Command{
 	Short: "Start Kavla with the most recently opened local canvas",
 	Long: `Start the local Kavla web server, reopen the most recently used canvas,
 and make all configured CLI data sources available to it. First-time runs seed
-~/.kavla/titanic.kavla and a Titanic DuckDB source from the bundled demo.`,
+~/.kavla/titanic.kavla and a Titanic DuckDB source from the bundled demo.
+The standalone CLI prints the canvas URL and offers to launch a browser in a terminal.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		documentPath, err := startupCanvasPath()
@@ -37,9 +38,13 @@ and make all configured CLI data sources available to it. First-time runs seed
 		if err := ensureBundledStarterCanvas(documentPath); err != nil {
 			return err
 		}
+		browser := defaultRunBrowser
+		if runNoBrowser {
+			browser = browserDisabled
+		}
 		return runDocument(
 			documentPath,
-			runNoBrowser,
+			browser,
 			"Running Kavla with",
 			runHost,
 			runPort,

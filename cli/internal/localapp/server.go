@@ -29,6 +29,7 @@ import (
 	"github.com/aleda145/kavla/cli/internal/sources"
 	"github.com/apache/arrow/go/v14/arrow"
 	"github.com/apache/arrow/go/v14/arrow/ipc"
+	"github.com/google/uuid"
 )
 
 const maxCLIOutputLines = 50
@@ -64,6 +65,7 @@ type Server struct {
 	ownerToken       string
 	ownerClient      string
 	ownerGeneration  uint64
+	runtimeID        string
 	connections      sync.WaitGroup
 
 	documentGate sync.RWMutex
@@ -156,6 +158,7 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 	querySession := session.NewWithAllowedDirectories(sources, []string{transientDir, document.workingDir})
 	server := &Server{
 		document:          document,
+		runtimeID:         uuid.NewString(),
 		assets:            assets,
 		verbose:           verbose,
 		queries:           querySession,
