@@ -227,7 +227,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
   const runRemoteQuery = useCallback(
     async (payload: RunRemoteQueryPayload) =>
       withBackendActivity(async () => {
-        const { includeSampleRows = true, ...queryPayload } = payload;
+        const { includeSampleRows = payload.transient === true, ...queryPayload } = payload;
         const { sql, executionEngine } = prepareRemoteQuery(payload);
 
         queryControllers.current.get(payload.shapeId)?.abort();
