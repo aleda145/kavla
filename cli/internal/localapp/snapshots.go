@@ -425,6 +425,7 @@ func (s *Server) handleHistoryLimit(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, err)
 		return
 	}
+	s.logCLIOutput("Set canvas history limit to %d saves", request.Limit)
 	s.handleListSnapshots(w, r)
 }
 
@@ -481,6 +482,9 @@ func (s *Server) handleDownloadSnapshot(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	if r.Method == http.MethodGet && r.Header.Get("Range") == "" {
+		s.logCLIOutput("Downloading history snapshot %s", id)
+	}
 	http.ServeContent(w, r, name, info.ModTime(), content)
 }
 
@@ -493,6 +497,9 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	if err := s.document.Snapshot(reason); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err)
 		return
+	}
+	if reason == "before-restore" {
+		s.logCLIOutput("Saved canvas snapshot before restore")
 	}
 	s.writeSavedDocumentResponse(w)
 }
@@ -551,5 +558,6 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Load agent runs after history restore: %v", err)
 	}
 	s.publishAgentRuns(false)
+	s.logCLIOutput("Restored canvas from history snapshot %s", id)
 	s.writeSession(w, beforeRestoreID)
 }

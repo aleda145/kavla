@@ -75,6 +75,7 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 
 	var revoked <-chan struct{}
 	var editorEvents <-chan cliRuntimeEvent
+	transferred := false
 	if s.canvases != nil {
 		client := r.URL.Query().Get("client")
 		if client != "" {
@@ -108,6 +109,9 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 			message := "This canvas is already open. Save and open it here, or choose another canvas."
 			if err != nil {
 				message = err.Error()
+			}
+			if transfer {
+				s.logCLIOutput("Could not transfer canvas editor")
 			}
 			_ = write("editor", cliRuntimeEvent{name: event, data: map[string]string{"message": message}})
 			return
@@ -144,6 +148,7 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 		}}); err != nil {
 			return
 		}
+		transferred = transfer
 	}
 
 	// Subscribe before taking snapshots so changes during initialization are
@@ -165,6 +170,11 @@ func (s *Server) handleRuntimeEvents(w http.ResponseWriter, r *http.Request) {
 		"auth":   s.currentAgentAuth(),
 	}}); err != nil {
 		return
+	}
+	if transferred {
+		s.logCLIOutput("Transferred canvas editor to another session")
+	} else if s.verbose {
+		s.logCLIOutput("Connected canvas event stream")
 	}
 
 	heartbeat := time.NewTicker(15 * time.Second)

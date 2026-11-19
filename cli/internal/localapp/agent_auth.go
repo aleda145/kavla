@@ -130,6 +130,11 @@ func (s *Server) handleAgentAuth(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, 500, err)
 		return
 	}
+	if request.Mode == "codex" {
+		s.logCLIOutput("Updated Agent authentication to use Codex login")
+	} else {
+		s.logCLIOutput("Updated Agent API provider settings")
+	}
 	settings := s.currentAgentAuth()
 	s.broadcastAgentRuntimeEvent(cliRuntimeEvent{name: "auth", data: settings})
 	w.Header().Set("Content-Type", "application/json")

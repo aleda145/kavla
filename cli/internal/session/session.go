@@ -219,13 +219,14 @@ func (s *Session) ExecuteQuery(parent context.Context, client Client, req runner
 		return err
 	}
 
-	s.verbose("Query sent %d rows (%d bytes) in %s", result.RowCount, result.DataSize, time.Since(started).Round(time.Millisecond))
+	s.log("%sQuery finished in %s (%d rows, %d result bytes sent)", compute.QueryLogPrefix(queryCtx), time.Since(started).Round(time.Millisecond), result.RowCount, result.DataSize)
 	return nil
 }
 
 func (s *Session) beginActiveQuery(parent context.Context, req runner.QueryRequest) (context.Context, func(error)) {
-	queryCtx, cancel := context.WithCancel(s.ctx)
-	stopParentCancellation := context.AfterFunc(parent, cancel)
+	started := time.Now()
+	queryCtx, cancel := context.WithCancel(parent)
+	stopSessionCancellation := context.AfterFunc(s.ctx, cancel)
 	s.mu.Lock()
 	if existing, ok := s.queries[req.ShapeId]; ok {
 		existing.cancel()
@@ -241,7 +242,7 @@ func (s *Session) beginActiveQuery(parent context.Context, req runner.QueryReque
 	queryCtx = compute.WithQueryLog(queryCtx, req.QueryName, req.SQL)
 	finish := func(err error) {
 		canceled := queryCtx.Err()
-		stopParentCancellation()
+		stopSessionCancellation()
 		cancel()
 		s.mu.Lock()
 		if active, ok := s.queries[req.ShapeId]; ok && active.id == queryID {
@@ -249,7 +250,7 @@ func (s *Session) beginActiveQuery(parent context.Context, req runner.QueryReque
 		}
 		s.mu.Unlock()
 		if err != nil && canceled == nil {
-			s.log("Query failed: %v", err)
+			s.log("%sQuery failed after %s: %v", compute.QueryLogPrefix(queryCtx), time.Since(started).Round(time.Millisecond), err)
 		}
 	}
 	return queryCtx, finish
@@ -311,7 +312,6 @@ func (s *Session) RunQuery(parent context.Context, client Client, req runner.Que
 			s.log("Could not read scanned bytes: %v", err)
 		}
 	}
-	s.verbose("Query returned %d rows in %s", rowCount, time.Since(startedAt).Round(time.Millisecond))
 	return &QueryResult{RowCount: rowCount, Schema: schema, Scan: scan}, nil
 }
 
@@ -326,9 +326,7 @@ func (s *Session) ExportQueryResult(ctx context.Context, shapeID, format, output
 	if strings.TrimSpace(outputPath) == "" {
 		return QueryResultMetadata{}, fmt.Errorf("query result export path is required")
 	}
-	s.mu.Lock()
-	metadata, ok := s.results[shapeID]
-	s.mu.Unlock()
+	metadata, ok := s.QueryResultMetadata(shapeID)
 	if !ok {
 		return QueryResultMetadata{}, fmt.Errorf("query result is not loaded")
 	}
@@ -339,10 +337,15 @@ func (s *Session) ExportQueryResult(ctx context.Context, shapeID, format, output
 }
 
 func (s *Session) HasQueryResult(shapeID string) bool {
+	_, ok := s.QueryResultMetadata(shapeID)
+	return ok
+}
+
+func (s *Session) QueryResultMetadata(shapeID string) (QueryResultMetadata, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.results[shapeID]
-	return ok
+	metadata, ok := s.results[shapeID]
+	return metadata, ok
 }
 
 func (s *Session) DropResults(ctx context.Context, shapeIDs []string) error {
@@ -359,6 +362,7 @@ func (s *Session) DropResults(ctx context.Context, shapeIDs []string) error {
 
 func (s *Session) mountRemoteFileSources(ctx context.Context, client Client, mountedFileSources []runner.MountedFileSource) error {
 	for _, mountedFileSource := range mountedFileSources {
+		started := time.Now()
 		fileReference := mountedFileSource.BlobID
 		if fileReference == "" {
 			fileReference = mountedFileSource.R2ObjectKey
@@ -373,6 +377,7 @@ func (s *Session) mountRemoteFileSources(ctx context.Context, client Client, mou
 		if err := s.engine.MountRemoteFileSource(ctx, mountedFileSource.SourceName, mountedFileSource.FileName, blobURL); err != nil {
 			return err
 		}
+		s.log("Mounted file source %q in %s", mountedFileSource.SourceName, time.Since(started).Round(time.Millisecond))
 	}
 
 	return nil
@@ -380,15 +385,21 @@ func (s *Session) mountRemoteFileSources(ctx context.Context, client Client, mou
 
 func (s *Session) CancelQuery(shapeID string) (string, bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	query, ok := s.queries[shapeID]
 	if !ok {
+		s.mu.Unlock()
 		return "", false
 	}
 
 	query.cancel()
 	delete(s.queries, shapeID)
+	s.mu.Unlock()
+	if query.name == "" {
+		s.log("Canceled query")
+	} else {
+		s.log("Canceled query %q", query.name)
+	}
 	return query.name, true
 }
 

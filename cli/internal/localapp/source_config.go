@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/session"
@@ -48,6 +49,7 @@ func (s *Server) handleDeleteCLISource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) applyCLISourceChange(w http.ResponseWriter, change sources.ConfigChange) {
+	started := time.Now()
 	s.sourceConfigMu.Lock()
 	defer s.sourceConfigMu.Unlock()
 	config, err := sources.PrepareConfigChange(change)
@@ -59,6 +61,7 @@ func (s *Server) applyCLISourceChange(w http.ResponseWriter, change sources.Conf
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.logCLIOutput("%s in %s", change.LogMessage(), time.Since(started).Round(time.Millisecond))
 	s.writeCLISourcesResponse(w)
 }
 

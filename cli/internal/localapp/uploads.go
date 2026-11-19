@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/aleda145/kavla/cli/internal/compute"
 	"github.com/aleda145/kavla/cli/internal/engine"
 	"github.com/aleda145/kavla/cli/internal/session"
 	"github.com/google/uuid"
@@ -217,6 +219,7 @@ func (s *Server) switchDocumentBeforePublish(ctx context.Context, document *Docu
 }
 
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	filename := filepath.Base(r.URL.Query().Get("fileName"))
 	switch strings.ToLower(filepath.Ext(filename)) {
 	case ".csv", ".parquet", ".json", ".ndjson":
@@ -275,10 +278,12 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	complete = true
 	s.broadcastCLISources()
+	s.logCLIOutput("Uploaded %q as %s in %s (%s, %d rows)", filename, tableRef, time.Since(started).Round(time.Millisecond), formatExportBytes(blob.Size), stats["rowCount"])
 	writeJSON(w, 201, map[string]interface{}{"id": id, "tableName": name, "tableRef": tableRef, "blob": blob, "schema": schema, "rowCount": stats["rowCount"]})
 }
 
 func (s *Server) handleDeleteUpload(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	blob, err := s.document.BlobDescriptor(r.PathValue("id"))
 	if err != nil || blob.TableName == "" {
 		writeAPIError(w, 404, fmt.Errorf("uploaded table does not exist"))
@@ -297,6 +302,7 @@ func (s *Server) handleDeleteUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.broadcastCLISources()
+	s.logCLIOutput("Removed uploaded table uploaded_files.main.%s (%q) in %s", blob.TableName, filepath.Base(blob.FileName), time.Since(started).Round(time.Millisecond))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -329,23 +335,27 @@ func (s *Server) handleCompute(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	started := time.Now()
+	ctx := compute.WithQueryLog(r.Context(), "", request.SQL)
 	if r.URL.Path == "/api/session/widget-query" {
-		reader, err := querySession.QueryWidget(r.Context(), request.SQL, request.TableName, request.Columns, request.Rows)
+		reader, err := querySession.QueryWidget(ctx, request.SQL, request.TableName, request.Columns, request.Rows)
 		if err != nil {
+			s.logCLIOutput("%sWidget query failed after %s: %v", compute.QueryLogPrefix(ctx), time.Since(started).Round(time.Millisecond), err)
 			writeAPIError(w, 422, err)
 			return
 		}
 		defer reader.Release()
-		writeArrowResult(w, reader)
+		s.writeQueryArrow(w, ctx, reader, "Widget query", started)
 		return
 	}
-	reader, err := querySession.Compute(r.Context(), request.SQL)
+	reader, err := querySession.Compute(ctx, request.SQL)
 	if err != nil {
+		s.logCLIOutput("%sQuery failed after %s: %v", compute.QueryLogPrefix(ctx), time.Since(started).Round(time.Millisecond), err)
 		writeAPIError(w, 422, err)
 		return
 	}
 	defer reader.Release()
-	writeArrowResult(w, reader)
+	s.writeQueryArrow(w, ctx, reader, "Query", started)
 }
 
 // Streaming event connections must not hold the document gate indefinitely.

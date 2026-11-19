@@ -83,15 +83,24 @@ func (m *Manager) Start() error {
 		return err
 	}
 	m.watchSourceStatuses(m.session)
+	sourceList := hostedSourceList(m.session.SourceList())
 	if err := m.client.SendJSON(map[string]interface{}{
 		"type":    "cli_sources",
-		"payload": hostedSourceList(m.session.SourceList()),
+		"payload": sourceList,
 	}); err != nil {
 		_ = m.client.Close()
 		return fmt.Errorf("send CLI source list: %w", err)
 	}
 
-	m.Log("Connected to Kavla.dev. Waiting for queries... (Ctrl+C to disconnect)\n")
+	sourceSummary := "No CLI sources configured."
+	if len(sourceList) > 0 {
+		names := make([]string, 0, len(sourceList))
+		for _, source := range sourceList {
+			names = append(names, fmt.Sprintf("%q (%s)", source["name"], source["type"]))
+		}
+		sourceSummary = "Sharing sources " + strings.Join(names, ", ") + "."
+	}
+	m.Log("Connected to Kavla.dev. %s Waiting for queries (Ctrl+C to disconnect).", sourceSummary)
 	go m.readLoop()
 	return nil
 }

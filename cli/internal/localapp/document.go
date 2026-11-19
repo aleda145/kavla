@@ -66,6 +66,7 @@ type Document struct {
 	canvasJSON     []byte
 	undoJSON       []byte
 	blobs          map[string]BlobDescriptor
+	archiveOutput  func(string)
 }
 
 func OpenDocument(path string) (*Document, error) {
@@ -168,6 +169,12 @@ func (d *Document) nameLocked() string {
 		return d.manifest.DocumentName
 	}
 	return strings.TrimSuffix(filepath.Base(d.path), filepath.Ext(d.path))
+}
+
+func (d *Document) name() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.nameLocked()
 }
 
 func (d *Document) Manifest() Manifest {
@@ -584,6 +591,7 @@ func (d *Document) writeArchiveLocked(path string, replace bool) error {
 }
 
 func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reason string) error {
+	started := time.Now()
 	unlock, err := acquireArchiveLock(path)
 	if err != nil {
 		return err
@@ -618,6 +626,7 @@ func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reas
 					return fmt.Errorf("append Kavla revision: %w", err)
 				}
 			}
+			previousSize := info.Size()
 			d.archivePath = path
 			info, err = os.Stat(path)
 			if err != nil {
@@ -631,6 +640,11 @@ func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reas
 				if err := d.pruneSnapshotsLocked(); err != nil {
 					log.Printf("Kavla saved but could not trim history: %v", err)
 				}
+			}
+			if unchanged {
+				d.logArchiveSaveLocked("Saved canvas in %s (no changes, %d bytes on disk)", time.Since(started).Round(time.Millisecond), d.archiveSize)
+			} else {
+				d.logArchiveSaveLocked("Saved canvas in %s (appended %d bytes, %d bytes on disk)", time.Since(started).Round(time.Millisecond), d.archiveSize-previousSize, d.archiveSize)
 			}
 			return nil
 		} else if !errors.Is(err, os.ErrNotExist) {
@@ -711,7 +725,17 @@ func (d *Document) writeArchiveWithHistoryLocked(path string, replace bool, reas
 			log.Printf("Kavla saved %s but could not trim history: %v", path, err)
 		}
 	}
+	d.logArchiveSaveLocked("Saved canvas in %s (wrote full archive, %d bytes on disk)", time.Since(started).Round(time.Millisecond), d.archiveSize)
 	return nil
+}
+
+func (d *Document) logArchiveSaveLocked(format string, args ...interface{}) {
+	message := fmt.Sprintf("(%s) %s", d.nameLocked(), fmt.Sprintf(format, args...))
+	if d.archiveOutput != nil {
+		d.archiveOutput(message)
+		return
+	}
+	log.Print(message)
 }
 
 // ReplaceFromArchive validates and stages another Kavla archive before replacing

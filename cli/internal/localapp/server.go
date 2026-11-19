@@ -23,12 +23,13 @@ import (
 	"time"
 
 	"github.com/aleda145/kavla/cli/internal/agent"
+	"github.com/aleda145/kavla/cli/internal/compute"
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/logging"
 	"github.com/aleda145/kavla/cli/internal/runner"
 	"github.com/aleda145/kavla/cli/internal/session"
 	"github.com/aleda145/kavla/cli/internal/sources"
-	"github.com/apache/arrow/go/v14/arrow"
+	"github.com/apache/arrow/go/v14/arrow/array"
 	"github.com/apache/arrow/go/v14/arrow/ipc"
 	"github.com/google/uuid"
 )
@@ -190,6 +191,9 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		_ = os.RemoveAll(transientDir)
 		return nil, fmt.Errorf("load agent run history: %w", err)
 	}
+	document.mu.Lock()
+	document.archiveOutput = server.writeCLIOutput
+	document.mu.Unlock()
 	server.startAgentDetection()
 	server.canvasHandler = server.routes()
 	return server, nil
@@ -221,10 +225,7 @@ func (s *Server) newQuerySession(document *Document, sources map[string]kavlacon
 func (s *Server) logCLIOutput(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	if s.document != nil {
-		s.document.mu.RLock()
-		name := s.document.nameLocked()
-		s.document.mu.RUnlock()
-		message = fmt.Sprintf("(%s) %s", name, message)
+		message = fmt.Sprintf("(%s) %s", s.document.name(), message)
 	}
 	s.writeCLIOutput(message)
 }
@@ -332,6 +333,9 @@ func (s *Server) Start(host string, port int, fallbackIfPortIsBusy bool) (string
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
+	if s.document != nil {
+		s.logCLIOutput("Opened canvas")
+	}
 	go func() {
 		if err := s.http.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("Kavla local server stopped: %v", err)
@@ -380,6 +384,9 @@ func (s *Server) Close(ctx context.Context) error {
 		}
 		if err := os.RemoveAll(s.transientDir); closeErr == nil && err != nil {
 			closeErr = fmt.Errorf("remove temporary query results: %w", err)
+		}
+		if closeErr == nil {
+			s.logCLIOutput("Closed canvas")
 		}
 	})
 	return closeErr
@@ -441,7 +448,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/session/blobs/{id}", s.sameOriginMutation(s.handlePutBlob))
 	mux.HandleFunc("DELETE /api/session/blobs/{id}", s.sameOriginMutation(s.handleDeleteBlob))
 	mux.HandleFunc("/", s.handleStatic)
-	return s.securityHeaders(s.documentRequests(mux))
+	return s.securityHeaders(s.logAPIRequests(mux, s.documentRequests(mux)))
 }
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
@@ -553,10 +560,13 @@ func (s *Server) handleUndo(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleSave(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleSave(w http.ResponseWriter, r *http.Request) {
 	if err := s.document.Save(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if r.URL.Path == "/api/session/close" {
+		s.logCLIOutput("Saved canvas on close")
 	}
 	s.writeSavedDocumentResponse(w)
 }
@@ -685,7 +695,9 @@ func (s *Server) handleSaveAs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	targetPath := filepath.Join(request.Directory, fileName)
-	if filepath.Clean(targetPath) != filepath.Clean(s.document.Path()) && !request.Overwrite {
+	originalPath := s.document.Path()
+	originalName := s.document.name()
+	if filepath.Clean(targetPath) != filepath.Clean(originalPath) && !request.Overwrite {
 		if _, err := os.Stat(targetPath); err == nil {
 			http.Error(w, "A Kavla document with this name already exists.", http.StatusConflict)
 			return
@@ -700,15 +712,16 @@ func (s *Server) handleSaveAs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.publishAgentRuns(true)
-		s.notifyDocumentChanged()
-		s.writeSavedDocumentResponse(w)
-		return
-	}
-	if err := s.document.SaveAs(targetPath); err != nil {
+	} else if err := s.document.SaveAs(targetPath); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	s.notifyDocumentChanged()
+	if s.document.Path() == originalPath {
+		s.logCLIOutput("Saved canvas")
+	} else {
+		s.logCLIOutput("Saved canvas as a copy of %q", originalName)
+	}
 	s.writeSavedDocumentResponse(w)
 }
 
@@ -731,6 +744,7 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	originalName := s.document.name()
 	if s.canvases != nil {
 		err = s.canvases.rename(s, path)
 	} else {
@@ -745,6 +759,9 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notifyDocumentChanged()
+	if s.document.name() != originalName {
+		s.logCLIOutput("Renamed canvas from %q", originalName)
+	}
 	s.writeSavedDocumentResponse(w)
 }
 
@@ -772,6 +789,7 @@ func (s *Server) handleLoadPath(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, 409, err)
 			return
 		}
+		s.logCLIOutput("Selected canvas %q to open", strings.TrimSuffix(filepath.Base(request.Path), filepath.Ext(request.Path)))
 		writeJSON(w, 200, map[string]string{"canvasUrl": canvasURL})
 		return
 	}
@@ -793,6 +811,7 @@ func (s *Server) handleLoadPath(w http.ResponseWriter, r *http.Request) {
 	}
 	s.publishAgentRuns(false)
 	s.notifyDocumentChanged()
+	s.logCLIOutput("Opened canvas")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -818,6 +837,7 @@ func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, status, err)
 			return
 		}
+		s.writeCLIOutput(fmt.Sprintf("(%s) Created canvas", next.document.name()))
 		next.writeSavedDocumentResponse(w)
 		return
 	}
@@ -857,6 +877,7 @@ func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
 	}
 	s.publishAgentRuns(false)
 	s.notifyDocumentChanged()
+	s.logCLIOutput("Created canvas")
 	s.writeSavedDocumentResponse(w)
 }
 
@@ -1029,6 +1050,7 @@ func (s *Server) handlePutBlob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.logCLIOutput("Stored %s file %q (%s)", descriptor.Kind, filepath.Base(descriptor.FileName), formatExportBytes(descriptor.Size))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(descriptor); err != nil {
@@ -1037,7 +1059,8 @@ func (s *Server) handlePutBlob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteBlob(w http.ResponseWriter, r *http.Request) {
-	if existing, err := s.document.BlobDescriptor(r.PathValue("id")); err == nil && existing.TableName != "" {
+	existing, err := s.document.BlobDescriptor(r.PathValue("id"))
+	if err == nil && existing.TableName != "" {
 		writeAPIError(w, http.StatusConflict, fmt.Errorf("delete this table through the uploads API"))
 		return
 	}
@@ -1049,6 +1072,7 @@ func (s *Server) handleDeleteBlob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.logCLIOutput("Deleted %s file %q", existing.Kind, filepath.Base(existing.FileName))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1099,12 +1123,15 @@ func (s *Server) beginQueryOperation() (*session.Session, func(), error) {
 	return querySession, s.workers.Done, nil
 }
 
-func writeJSON(w http.ResponseWriter, status int, value interface{}) {
+func writeJSON(w http.ResponseWriter, status int, value interface{}) (int64, error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(value); err != nil {
+	payload := &responsePayload{Writer: w}
+	err := json.NewEncoder(payload).Encode(value)
+	if err != nil {
 		log.Printf("encode JSON response: %v", err)
 	}
+	return payload.bytes, err
 }
 
 func writeAPIError(w http.ResponseWriter, status int, err error) {
@@ -1182,6 +1209,7 @@ func (s *Server) handleGetSourceStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleExportSourceTable(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	var request struct {
 		TableRef string `json:"tableRef"`
@@ -1252,7 +1280,7 @@ func (s *Server) handleExportSourceTable(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, http.StatusInternalServerError, err)
 		return
 	}
-	s.logExport("source", request.TableRef, request.RowCount, request.Format, fileInfo.Size())
+	s.logExport("source", request.TableRef, request.RowCount, request.Format, fileInfo.Size(), time.Since(started))
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"downloadUrl": s.scopedURL("/api/session/query-results/" + url.PathEscape(id)),
 		"fileName":    fileName,
@@ -1260,6 +1288,7 @@ func (s *Server) handleExportSourceTable(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleExportQueryResult(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	var request struct {
 		Format   string `json:"format"`
@@ -1336,14 +1365,14 @@ func (s *Server) handleExportQueryResult(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, http.StatusInternalServerError, err)
 		return
 	}
-	s.logExport("query", resultMetadata.Name, &resultMetadata.RowCount, request.Format, fileInfo.Size())
+	s.logExport("query", resultMetadata.Name, &resultMetadata.RowCount, request.Format, fileInfo.Size(), time.Since(started))
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"downloadUrl": s.scopedURL("/api/session/query-results/" + url.PathEscape(id)),
 		"fileName":    fileName,
 	})
 }
 
-func (s *Server) logExport(kind, name string, rowCount *int64, format string, size int64) {
+func (s *Server) logExport(kind, name string, rowCount *int64, format string, size int64, elapsed time.Duration) {
 	rowLabel := "unknown rows"
 	if rowCount != nil {
 		rowLabel = fmt.Sprintf("%d rows", *rowCount)
@@ -1352,9 +1381,10 @@ func (s *Server) logExport(kind, name string, rowCount *int64, format string, si
 		kind += " (" + name + ")"
 	}
 	s.logCLIOutput(
-		"Exported %s as %s: %s, %s\n",
+		"Exported %s as %s in %s (%s, %s)",
 		kind,
 		strings.ToUpper(format),
+		elapsed.Round(time.Millisecond),
 		rowLabel,
 		formatExportBytes(size),
 	)
@@ -1444,8 +1474,10 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer done()
+	started := time.Now()
+	ctx := compute.WithQueryLog(r.Context(), request.QueryName, request.SQL)
 	client := &localHTTPQueryClient{server: s}
-	result, err := querySession.RunQuery(r.Context(), client, request)
+	result, err := querySession.RunQuery(ctx, client, request)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return
@@ -1453,12 +1485,18 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, localQueryResponse{
+	size, err := writeJSON(w, http.StatusOK, localQueryResponse{
 		Scan:     result.Scan,
 		ShapeID:  request.ShapeId,
 		RowCount: result.RowCount,
 		Schema:   result.Schema,
 	})
+	elapsed := time.Since(started).Round(time.Millisecond)
+	if err != nil {
+		s.logCLIOutput("%sQuery metadata interrupted after %s (%d bytes sent)", compute.QueryLogPrefix(ctx), elapsed, size)
+		return
+	}
+	s.logCLIOutput("%sQuery finished in %s (%d rows, %d metadata bytes sent)", compute.QueryLogPrefix(ctx), elapsed, result.RowCount, size)
 }
 
 func resultPageInteger(r *http.Request, name string, defaultValue int) (int, error) {
@@ -1491,39 +1529,66 @@ func (s *Server) handleQueryResultPage(w http.ResponseWriter, r *http.Request) {
 	}
 	defer done()
 	shapeID := r.PathValue("shapeId")
-	if !querySession.HasQueryResult(shapeID) {
+	metadata, ok := querySession.QueryResultMetadata(shapeID)
+	if !ok {
 		writeAPIError(w, http.StatusNotFound, fmt.Errorf("query result is not loaded; run the query to load it"))
 		return
 	}
-	reader, err := querySession.QueryResultPage(r.Context(), shapeID, offset, limit)
+	ctx := compute.WithQueryLog(r.Context(), metadata.Name, "")
+	started := time.Now()
+	reader, err := querySession.QueryResultPage(ctx, shapeID, offset, limit)
 	if err != nil {
+		if r.Context().Err() == nil {
+			s.logCLIOutput("%sQuery result page failed after %s: %v", compute.QueryLogPrefix(ctx), time.Since(started).Round(time.Millisecond), err)
+		}
 		writeAPIError(w, http.StatusUnprocessableEntity, fmt.Errorf("read query result: %w", err))
 		return
 	}
 	defer reader.Release()
-	writeArrowResult(w, reader)
+	s.writeQueryArrow(w, ctx, reader, "Query result page", started)
 }
 
-func writeArrowResult(w http.ResponseWriter, reader interface {
-	Schema() *arrow.Schema
-	Next() bool
-	Record() arrow.Record
-	Err() error
-}) {
+type responsePayload struct {
+	io.Writer
+	bytes int64
+}
+
+func (w *responsePayload) Write(p []byte) (int, error) {
+	n, err := w.Writer.Write(p)
+	w.bytes += int64(n)
+	return n, err
+}
+
+func (s *Server) writeQueryArrow(w http.ResponseWriter, ctx context.Context, reader array.RecordReader, label string, started time.Time) {
+	rows, size, err := writeArrowResult(w, reader)
+	elapsed := time.Since(started).Round(time.Millisecond)
+	if err != nil {
+		s.logCLIOutput("%s%s interrupted after %s (%d rows, %d result bytes sent): %v", compute.QueryLogPrefix(ctx), label, elapsed, rows, size, err)
+		panic(http.ErrAbortHandler)
+	}
+	if label == "Query result page" {
+		s.logCLIOutput("%sfinished in %s, %d rows, %d bytes sent", compute.QueryLogPrefix(ctx), elapsed, rows, size)
+		return
+	}
+	s.logCLIOutput("%s%s finished in %s (%d rows, %d result bytes sent)", compute.QueryLogPrefix(ctx), label, elapsed, rows, size)
+}
+
+func writeArrowResult(w http.ResponseWriter, reader array.RecordReader) (rows, size int64, err error) {
 	w.Header().Set("Content-Type", "application/vnd.apache.arrow.stream")
-	writer := ipc.NewWriter(w, ipc.WithSchema(reader.Schema()))
+	payload := &responsePayload{Writer: w}
+	writer := ipc.NewWriter(payload, ipc.WithSchema(reader.Schema()))
 	for reader.Next() {
-		if err := writer.Write(reader.Record()); err != nil {
-			panic(http.ErrAbortHandler)
+		record := reader.Record()
+		if err := writer.Write(record); err != nil {
+			return rows, payload.bytes, err
 		}
+		rows += record.NumRows()
 	}
 	if err := reader.Err(); err != nil {
-		panic(http.ErrAbortHandler)
+		return rows, payload.bytes, err
 	}
-	if err := writer.Close(); err != nil {
-		log.Printf("write paginated Arrow result: %v", err)
-		panic(http.ErrAbortHandler)
-	}
+	err = writer.Close()
+	return rows, payload.bytes, err
 }
 
 func (s *Server) handleCancelQuery(w http.ResponseWriter, r *http.Request) {
@@ -1555,9 +1620,13 @@ func (s *Server) handleDropQueryResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer done()
+	loaded := querySession.HasQueryResult(shapeID)
 	if err := querySession.DropResults(r.Context(), []string{shapeID}); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err)
 		return
+	}
+	if loaded {
+		s.logCLIOutput("Cleared query result")
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -1581,6 +1650,9 @@ func (s *Server) handleDeleteBlobsForShapes(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err)
 		return
+	}
+	if len(request.ShapeIDs) > 0 {
+		s.logCLIOutput("Cleared backend data for %d canvas shapes", len(request.ShapeIDs))
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

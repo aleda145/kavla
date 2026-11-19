@@ -6,6 +6,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/aleda145/kavla/cli/internal/engine"
 )
 
 type queryLogKey struct{}
@@ -18,7 +20,25 @@ type queryLog struct {
 
 // WithQueryLog keeps the submitted SQL available after it is wrapped for execution.
 func WithQueryLog(ctx context.Context, name, sql string) context.Context {
+	if _, ok := ctx.Value(queryLogKey{}).(*queryLog); ok {
+		return ctx
+	}
 	return context.WithValue(ctx, queryLogKey{}, &queryLog{name: strings.TrimSpace(name), sql: sql})
+}
+
+func QueryLogPrefix(ctx context.Context) string {
+	query, _ := ctx.Value(queryLogKey{}).(*queryLog)
+	if query == nil {
+		return ""
+	}
+	prefix := ""
+	if query.worker != nil {
+		prefix = fmt.Sprintf("(%d) ", query.worker.cmd.Process.Pid)
+	}
+	if query.name != "" {
+		prefix += "(" + query.name + ") "
+	}
+	return prefix
 }
 
 func (c *Client) logWorker(p *process, format string, args ...interface{}) {
@@ -28,6 +48,19 @@ func (c *Client) logWorker(p *process, format string, args ...interface{}) {
 func (c *Client) verboseWorker(p *process, format string, args ...interface{}) {
 	if c.verbosef != nil {
 		c.verbosef("(%d) %s", p.cmd.Process.Pid, fmt.Sprintf(format, args...))
+	}
+}
+
+func (c *Client) logSourceStatus(p *process, status engine.SourceStatus) {
+	switch {
+	case status.Loading:
+		c.logWorker(p, "Connecting to source %q (%s)", status.Name, status.Type)
+	case status.Available:
+		c.logWorker(p, "Connected to source %q (%s) in %s", status.Name, status.Type, status.ConnectionTime.Round(time.Millisecond))
+	case status.Error != "" && status.ConnectionTime > 0:
+		c.logWorker(p, "Source %q (%s) unavailable after %s: %s", status.Name, status.Type, status.ConnectionTime.Round(time.Millisecond), status.Error)
+	case status.Error != "":
+		c.logWorker(p, "Source %q (%s) unavailable: %s", status.Name, status.Type, status.Error)
 	}
 }
 
@@ -74,9 +107,14 @@ func (c *Client) logSQL(ctx context.Context, p *process, req request) {
 	query, _ := ctx.Value(queryLogKey{}).(*queryLog)
 	switch req.Op {
 	case "create-view", "count":
-		if query == nil {
+		if query == nil || query.sql == "" {
 			return
 		}
+	case "page":
+		if query != nil {
+			query.worker = p
+		}
+		return
 	case "query", "widget":
 	default:
 		return
@@ -95,5 +133,5 @@ func (c *Client) logSQL(ctx context.Context, p *process, req request) {
 			name = " (" + query.name + ")"
 		}
 	}
-	c.logf("(%d)%s:\n%s\n\n", p.cmd.Process.Pid, name, sql)
+	c.logf("(%d)%s:\n%s", p.cmd.Process.Pid, name, sql)
 }
