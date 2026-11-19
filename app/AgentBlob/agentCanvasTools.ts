@@ -290,7 +290,7 @@ async function createQuery(
   env.signal.throwIfAborted();
   let result: SQLShapeRunResult;
   try {
-    result = await executeSQLShape(editor, env.data, shapeId, sql, env.signal);
+    result = await executeSQLShape(editor, env.data, shapeId, sql, env.signal, { includeSampleRows: true });
   } catch (error) {
     return boundedResult({
       ok: false,
@@ -330,7 +330,7 @@ async function runExistingQuery(editor: Editor, args: ToolArguments, env: AgentT
   const sql = query.props.text.trim();
   let result: SQLShapeRunResult;
   try {
-    result = await executeSQLShape(editor, env.data, query.id, sql, env.signal);
+    result = await executeSQLShape(editor, env.data, query.id, sql, env.signal, { includeSampleRows: true });
   } catch (error) {
     return boundedResult({
       ok: false,
@@ -371,7 +371,7 @@ async function updateQuery(editor: Editor, args: ToolArguments, env: AgentToolEn
   env.signal.throwIfAborted();
   let result: SQLShapeRunResult;
   try {
-    result = await executeSQLShape(editor, env.data, query.id, sql, env.signal);
+    result = await executeSQLShape(editor, env.data, query.id, sql, env.signal, { includeSampleRows: true });
   } catch (error) {
     env.signal.throwIfAborted();
     if (editor.getShape(query.id))

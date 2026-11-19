@@ -14,7 +14,7 @@ export async function executeSQLShape(
   id: TLShapeId,
   sql: string,
   signal: AbortSignal,
-  options: { createMissingKnobs?: boolean } = {}
+  options: { createMissingKnobs?: boolean; includeSampleRows?: boolean } = {}
 ): Promise<SQLShapeRunResult> {
   signal.throwIfAborted();
   const shape = editor.getShape<SQLTextAreaShape>(id);
@@ -48,6 +48,7 @@ export async function executeSQLShape(
       sourceNative: executionState.sourceNativePreview,
       shapeId: id,
       queryName: shape.props.name,
+      includeSampleRows: options.includeSampleRows,
     });
     signal.throwIfAborted();
     const current = editor.getShape<SQLTextAreaShape>(id);
