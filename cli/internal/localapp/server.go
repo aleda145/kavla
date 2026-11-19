@@ -1496,7 +1496,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		s.logCLIOutput("%sQuery metadata interrupted after %s (%d bytes sent)", compute.QueryLogPrefix(ctx), elapsed, size)
 		return
 	}
-	s.logCLIOutput("%sQuery finished in %s (%d rows, %d metadata bytes sent)", compute.QueryLogPrefix(ctx), elapsed, result.RowCount, size)
+	s.logCLIOutput("%sResult metadata sent in %s (COUNT(*) = %d, %d bytes)", compute.QueryLogPrefix(ctx), elapsed, result.RowCount, size)
 }
 
 func resultPageInteger(r *http.Request, name string, defaultValue int) (int, error) {
