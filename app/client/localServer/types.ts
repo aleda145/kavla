@@ -23,6 +23,7 @@ export interface RunRemoteQueryPayload {
   sourceNative?: boolean;
   transient?: boolean;
   includeSampleRows?: boolean;
+  onFirstPage?: () => void;
   restore?: boolean;
 }
 

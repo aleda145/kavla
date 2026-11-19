@@ -9,6 +9,7 @@ interface SQLResultAreaFooterProps {
   pageSize: number;
   pageStartRow: number;
   totalRows: number;
+  counting: boolean;
   onNextPage: () => void;
   onPreviousPage: () => void;
 }
@@ -21,6 +22,7 @@ export function SQLResultAreaFooter({
   pageSize,
   pageStartRow,
   totalRows,
+  counting,
   onNextPage,
   onPreviousPage,
 }: SQLResultAreaFooterProps) {
@@ -43,7 +45,7 @@ export function SQLResultAreaFooter({
       }}
     >
       <span>
-        {totalRows.toLocaleString()} rows
+        {counting ? "Loading total" : `${totalRows.toLocaleString()} rows`}
         {totalRows > 0 ? `, showing ${pageStartRow.toLocaleString()}-${pageEndRow.toLocaleString()}` : ""}
       </span>
       {totalRows > pageSize ? (
