@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -78,7 +79,12 @@ func recoverArchive(path string) error {
 	if err := os.Remove(path + ".journal"); err != nil {
 		return err
 	}
-	return syncArchiveDirectory(filepath.Dir(path))
+	if err := syncArchiveDirectory(filepath.Dir(path)); err != nil {
+		return err
+	}
+	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	log.Printf("(%s) Recovered interrupted save (discarded %d bytes, restored %d bytes)", name, info.Size()-journal.Size, journal.Size)
+	return nil
 }
 
 // Read the original directory records verbatim, retaining ZIP64 offsets and

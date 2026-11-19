@@ -34,12 +34,13 @@ type Engine struct {
 }
 
 type SourceStatus struct {
-	Name      string
-	Type      string
-	Available bool
-	Loading   bool
-	Revision  uint64
-	Error     string
+	Name           string
+	Type           string
+	Available      bool
+	Loading        bool
+	Revision       uint64
+	Error          string
+	ConnectionTime time.Duration
 }
 
 type ResultColumn struct {
@@ -292,6 +293,7 @@ func (e *Engine) ensureSourceAvailable(ctx context.Context, sourceName string) e
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	started := time.Now()
 	status.Loading = true
 	status.Revision++
 	e.sourceStatuses[sourceName] = status
@@ -309,6 +311,7 @@ func (e *Engine) ensureSourceAvailable(ctx context.Context, sourceName string) e
 			ExecSQL: func(label, sql string) error { return e.execStartupSQL(ctx, sql) },
 		}, sourceName, src)
 	}
+	status.ConnectionTime = time.Since(started)
 	if err != nil {
 		e.markSourceUnavailable(status, err)
 		return fmt.Errorf("initialize source %q: %w", sourceName, err)

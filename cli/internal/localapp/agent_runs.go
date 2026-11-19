@@ -191,7 +191,13 @@ func (s *Server) finishAgentRun(id, status, message string) {
 		}
 	}
 	s.agentActiveThread, s.agentActiveTurn = "", ""
+	createdAt := run.CreatedAt
 	s.agentMu.Unlock()
+	if createdAt > 0 {
+		s.logCLIOutput("Agent run %s after %s", status, time.Since(time.UnixMilli(createdAt)).Round(time.Millisecond))
+	} else {
+		s.logCLIOutput("Agent run %s", status)
+	}
 	s.publishAgentRuns(true)
 }
 
@@ -246,6 +252,7 @@ func (s *Server) startAgentPrompt(request agentPromptRequest) error {
 	}
 	s.workers.Add(1)
 	s.workerMu.Unlock()
+	s.logCLIOutput("Started Agent run (%s)", model)
 	go func() {
 		defer s.workers.Done()
 		defer func() {
@@ -473,11 +480,17 @@ func (s *Server) acceptAgentToolResult(request agentToolResultRequest) error {
 	run.Status, run.Activity = "running", "Thinking…"
 	run.Revision++
 	requestID := call.RequestID
+	tool := call.Tool
 	s.agentMu.Unlock()
 	s.publishAgentRuns(true)
 	if err := client.RespondToTool(requestID, request.Success, value); err != nil {
 		s.finishAgentRun(run.ID, "failed", err.Error())
 		return err
+	}
+	if !request.Success {
+		s.logCLIOutput("Agent tool %s failed", tool)
+	} else if s.verbose {
+		s.logCLIOutput("Agent tool %s completed", tool)
 	}
 	if result, ok := value.(map[string]interface{}); ok && !request.Success && result["stopRun"] == true {
 		s.stopAgentRun(run.ID, "failed", request.Error)
@@ -529,6 +542,7 @@ func (s *Server) handleAgentGenerateLens(w http.ResponseWriter, r *http.Request)
 	stop := context.AfterFunc(r.Context(), cancel)
 	defer stop()
 	defer cancel()
+	started := time.Now()
 	result, err := client.GenerateLens(ctx, model, request.Prompt, request.Context)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
@@ -542,6 +556,7 @@ func (s *Server) handleAgentGenerateLens(w http.ResponseWriter, r *http.Request)
 		writeAPIError(w, 500, err)
 		return
 	}
+	s.logCLIOutput("Generated Lens in %s", time.Since(started).Round(time.Millisecond))
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(result)
 }

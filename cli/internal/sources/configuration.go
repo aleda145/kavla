@@ -28,6 +28,23 @@ type ConfigChange struct {
 	Source       SourceInput `json:"source"`
 }
 
+// LogMessage describes a successful change using only source names and types.
+func (c ConfigChange) LogMessage() string {
+	name, sourceType := strings.TrimSpace(c.Source.Name), strings.ToLower(strings.TrimSpace(c.Source.Type))
+	switch c.Action {
+	case "create":
+		return fmt.Sprintf("Added source %q (%s)", name, sourceType)
+	case "update":
+		if c.OriginalName != name {
+			return fmt.Sprintf("Renamed source %q to %q (%s)", c.OriginalName, name, sourceType)
+		}
+		return fmt.Sprintf("Updated source %q (%s)", name, sourceType)
+	case "delete":
+		return fmt.Sprintf("Removed source %q", c.Name)
+	}
+	return ""
+}
+
 type ConfigurationDefinition struct {
 	Type            string `json:"type"`
 	Label           string `json:"label"`

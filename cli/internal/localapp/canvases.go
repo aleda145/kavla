@@ -132,6 +132,7 @@ func (c *canvasRegistry) importArchive(sourcePath, filename string) (string, str
 }
 
 func (c *canvasRegistry) handleImport(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	filename := r.URL.Query().Get("name")
 	base := strings.TrimSuffix(filename, filepath.Ext(filename))
 	if base == "" || base == "." || base == ".." || filepath.Base(filename) != filename || strings.ContainsAny(filename, "/\\\r\n\x00") || !strings.EqualFold(filepath.Ext(filename), ".kavla") {
@@ -172,6 +173,7 @@ func (c *canvasRegistry) handleImport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	c.root.writeCLIOutput(fmt.Sprintf("(%s) Imported canvas from %q in %s", strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)), filename, time.Since(started).Round(time.Millisecond)))
 	writeJSON(w, http.StatusOK, map[string]string{"path": path, "canvasUrl": canvasURL})
 }
 
@@ -385,19 +387,21 @@ func (c *canvasRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if name == "api" {
 		if r.URL.Path == "/api/canvases/import" && r.Method == http.MethodPost {
-			c.root.sameOriginMutation(c.handleImport)(w, r)
+			c.root.serveLoggedRequest(w, r, "POST /api/canvases/import", c.root.sameOriginMutation(c.handleImport))
 			return
 		}
 		if r.URL.Path == "/api/canvases" && r.Method == http.MethodGet {
-			writeJSON(w, http.StatusOK, c.registeredCanvasEntries())
+			c.root.serveLoggedRequest(w, r, "GET /api/canvases", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				writeJSON(w, http.StatusOK, c.registeredCanvasEntries())
+			}))
 			return
 		}
 		if r.URL.Path == "/api/canvases/directories" && r.Method == http.MethodGet {
-			c.root.handleDirectories(w, r)
+			c.root.serveLoggedRequest(w, r, "GET /api/canvases/directories", http.HandlerFunc(c.root.handleDirectories))
 			return
 		}
 		if r.URL.Path == "/api/canvases/new" && r.Method == http.MethodPost {
-			c.root.sameOriginMutation(c.root.handleNew)(w, r)
+			c.root.serveLoggedRequest(w, r, "POST /api/canvases/new", c.root.sameOriginMutation(c.root.handleNew))
 			return
 		}
 		http.NotFound(w, r)
@@ -471,6 +475,9 @@ func (c *canvasRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
+		if previous != name {
+			runtime.logCLIOutput("Switched to canvas")
+		}
 		request := r.Clone(r.Context())
 		request.URL.Path = "/"
 		request.URL.RawPath = ""
@@ -494,6 +501,9 @@ func (c *canvasRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		runtime.ownerMu.RLock()
 		defer runtime.ownerMu.RUnlock()
 		if runtime.ownerToken == "" || runtime.ownerContext.Err() != nil || r.Header.Get("X-Kavla-Editor") != runtime.ownerToken {
+			if runtime.verbose || (apiPath != "/api/session/document" && apiPath != "/api/session/undo") {
+				runtime.logCLIOutput("Canvas request rejected: editor ownership lost")
+			}
 			writeAPIError(w, http.StatusConflict, fmt.Errorf("this tab does not own the canvas editor; reconnect before changing it"))
 			return
 		}
@@ -515,6 +525,7 @@ func (c *canvasRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			active := activeAgentRun(other.agentRun)
 			other.agentMu.Unlock()
 			if active {
+				runtime.logCLIOutput("Could not change Agent authentication while a run is active")
 				writeAPIError(w, 409, fmt.Errorf("stop active Agent runs before changing authentication"))
 				return
 			}

@@ -313,6 +313,7 @@ func (s *Server) handleAgentCancel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAgentRetry(w http.ResponseWriter, _ *http.Request) {
+	s.logCLIOutput("Retrying Agent connection")
 	s.retryAgentDetection()
 	w.WriteHeader(http.StatusAccepted)
 }

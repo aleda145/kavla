@@ -3,6 +3,7 @@ package transport
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/session"
@@ -45,6 +46,7 @@ func (m *Manager) handleSourceConfig(message map[string]interface{}) {
 	}
 	response := map[string]interface{}{"type": messageType + "_response", "requestId": requestID, "payload": result}
 	if err != nil {
+		m.Log("Could not complete source configuration request")
 		response = map[string]interface{}{"type": "error", "requestId": requestID, "error": err.Error()}
 	}
 	if err := m.client.SendJSON(response); err != nil {
@@ -53,6 +55,7 @@ func (m *Manager) handleSourceConfig(message map[string]interface{}) {
 }
 
 func (m *Manager) configureSources(request sources.ConfigChange) (interface{}, error) {
+	started := time.Now()
 	if request.Action == "list" {
 		m.sessionMu.RLock()
 		defer m.sessionMu.RUnlock()
@@ -89,6 +92,7 @@ func (m *Manager) configureSources(request sources.ConfigChange) (interface{}, e
 	previous := m.session
 	m.session = next
 	m.watchSourceStatuses(next)
+	m.Log("%s in %s", request.LogMessage(), time.Since(started).Round(time.Millisecond))
 	if err := previous.Close(); err != nil {
 		m.Log("Could not close previous source session: %v\n", err)
 	}

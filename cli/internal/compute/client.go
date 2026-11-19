@@ -29,11 +29,12 @@ import (
 const stoppedMessage = "DuckDB service stopped or lost its connection. Your canvas is still open. Run the operation again to restart compute"
 
 type process struct {
-	cmd     *exec.Cmd
-	control io.WriteCloser
-	address string
-	token   string
-	done    chan struct{}
+	cmd        *exec.Cmd
+	control    io.WriteCloser
+	address    string
+	token      string
+	done       chan struct{}
+	stopReason atomic.Pointer[string]
 }
 
 // Client serializes operations for one document. A streaming Arrow result owns
@@ -57,6 +58,8 @@ type Client struct {
 	workerError     string
 	journal         []request // Successful source/view mutations, replayed after a crash.
 	restoredViews   map[string]bool
+
+	previousWorkerPID int // Protected by mu.
 }
 
 func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf, verbosef func(string, ...interface{}), directories []string) (*Client, error) {
@@ -149,9 +152,7 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 				var status engine.SourceStatus
 				if err := json.Unmarshal([]byte(data), &status); err == nil {
 					c.updateWorkerSourceStatuses(p, []engine.SourceStatus{status})
-					if status.Error != "" {
-						c.logWorker(p, "Source %q unavailable: %s", status.Name, status.Error)
-					}
+					c.logSourceStatus(p, status)
 					continue
 				}
 			}
@@ -168,11 +169,14 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 		if err := spilldir.Cleanup(); err != nil {
 			c.logWorker(p, "Could not clean up DuckDB spill files: %v", err)
 		}
+		reason := p.stopReason.Load()
 		close(p.done)
-		if waitErr != nil {
-			c.logWorker(p, "DuckDB worker exited: %v", waitErr)
+		if reason != nil {
+			c.logWorker(p, "DuckDB worker stopped (%s)", *reason)
+		} else if waitErr != nil {
+			c.logWorker(p, "DuckDB worker exited unexpectedly: %v", waitErr)
 		} else {
-			c.verboseWorker(p, "DuckDB worker exited")
+			c.logWorker(p, "DuckDB worker exited unexpectedly")
 		}
 		c.mu.Lock()
 		isCurrent := c.worker == p
@@ -201,16 +205,25 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 	select {
 	case result := <-startup:
 		if result.Error != "" {
+			p.stopping("startup failed")
 			p.kill()
 			return nil, ready{}, fmt.Errorf("start DuckDB service: %s", result.Error)
 		}
 		p.address = "http://" + result.Address + "/execute"
 		c.logWorkerStarted(p, result, time.Since(started))
+		for _, status := range result.Statuses {
+			c.logSourceStatus(p, status)
+		}
 		return p, result, nil
 	case <-ctx.Done():
+		p.stopping("startup interrupted")
 		p.kill()
 		return nil, ready{}, ctx.Err()
 	}
+}
+
+func (p *process) stopping(reason string) {
+	p.stopReason.CompareAndSwap(nil, &reason)
 }
 
 func (p *process) kill() {
@@ -234,9 +247,12 @@ func (c *Client) ensureWorker(ctx context.Context) (_ *process, startupErr error
 		default:
 			return p, nil
 		}
-		c.verboseWorker(p, "Restarting DuckDB after worker exit")
 	}
 	c.mu.Lock()
+	if p != nil {
+		c.previousWorkerPID = p.cmd.Process.Pid
+	}
+	previousPID := c.previousWorkerPID
 	c.worker = nil
 	c.workerError = ""
 	c.markSourcesDisconnectedLocked()
@@ -258,6 +274,7 @@ func (c *Client) ensureWorker(ctx context.Context) (_ *process, startupErr error
 	if err != nil {
 		return nil, err
 	}
+	replayed := 0
 	for _, req := range c.journal {
 		if req.Op == "create-view" {
 			// Restore views on demand. A view referencing a subsequently deleted
@@ -271,21 +288,29 @@ func (c *Client) ensureWorker(ctx context.Context) (_ *process, startupErr error
 			req.Op = "register-upload"
 		}
 		if _, err := c.sendJSON(ctx, next, req); err != nil {
+			c.logWorker(next, "Could not replay DuckDB source changes (%d completed)", replayed)
+			next.stopping("source recovery failed")
 			next.kill()
 			return nil, fmt.Errorf("restore DuckDB service: %w", err)
 		}
+		replayed++
 	}
 	c.mu.Lock()
 	if c.closed || c.ctx.Err() != nil {
 		c.mu.Unlock()
+		next.stopping("canvas closed during startup")
 		next.kill()
 		return nil, context.Canceled
 	}
 	c.worker = next
+	c.previousWorkerPID = 0
 	c.restoredViews = make(map[string]bool)
 	c.statuses = info.Statuses
 	c.workerError = ""
 	c.mu.Unlock()
+	if previousPID != 0 {
+		c.logWorker(next, "Replaced DuckDB worker %d (source changes replayed: %d)", previousPID, replayed)
+	}
 	return next, nil
 }
 
@@ -302,10 +327,16 @@ func (c *Client) operation(ctx context.Context) (context.Context, func(), error)
 	}
 }
 
-func (c *Client) invalidate(p *process) {
+func (c *Client) invalidate(ctx context.Context, p *process) {
+	if ctx.Err() != nil {
+		p.stopping("request canceled or timed out")
+	} else {
+		p.stopping("worker connection interrupted")
+	}
 	c.mu.Lock()
 	if c.worker == p {
 		c.worker = nil
+		c.previousWorkerPID = p.cmd.Process.Pid
 		c.workerError = stoppedMessage
 	}
 	c.mu.Unlock()
@@ -332,7 +363,7 @@ func (c *Client) send(ctx context.Context, p *process, req request) (*http.Respo
 	result, err := c.http.Do(httpReq)
 	if err != nil {
 		if req.Op != "estimate-ready" {
-			c.invalidate(p)
+			c.invalidate(ctx, p)
 		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -343,7 +374,7 @@ func (c *Client) send(ctx context.Context, p *process, req request) (*http.Respo
 		var statuses []engine.SourceStatus
 		if err := json.Unmarshal([]byte(data), &statuses); err != nil {
 			_ = result.Body.Close()
-			c.invalidate(p)
+			c.invalidate(ctx, p)
 			return nil, fmt.Errorf("read compute source statuses: %w", err)
 		}
 		c.updateWorkerSourceStatuses(p, statuses)
@@ -381,7 +412,7 @@ func (c *Client) sendJSON(ctx context.Context, p *process, req request) (respons
 	var result response
 	if err := json.NewDecoder(io.LimitReader(res.Body, 16<<20)).Decode(&result); err != nil {
 		if req.Op != "estimate-ready" {
-			c.invalidate(p)
+			c.invalidate(ctx, p)
 		}
 		return result, fmt.Errorf("%s: %w", stoppedMessage, err)
 	}
@@ -462,9 +493,11 @@ func (c *Client) restoreView(ctx context.Context, p *process, req request) error
 	for _, previous := range c.journal {
 		if previous.Op == "create-view" && previous.ID == req.ID {
 			if _, err := c.sendJSON(ctx, p, previous); err != nil {
+				c.logWorker(p, "Could not restore query view")
 				return fmt.Errorf("restore query result: %w", err)
 			}
 			c.restoredViews[req.ID] = true
+			c.logWorker(p, "Restored query view")
 			break
 		}
 	}
@@ -497,7 +530,7 @@ func (c *Client) query(ctx context.Context, req request) (array.RecordReader, er
 		defer res.Body.Close()
 		var result response
 		if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&result); err != nil {
-			c.invalidate(p)
+			c.invalidate(ctx, p)
 			return nil, fmt.Errorf("%s: %w", stoppedMessage, err)
 		}
 		return nil, fmt.Errorf("%s", result.Error)
@@ -505,10 +538,10 @@ func (c *Client) query(ctx context.Context, req request) (array.RecordReader, er
 	reader, err := ipc.NewReader(res.Body)
 	if err != nil {
 		_ = res.Body.Close()
-		c.invalidate(p)
+		c.invalidate(ctx, p)
 		return nil, fmt.Errorf("%s: %w", stoppedMessage, err)
 	}
-	result := &streamReader{Reader: reader, response: res, done: done, failed: func() { c.invalidate(p) }}
+	result := &streamReader{Reader: reader, response: res, done: done, failed: func() { c.invalidate(ctx, p) }}
 	result.refs.Store(1)
 	success = true
 	return result, nil
@@ -565,6 +598,10 @@ func (c *Client) Suspend(ctx context.Context) error {
 	}
 	c.mu.Lock()
 	p := c.worker
+	if p != nil {
+		c.previousWorkerPID = p.cmd.Process.Pid
+		p.stopping("canvas idle")
+	}
 	c.worker = nil
 	c.workerError = ""
 	c.markSourcesDisconnectedLocked()
@@ -585,7 +622,6 @@ func (c *Client) Suspend(ctx context.Context) error {
 	case <-timer.C:
 		p.kill()
 	}
-	c.verboseWorker(p, "Stopped DuckDB for an inactive canvas. Compute will restart on demand.")
 	return nil
 }
 
@@ -594,6 +630,9 @@ func (c *Client) Close() error {
 	c.mu.Lock()
 	c.closed = true
 	p := c.worker
+	if p != nil {
+		p.stopping("canvas closed")
+	}
 	c.worker = nil
 	c.mu.Unlock()
 	c.transport.CloseIdleConnections()
