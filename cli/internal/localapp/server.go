@@ -1,6 +1,7 @@
 package localapp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1477,26 +1478,67 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	ctx := compute.WithQueryLog(r.Context(), request.QueryName, request.SQL)
 	client := &localHTTPQueryClient{server: s}
-	result, err := querySession.RunQuery(ctx, client, request)
+	var sendPage session.SendFirstPage
+	streaming := r.Header.Get("Accept") == "application/x-ndjson"
+	pageSent := false
+	totalSource := "COUNT(*)"
+	metadataStarted := started
+	if streaming {
+		sendPage = func(schema []session.ResultColumn, page array.RecordReader) (int64, error) {
+			var data bytes.Buffer
+			rows, _, err := encodeArrowResult(&data, page)
+			if err != nil {
+				return 0, err
+			}
+			w.Header().Set("Content-Type", "application/x-ndjson")
+			payload := &responsePayload{Writer: w}
+			pageSent = true
+			err = json.NewEncoder(payload).Encode(map[string]interface{}{"schema": schema, "arrow": data.Bytes()})
+			if err == nil {
+				err = http.NewResponseController(w).Flush()
+			}
+			if err == nil {
+				s.logCLIOutput("%sFirst page finished in %s, %d rows, %d bytes sent", compute.QueryLogPrefix(ctx), time.Since(started).Round(time.Millisecond), rows, payload.bytes)
+			}
+			if rows < session.FirstPageSize {
+				totalSource = "first page"
+			}
+			metadataStarted = time.Now()
+			return rows, err
+		}
+	}
+	result, err := querySession.RunQuery(ctx, client, request, sendPage)
 	if err != nil {
 		if r.Context().Err() != nil {
+			return
+		}
+		if pageSent {
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		writeAPIError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
-	size, err := writeJSON(w, http.StatusOK, localQueryResponse{
+	response := localQueryResponse{
 		Scan:     result.Scan,
 		ShapeID:  request.ShapeId,
 		RowCount: result.RowCount,
 		Schema:   result.Schema,
-	})
-	elapsed := time.Since(started).Round(time.Millisecond)
+	}
+	var size int64
+	if streaming {
+		payload := &responsePayload{Writer: w}
+		err = json.NewEncoder(payload).Encode(response)
+		size = payload.bytes
+	} else {
+		size, err = writeJSON(w, http.StatusOK, response)
+	}
+	elapsed := time.Since(metadataStarted).Round(time.Millisecond)
 	if err != nil {
 		s.logCLIOutput("%sQuery metadata interrupted after %s (%d bytes sent)", compute.QueryLogPrefix(ctx), elapsed, size)
 		return
 	}
-	s.logCLIOutput("%sResult metadata sent in %s (COUNT(*) = %d, %d bytes)", compute.QueryLogPrefix(ctx), elapsed, result.RowCount, size)
+	s.logCLIOutput("%sResult metadata sent in %s (%d total rows from %s, %d bytes)", compute.QueryLogPrefix(ctx), elapsed, result.RowCount, totalSource, size)
 }
 
 func resultPageInteger(r *http.Request, name string, defaultValue int) (int, error) {
@@ -1575,6 +1617,10 @@ func (s *Server) writeQueryArrow(w http.ResponseWriter, ctx context.Context, rea
 
 func writeArrowResult(w http.ResponseWriter, reader array.RecordReader) (rows, size int64, err error) {
 	w.Header().Set("Content-Type", "application/vnd.apache.arrow.stream")
+	return encodeArrowResult(w, reader)
+}
+
+func encodeArrowResult(w io.Writer, reader array.RecordReader) (rows, size int64, err error) {
 	payload := &responsePayload{Writer: w}
 	writer := ipc.NewWriter(payload, ipc.WithSchema(reader.Schema()))
 	for reader.Next() {

@@ -4,7 +4,7 @@ import {
   getCanvasConnection,
   type RuntimeEvent,
 } from "../canvasConnection";
-import { withBackendActivity, sessionFetch, resetBackendCaches } from "../backendCompute";
+import { backendRevision, withBackendActivity, sessionFetch, resetBackendCaches } from "../backendCompute";
 import { loadQueryResultRows } from "../loadQueryResultRows";
 import { notifyAgentAuth } from "./agentAuth";
 import { notifyAgentRuns, agentClientId, getAgentRuns, isAgentRunActive, cancelAgentRun } from "./agentRuns";
@@ -28,13 +28,9 @@ import {
   type CliOutputLine,
   type KavlaVersionInfo,
 } from "./runtimeStore";
-import {
-  MissingQueryResultError,
-  type LocalServerContextType,
-  type RunRemoteQueryPayload,
-  type QueryScan,
-} from "./types";
+import { MissingQueryResultError, type LocalServerContextType, type RunRemoteQueryPayload } from "./types";
 
+import { queryFirstPages, readPagedQuery, setQueryFirstPage } from "./queryFirstPage";
 import { prepareRemoteQuery } from "../queryEstimate";
 
 const LocalServerContext = createContext<LocalServerContextType | null>(null);
@@ -227,7 +223,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
   const runRemoteQuery = useCallback(
     async (payload: RunRemoteQueryPayload) =>
       withBackendActivity(async () => {
-        const { includeSampleRows = payload.transient === true, ...queryPayload } = payload;
+        const { includeSampleRows = payload.transient === true, onFirstPage, ...queryPayload } = payload;
         const { sql, executionEngine } = prepareRemoteQuery(payload);
 
         queryControllers.current.get(payload.shapeId)?.abort();
@@ -235,27 +231,47 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
         queryControllers.current.set(payload.shapeId, controller);
 
         try {
-          const result = await postJSON<{
-            scan?: QueryScan;
-            rowCount: number;
-            schema: { name: string; type: string }[];
-          }>(
-            "/api/session/queries",
-            { ...queryPayload, sql, ...(executionEngine ? { executionEngine } : {}) },
-            controller.signal
-          );
+          const body = { ...queryPayload, sql, ...(executionEngine ? { executionEngine } : {}) };
+          const revision = backendRevision.get();
+          const checkCurrent = () => {
+            controller.signal.throwIfAborted();
+            if (backendRevision.get() !== revision) throw new DOMException("Backend session changed", "AbortError");
+          };
+          if (!payload.transient) setQueryFirstPage(payload.shapeId);
+          const response = await sessionFetch("/api/session/queries", {
+            method: "POST",
+            headers: {
+              Accept: payload.transient ? "application/json" : "application/x-ndjson",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+          if (!response.ok) throw await responseError(response);
+          const result = await readPagedQuery(response, (page) => {
+            checkCurrent();
+            setQueryFirstPage(payload.shapeId, page);
+            onFirstPage?.();
+          });
+          checkCurrent();
+          const page = queryFirstPages.get().get(payload.shapeId);
+          if (page) setQueryFirstPage(payload.shapeId, { ...page, total: result.rowCount });
           const sampleRows = !includeSampleRows
             ? []
             : payload.transient
               ? await loadQueryResultRows(getQueryResultPage, payload.shapeId, null, controller.signal)
-              : (await getQueryResultPage({ shapeId: payload.shapeId, offset: 0, limit: 5, signal: controller.signal }))
-                  .rows;
+              : (page?.rows.slice(0, 5) ??
+                (await getQueryResultPage({ shapeId: payload.shapeId, offset: 0, limit: 5, signal: controller.signal }))
+                  .rows);
           return {
             scan: result.scan,
             rowCount: Number(result.rowCount ?? 0),
             schema: result.schema,
             sampleRows,
           };
+        } catch (error) {
+          if (queryControllers.current.get(payload.shapeId) === controller) setQueryFirstPage(payload.shapeId);
+          throw error;
         } finally {
           if (payload.transient) {
             await sessionFetch(`/api/session/queries/${encodeURIComponent(payload.shapeId)}/result`, {
@@ -272,6 +288,7 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
 
   const cancelRemoteQuery = useCallback((shapeId: string) => {
     queryControllers.current.get(shapeId)?.abort();
+    setQueryFirstPage(shapeId);
     queryControllers.current.delete(shapeId);
     void sessionFetch(`/api/session/queries/${encodeURIComponent(shapeId)}`, {
       method: "DELETE",
@@ -280,6 +297,10 @@ export function LocalServerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const deleteShapes = useCallback<LocalServerContextType["deleteShapes"]>((shapeIds) => {
+    for (const id of shapeIds) {
+      queryControllers.current.get(id)?.abort();
+      setQueryFirstPage(id);
+    }
     void postJSON("/api/session/blobs/delete-for-shapes", { shapeIds }).catch((error) => {
       console.error("Could not delete shape blobs", error);
     });

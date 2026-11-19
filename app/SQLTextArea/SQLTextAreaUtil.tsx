@@ -116,7 +116,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     this.updateSourceName = updateSourceName;
     const [isRemoteRunning, setIsRemoteRunning] = useState(false);
 
-    const ensureResultTable = async () => {
+    const ensureResultTable = () => {
       const currentShape = this.editor.getShape<SQLTextAreaShape>(shape.id);
       if (!currentShape) return;
 
@@ -277,6 +277,9 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
             shapeId: shape.id,
             queryName: shape.props.name,
             sourceNative: sourceNativePreview,
+            onFirstPage: () => {
+              if (this.editor.getShape<SQLTextAreaShape>(shape.id)?.props.showTable) ensureResultTable();
+            },
           });
           rowCount = result.rowCount;
           scan = result.scan;

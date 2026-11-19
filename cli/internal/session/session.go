@@ -256,7 +256,12 @@ func (s *Session) beginActiveQuery(parent context.Context, req runner.QueryReque
 	return queryCtx, finish
 }
 
-func (s *Session) RunQuery(parent context.Context, client Client, req runner.QueryRequest) (_ *QueryResult, queryErr error) {
+const FirstPageSize = 1000
+
+// SendFirstPage consumes the page synchronously, before any total or scan lookup.
+type SendFirstPage func([]ResultColumn, array.RecordReader) (int64, error)
+
+func (s *Session) RunQuery(parent context.Context, client Client, req runner.QueryRequest, sendPage SendFirstPage) (_ *QueryResult, queryErr error) {
 	queryCtx, finish := s.beginActiveQuery(parent, req)
 	defer func() { finish(queryErr) }()
 
@@ -284,24 +289,51 @@ func (s *Session) RunQuery(parent context.Context, client Client, req runner.Que
 		}
 		return nil, err
 	}
-	rowCount, err := s.engine.ResultRowCount(queryCtx, req.ShapeId)
-	if err != nil {
-		return nil, err
+	var schema []ResultColumn
+	var rowCount int64
+	if sendPage != nil {
+		page, err := s.engine.QueryResultPage(queryCtx, req.ShapeId, 0, FirstPageSize)
+		if err != nil {
+			return nil, err
+		}
+		fields := page.Schema().Fields()
+		schema = make([]ResultColumn, len(fields))
+		for i, field := range fields {
+			typeName, ok := field.Metadata.GetValue(engine.DuckDBTypeMetadata)
+			if !ok {
+				page.Release()
+				return nil, fmt.Errorf("missing DuckDB type for result column %q", field.Name)
+			}
+			schema[i] = ResultColumn{Name: field.Name, Type: typeName}
+		}
+		rowCount, err = sendPage(schema, page)
+		page.Release()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		engineSchema, err := s.engine.ResultSchema(queryCtx, req.ShapeId)
+		if err != nil {
+			return nil, err
+		}
+		schema = make([]ResultColumn, len(engineSchema))
+		for index, field := range engineSchema {
+			schema[index] = ResultColumn{Name: field.Name, Type: field.Type}
+		}
 	}
-	engineSchema, err := s.engine.ResultSchema(queryCtx, req.ShapeId)
-	if err != nil {
-		return nil, err
+	scanFinishedAt := time.Now()
+	if sendPage == nil || rowCount == FirstPageSize {
+		rowCount, err = s.engine.ResultRowCount(queryCtx, req.ShapeId)
+		if err != nil {
+			return nil, err
+		}
+		if sendPage == nil {
+			scanFinishedAt = time.Now()
+		}
 	}
-	schema := make([]ResultColumn, len(engineSchema))
-	for index, field := range engineSchema {
-		schema[index] = ResultColumn{Name: field.Name, Type: field.Type}
-	}
-	s.mu.Lock()
-	s.results[req.ShapeId] = QueryResultMetadata{Name: strings.TrimSpace(req.QueryName), RowCount: rowCount}
-	s.mu.Unlock()
 	var scan *sources.QueryScan
 	if readScan {
-		scan, err = s.engine.ReadQueryScan(queryCtx, req.SourceName, req.SQL, startedAt, time.Now())
+		scan, err = s.engine.ReadQueryScan(queryCtx, req.SourceName, req.SQL, startedAt, scanFinishedAt)
 		if err != nil {
 			if queryCtx.Err() != nil {
 				return nil, queryCtx.Err()
@@ -312,6 +344,9 @@ func (s *Session) RunQuery(parent context.Context, client Client, req runner.Que
 			s.log("Could not read scanned bytes: %v", err)
 		}
 	}
+	s.mu.Lock()
+	s.results[req.ShapeId] = QueryResultMetadata{Name: strings.TrimSpace(req.QueryName), RowCount: rowCount}
+	s.mu.Unlock()
 	return &QueryResult{RowCount: rowCount, Schema: schema, Scan: scan}, nil
 }
 

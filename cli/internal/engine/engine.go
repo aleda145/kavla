@@ -358,6 +358,8 @@ func (e *Engine) Query(ctx context.Context, query string) (array.RecordReader, e
 	return rowsToArrow(ctx, rows)
 }
 
+const DuckDBTypeMetadata = "kavla.duckdb.type"
+
 func rowsToArrow(ctx context.Context, rows *sql.Rows) (array.RecordReader, error) {
 	colTypes, err := rows.ColumnTypes()
 	if err != nil {
@@ -366,7 +368,12 @@ func rowsToArrow(ctx context.Context, rows *sql.Rows) (array.RecordReader, error
 
 	fields := make([]arrow.Field, len(colTypes))
 	for i, ct := range colTypes {
-		fields[i] = arrow.Field{Name: ct.Name(), Type: getArrowType(ct.DatabaseTypeName())}
+		typeName := ct.DatabaseTypeName()
+		fields[i] = arrow.Field{
+			Name:     ct.Name(),
+			Type:     getArrowType(typeName),
+			Metadata: arrow.NewMetadata([]string{DuckDBTypeMetadata}, []string{typeName}),
+		}
 	}
 	schema := arrow.NewSchema(fields, nil)
 

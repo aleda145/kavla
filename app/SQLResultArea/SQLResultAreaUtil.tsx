@@ -1,3 +1,4 @@
+import { queryFirstPages } from "../client/localServer/queryFirstPage";
 import { backendRevision, backendRequest } from "../client/backendCompute";
 import {
   HTMLContainer,
@@ -179,6 +180,11 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
       [sourceShapeId]
     );
 
+    const firstPage = useValue(
+      "query first page",
+      () => (sourceShapeId ? queryFirstPages.get().get(sourceShapeId) : undefined),
+      [sourceShapeId]
+    );
     const serverRevision = useValue("backend revision", () => backendRevision.get(), []);
     const scrollArea = useTldrawScrollArea();
     const parentRef = useRef<HTMLDivElement>(null);
@@ -195,76 +201,98 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
       if (parentRef.current) {
         parentRef.current.scrollTop = 0;
       }
-    }, [sourceShape?.id, sourceShape?.props.lastRunStats?.executionTime]);
+    }, [sourceShape?.id, firstPage?.rows, sourceShape?.props.lastRunStats?.executionTime]);
 
-    const fetchDataPage = useCallback(async () => {
-      setDataError(null);
-      setIsLoadingData(true);
+    const fetchDataPage = useCallback(
+      async (signal: AbortSignal) => {
+        setDataError(null);
+        setIsLoadingData(true);
 
-      if (!sourceShape) {
-        setPageData([]);
-        setColumns([]);
-        setTotalRows(0);
-        setIsLoadingData(false);
-        return;
-      }
-
-      try {
-        {
-          const pageRequest = {
-            shapeId: sourceShape.id,
-            offset: pageIndex * TABLE_PAGE_SIZE,
-            limit: TABLE_PAGE_SIZE,
-          };
-          let page;
-          try {
-            page = await getQueryResultPage(pageRequest);
-          } catch (error) {
-            if (!(error instanceof MissingQueryResultError)) throw error;
-            await restoreRemoteQueryView(this.editor, sourceShape, runRemoteQuery);
-            page = await getQueryResultPage(pageRequest);
-          }
-          const restoredMetadata = getRestoredRemoteQueryMetadata(sourceShape.id);
-          const outputSchema = restoredMetadata?.schema ?? sourceShape.props.outputSchema ?? [];
-          setColumns(
-            outputSchema.map((column) => ({
-              id: column.name,
-              accessorKey: column.name,
-              accessorFn: (row: SQLResultRow) => row[column.name],
-              header: column.name,
-              meta: { type: column.type },
-              cell: (info: any) => String(formatSQLResultCellValue(info.getValue(), column.type) ?? ""),
-            }))
-          );
-          setPageData(page.rows);
-          setTotalRows(restoredMetadata?.rowCount ?? sourceShape.props.lastRunStats?.rowCount ?? 0);
+        if (!sourceShape) {
+          setPageData([]);
+          setColumns([]);
+          setTotalRows(0);
+          setIsLoadingData(false);
           return;
         }
-      } catch (e: any) {
-        if (e instanceof MissingQueryResultError) {
-          setPageData([]);
-        } else {
-          console.error("Failed to fetch result data", e);
+
+        try {
+          {
+            const pageRequest = {
+              shapeId: sourceShape.id,
+              offset: pageIndex * TABLE_PAGE_SIZE,
+              limit: TABLE_PAGE_SIZE,
+              signal,
+            };
+            let cached = firstPage;
+            let page;
+            if (cached && pageIndex === 0) {
+              page = cached;
+            } else {
+              if (sourceShape.props.isRunning) return;
+              try {
+                page = await getQueryResultPage(pageRequest);
+              } catch (error) {
+                if (!(error instanceof MissingQueryResultError)) throw error;
+                await restoreRemoteQueryView(this.editor, sourceShape, runRemoteQuery);
+                if (signal.aborted) return;
+                cached = queryFirstPages.get().get(sourceShape.id);
+                page = cached && pageIndex === 0 ? cached : await getQueryResultPage(pageRequest);
+              }
+            }
+            if (signal.aborted) return;
+            const restoredMetadata = getRestoredRemoteQueryMetadata(sourceShape.id);
+            const outputSchema = cached?.schema ?? restoredMetadata?.schema ?? sourceShape.props.outputSchema ?? [];
+            setColumns(
+              outputSchema.map((column) => ({
+                id: column.name,
+                accessorKey: column.name,
+                accessorFn: (row: SQLResultRow) => row[column.name],
+                header: column.name,
+                meta: { type: column.type },
+                cell: (info: any) => String(formatSQLResultCellValue(info.getValue(), column.type) ?? ""),
+              }))
+            );
+            setPageData(page.rows);
+            setTotalRows(
+              cached
+                ? (cached.total ?? cached.rows.length)
+                : (restoredMetadata?.rowCount ?? sourceShape.props.lastRunStats?.rowCount ?? 0)
+            );
+            return;
+          }
+        } catch (e: any) {
+          if (signal.aborted) return;
+          if (e instanceof MissingQueryResultError) {
+            setPageData([]);
+          } else {
+            console.error("Failed to fetch result data", e);
+          }
+          const errorMessage = getBriefErrorMessage(e, "Could not load this result.");
+          setDataError(errorMessage);
+        } finally {
+          if (!signal.aborted) setIsLoadingData(false);
         }
-        const errorMessage = getBriefErrorMessage(e, "Could not load this result.");
-        setDataError(errorMessage);
-      } finally {
-        setIsLoadingData(false);
-      }
-    }, [
-      sourceShape?.props.name,
-      sourceShape?.props.outputSchema,
-      sourceShape?.props.lastRunStats?.rowCount,
-      sourceShape?.props.lastRunStats?.runnerName,
-      sourceShape?.id,
-      pageIndex,
-      serverRevision,
-      getQueryResultPage,
-      runRemoteQuery,
-    ]);
+      },
+      [
+        firstPage,
+        sourceShape?.props.isRunning,
+        sourceShape?.props.name,
+        sourceShape?.props.outputSchema,
+        sourceShape?.props.lastRunStats?.rowCount,
+        sourceShape?.props.lastRunStats?.runnerName,
+        sourceShape?.id,
+        pageIndex,
+        serverRevision,
+        getQueryResultPage,
+        runRemoteQuery,
+      ]
+    );
 
     useEffect(() => {
-      fetchDataPage();
+      const controller = new AbortController();
+      void fetchDataPage(controller.signal);
+      return () => controller.abort();
     }, [fetchDataPage, sourceShape?.props.lastRunStats]);
 
     const data = pageData;
@@ -717,7 +745,7 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
 
           <SQLResultAreaActionBar
             isCopied={isCopied}
-            isDisabled={false}
+            isDisabled={firstPage?.total === null}
             onCopy={handleCopyTSV}
             onDownload={handleDownload}
           />
@@ -730,6 +758,7 @@ export class SQLResultTableUtil extends ShapeUtil<SQLResultTableShape> {
           pageSize={TABLE_PAGE_SIZE}
           pageStartRow={pageStartRow}
           totalRows={totalRows}
+          counting={firstPage?.total === null}
           onNextPage={() => setPageIndex((page) => Math.min(pageCount - 1, page + 1))}
           onPreviousPage={() => setPageIndex((page) => Math.max(0, page - 1))}
         />

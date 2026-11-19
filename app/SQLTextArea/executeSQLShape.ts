@@ -38,6 +38,23 @@ export async function executeSQLShape(
   dispatchSQLShapeRunStarted(id, sql);
   const cancelRemote = () => data.cancelRemoteQuery(id, shape.props.name);
   signal.addEventListener("abort", cancelRemote, { once: true });
+  const ensureResultTable = () => {
+    const current = editor.getShape<SQLTextAreaShape>(id);
+    if (
+      current?.props.showTable &&
+      (!current.props.linkedTableId || !editor.getShape(current.props.linkedTableId as TLShapeId))
+    ) {
+      const tableId = createShapeId();
+      editor.createShape({
+        id: tableId,
+        type: "sql-result-table",
+        ...getFallbackNodePosition(editor, id, "below"),
+        props: { sourceShapeId: id, w: 400, h: 300 },
+      });
+      editor.updateShape<SQLTextAreaShape>({ id, type: "sql-text-area", props: { linkedTableId: tableId } });
+      connectShapes(editor, id, tableId);
+    }
+  };
   let result: SQLShapeRunResult;
   try {
     signal.throwIfAborted();
@@ -49,6 +66,7 @@ export async function executeSQLShape(
       shapeId: id,
       queryName: shape.props.name,
       includeSampleRows: options.includeSampleRows,
+      onFirstPage: ensureResultTable,
     });
     signal.throwIfAborted();
     const current = editor.getShape<SQLTextAreaShape>(id);
@@ -65,20 +83,7 @@ export async function executeSQLShape(
         lastRunStats: { executionTime: Date.now() - started, rowCount: output.rowCount, runnerName },
       },
     });
-    if (
-      current.props.showTable &&
-      (!current.props.linkedTableId || !editor.getShape(current.props.linkedTableId as TLShapeId))
-    ) {
-      const tableId = createShapeId();
-      editor.createShape({
-        id: tableId,
-        type: "sql-result-table",
-        ...getFallbackNodePosition(editor, id, "below"),
-        props: { sourceShapeId: id, w: 400, h: 300 },
-      });
-      editor.updateShape<SQLTextAreaShape>({ id, type: "sql-text-area", props: { linkedTableId: tableId } });
-      connectShapes(editor, id, tableId);
-    }
+    ensureResultTable();
     result = { success: true, rowCount: output.rowCount, outputSchema: output.schema, sampleRows: output.sampleRows };
   } catch (error) {
     const message = signal.aborted ? "Query cancelled" : error instanceof Error ? error.message : String(error);
