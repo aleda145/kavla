@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BriefcaseBusiness, Code2, LayoutDashboard, Loader2, Pin, Scan, Terminal } from "lucide-react";
+import { Pin, Terminal } from "lucide-react";
 import { siDuckdb, siGithub } from "simple-icons";
-import { createShapeId, useActions, useEditor, useValue } from "tldraw";
+import { createShapeId, useEditor, useValue } from "tldraw";
 import { isBackendComputing } from "../backendCompute";
-import { setBizMode, useBizMode } from "../canvas/bizMode";
-import { getLayoutActionAvailability, getLayoutInProgress } from "../canvas/layoutActions";
 import { getCliTerminalDisplay } from "../cliTerminalDisplay";
 import { useCliOutput, useCliStatus } from "../localServer/runtimeStore";
 
@@ -33,12 +31,6 @@ const lightStyle = {
 
 export function LocalRoomInfoPanel() {
   const editor = useEditor();
-  const bizMode = useBizMode(editor);
-  const actions = useActions();
-  const layingOut = useValue("Layout in progress", () => getLayoutInProgress(editor).get(), [editor]);
-  const { canLayout, canFit } = useValue("Layout selection availability", () => getLayoutActionAvailability(editor), [
-    editor,
-  ]);
   const cliConnected = useCliStatus();
   const cliOutput = useCliOutput();
   const cliTerminalDisplay = getCliTerminalDisplay(cliConnected, cliOutput);
@@ -357,103 +349,6 @@ export function LocalRoomInfoPanel() {
           >
             <DiscordIcon />
           </a>
-        </div>
-        <div
-          role="group"
-          aria-label="Canvas query mode"
-          className="pointer-events-auto select-none"
-          style={{ ...lightStyle, padding: 0, overflow: "hidden", flexShrink: 0 }}
-        >
-          {(["SQL", "Biz"] as const).map((mode) => {
-            const isBiz = mode === "Biz";
-            const selected = bizMode === isBiz;
-            const Icon = isBiz ? BriefcaseBusiness : Code2;
-            return (
-              <button
-                key={mode}
-                type="button"
-                aria-label={`Show ${mode} mode for all queries`}
-                aria-pressed={selected}
-                onClick={() => setBizMode(editor, isBiz)}
-                onPointerDown={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
-                title={`${isBiz ? "Show query flows for all queries" : "Show SQL for all queries"} · Shift+B to toggle`}
-                className="kavla-icon-control focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  height: "100%",
-                  padding: "0 7px",
-                  border: 0,
-                  borderLeft: isBiz ? "2px solid #000" : undefined,
-                  backgroundColor: selected ? "#000" : "#fff",
-                  color: selected ? "#fff" : "#000",
-                  cursor: "pointer",
-                  fontFamily: "Inter, sans-serif",
-                  fontSize: 11,
-                  fontWeight: 850,
-                  gap: 5,
-                }}
-              >
-                <Icon size={14} aria-hidden />
-                <span className="kavla-control-label">{mode}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            aria-label="Auto layout selected nodes"
-            aria-keyshortcuts="Shift+A"
-            aria-busy={layingOut}
-            disabled={!canLayout}
-            onClick={() => void actions["layout-kavla-nodes"].onSelect("actions-menu")}
-            onPointerDown={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-            title="Auto layout selected nodes (Shift+A)"
-            type="button"
-            className="kavla-icon-control bg-white hover:bg-gray-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
-            style={{
-              ...lightStyle,
-              color: "#000",
-              cursor: canLayout ? "pointer" : "default",
-              fontFamily: "Inter, sans-serif",
-              fontSize: 11,
-              fontWeight: 850,
-              gap: 5,
-            }}
-          >
-            {layingOut ? (
-              <Loader2 className="animate-spin" size={14} aria-hidden />
-            ) : (
-              <LayoutDashboard size={14} aria-hidden />
-            )}
-            <span className="kavla-control-label">Layout</span>
-          </button>
-          <button
-            aria-label="Fit selected query nodes to their content"
-            aria-keyshortcuts="Shift+F"
-            disabled={!canFit}
-            onClick={() => void actions["fit-query-nodes"].onSelect("actions-menu")}
-            onPointerDown={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-            title="Fit selected query nodes to their content (Shift+F)"
-            type="button"
-            className="kavla-icon-control bg-white hover:bg-gray-100 disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current"
-            style={{
-              ...lightStyle,
-              color: "#000",
-              cursor: canFit ? "pointer" : "default",
-              fontFamily: "Inter, sans-serif",
-              fontSize: 11,
-              fontWeight: 850,
-              gap: 5,
-            }}
-          >
-            <Scan size={14} aria-hidden />
-            <span className="kavla-control-label">Fit</span>
-          </button>
         </div>
       </div>
     </div>

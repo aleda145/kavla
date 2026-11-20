@@ -1,4 +1,5 @@
 import { atom, useValue, type Editor, type TLShapeId } from "tldraw";
+import { getLayoutSelection } from "./layoutSelection";
 
 // A view preference belongs to this editor, never to the saved document.
 const modes = new WeakMap<Editor, ReturnType<typeof createMode>>();
@@ -32,13 +33,26 @@ export function setBizMode(editor: Editor, enabled: boolean) {
   modeFor(editor).set({ enabled, queryModes: new Map() });
 }
 
+export function getSelectedQueryIds(editor: Editor): TLShapeId[] {
+  return getLayoutSelection(editor)
+    .filter((shape) => shape.type === "sql-text-area")
+    .map((shape) => shape.id);
+}
+
 export function setQueryBizMode(editor: Editor, shapeId: TLShapeId, enabled: boolean) {
+  setQueriesBizMode(editor, [shapeId], enabled);
+}
+
+export function setQueriesBizMode(editor: Editor, shapeIds: TLShapeId[], enabled: boolean) {
+  if (!shapeIds.length) return;
   editor.complete();
   editor.setEditingShape(null);
   const mode = modeFor(editor).get();
   const queryModes = new Map(mode.queryModes);
-  if (enabled === mode.enabled) queryModes.delete(shapeId);
-  else queryModes.set(shapeId, enabled);
+  for (const shapeId of shapeIds) {
+    if (enabled === mode.enabled) queryModes.delete(shapeId);
+    else queryModes.set(shapeId, enabled);
+  }
   modeFor(editor).set({ ...mode, queryModes });
 }
 
