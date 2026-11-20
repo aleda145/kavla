@@ -35,11 +35,16 @@ function hasLimit(memory: Memory) {
   );
 }
 
+function memoryBudget(memory: Memory, availableMiB: number, capRequired: boolean) {
+  const percent = hasLimit(memory) || capRequired ? (memory.limit_percent ?? 50) : 100;
+  return memory.limit_mib ?? Math.max(1, Math.floor(((availableMiB || 8192) * percent) / 100));
+}
+
 export function DuckDBSettings() {
   const { stats } = useDuckDBStats();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [draft, setDraft] = useState<Memory>({});
-  const [threads, setThreads] = useState<number | null>(null);
+  const [draftThreads, setDraftThreads] = useState<number | null>();
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -52,7 +57,6 @@ export function DuckDBSettings() {
         if (!controller.signal.aborted) {
           setSettings(data);
           setDraft(data.memory);
-          setThreads(data.duckdbThreads ?? null);
         }
       } catch (err) {
         if (!controller.signal.aborted) setError(err instanceof Error ? err.message : String(err));
@@ -62,18 +66,22 @@ export function DuckDBSettings() {
     return () => controller.abort();
   }, []);
 
-  const dirty =
-    settings &&
-    (JSON.stringify(settings.memory) !== JSON.stringify(draft) || (settings.duckdbThreads ?? null) !== threads);
   const running = !!stats?.pid;
   const availableCPUs = settings?.availableCPUs ?? stats?.duckdbThreadLimit ?? 1;
-  const maxThreads = Math.max(availableCPUs, settings?.duckdbThreads ?? 0, threads ?? 0);
-  const limited = hasLimit(draft);
+  const savedThreads = settings?.duckdbThreads ?? null;
+  const requestedThreads = draftThreads === undefined ? savedThreads : draftThreads;
+  const defaultThreads = (savedThreads === null ? stats?.duckdbThreadLimit : undefined) ?? availableCPUs;
+  const selectedThreads = requestedThreads ?? defaultThreads;
+  const maxThreads = Math.max(availableCPUs, savedThreads ?? 0, selectedThreads);
+  const dirty =
+    settings && (JSON.stringify(settings.memory) !== JSON.stringify(draft) || requestedThreads !== savedThreads);
+  const capRequired = settings?.enforcementOverride === "required";
+  const limited = hasLimit(draft) || capRequired;
   const available = settings?.availableMiB || 0;
-  const maximum = Math.max(available || 65536, draft.limit_mib || 0);
-  const requested =
-    draft.limit_mib ?? Math.max(1, Math.floor(((available || 8192) * (draft.limit_percent ?? 50)) / 100));
-  const stops = new Set([Math.min(256, maximum), maximum, requested]);
+  const savedBudget = memoryBudget(settings?.memory ?? {}, available, capRequired);
+  const requested = memoryBudget(draft, available, capRequired);
+  const maximum = Math.max(available || 65536, savedBudget, requested);
+  const stops = new Set([Math.min(256, maximum), maximum, savedBudget, requested]);
   for (let mib = 256; mib < maximum; mib *= 2) {
     stops.add(mib);
     if (mib * 1.5 < maximum) stops.add(mib * 1.5);
@@ -102,12 +110,12 @@ export function DuckDBSettings() {
         const response = await backendRequest(endpoint, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...draft, duckdbThreads: threads }),
+          body: JSON.stringify({ ...draft, duckdbThreads: requestedThreads }),
         });
         const data: Settings = await response.json();
         setSettings(data);
         setDraft(data.memory);
-        setThreads(data.duckdbThreads ?? null);
+        setDraftThreads(undefined);
         setMessage("Saved for next start.");
       }
       setBusy(stats?.state === "busy" ? "Waiting for current work…" : running ? "Restarting…" : "Starting…");
@@ -133,28 +141,23 @@ export function DuckDBSettings() {
           <>
             <div className="duckdb-setting-heading">
               <label htmlFor="duckdb-budget">
-                <strong>Memory</strong> <small>All canvases</small>
+                <strong>Memory</strong>
               </label>
-              <output htmlFor="duckdb-budget">
-                {!limited ? "Auto" : draft.limit_mib === undefined && !available ? "System-based" : amount(requested)}
-              </output>
+              <output htmlFor="duckdb-budget">{amount(requested)}</output>
             </div>
             <input
               className="kavla-knob-slider"
               id="duckdb-budget"
               type="range"
               min={0}
-              max={amounts.length}
-              value={limited ? amounts.indexOf(requested) + 1 : 0}
-              aria-valuetext={!limited ? "Automatic" : amount(requested)}
-              onChange={(event) => {
-                const index = event.currentTarget.valueAsNumber;
-                if (index === 0) edit({});
-                else chooseLimit(amounts[index - 1]);
-              }}
+              max={amounts.length - 1}
+              step={1}
+              value={amounts.indexOf(requested)}
+              aria-valuetext={amount(requested)}
+              onChange={(event) => chooseLimit(amounts[event.currentTarget.valueAsNumber])}
             />
             <div className="kavla-knob-range">
-              <span>Auto</span>
+              <span>{amount(amounts[0])}</span>
               <span>{amount(maximum)}</span>
             </div>
             <div className="duckdb-setting-heading">
@@ -168,7 +171,7 @@ export function DuckDBSettings() {
                     aria-pressed={(settings.enforcementOverride || draft.enforcement || "auto") === mode}
                     onClick={() => edit({ ...draft, enforcement: mode })}
                   >
-                    {{ auto: "Auto", required: "Required", off: "Off" }[mode]}
+                    {{ auto: "If available", required: "Required", off: "Off" }[mode]}
                   </button>
                 ))}
               </div>
@@ -181,7 +184,7 @@ export function DuckDBSettings() {
                 min={0}
                 step={1}
                 value={draft.swap_limit_mib ?? ""}
-                placeholder={limited ? "0" : "Auto"}
+                placeholder={limited ? "0" : "System"}
                 onChange={(event) =>
                   edit({ ...draft, swap_limit_mib: event.target.value === "" ? undefined : event.target.valueAsNumber })
                 }
@@ -190,27 +193,26 @@ export function DuckDBSettings() {
             {settings.enforcementOverride && <small>CLI hard cap: {settings.enforcementOverride}</small>}
             <div className="duckdb-setting-heading">
               <label htmlFor="duckdb-threads">
-                <strong>DuckDB threads</strong> <small>All canvases</small>
+                <strong>DuckDB threads</strong>
               </label>
-              <output htmlFor="duckdb-threads">{threads ?? "Auto"}</output>
+              <output htmlFor="duckdb-threads">{selectedThreads}</output>
             </div>
             <input
               className="kavla-knob-slider"
               id="duckdb-threads"
               type="range"
-              min={0}
+              min={1}
               max={maxThreads}
               step={1}
-              value={threads ?? 0}
-              aria-valuetext={threads === null ? "Automatic" : String(threads)}
+              value={selectedThreads}
               onChange={(event) => {
-                setThreads(event.currentTarget.valueAsNumber || null);
+                setDraftThreads(event.currentTarget.valueAsNumber);
                 setError("");
                 setMessage("");
               }}
             />
             <div className="kavla-knob-range">
-              <span>Auto</span>
+              <span>1</span>
               <span>{maxThreads}</span>
             </div>
           </>
@@ -221,6 +223,17 @@ export function DuckDBSettings() {
             <RotateCw size={13} />
             {dirty ? (running ? "Save & restart" : "Save & start") : running ? "Restart worker" : "Start worker"}
           </button>
+          {settings && (
+            <button
+              type="button"
+              onClick={() => {
+                edit({});
+                setDraftThreads(null);
+              }}
+            >
+              Reset
+            </button>
+          )}
         </div>
       </fieldset>
       {(busy || message) && <span role="status">{busy || message}</span>}

@@ -49,10 +49,6 @@
 .duckdb-settings [role="alert"] {
   color: #b91c1c;
 }
-.duckdb-setting-heading small {
-  margin-left: 4px;
-  color: #475569;
-}
 .duckdb-setting-heading output {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
