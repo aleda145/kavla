@@ -25,11 +25,12 @@ This replaces Kavla's previous automatic 50% compute cap and 25% DuckDB budget.
 Click the DuckDB icon and drag the memory slider to set a budget.
 **Save & restart** applies it to this canvas after the current compute operation
 finishes. Other local canvases pick up the setting when their workers next start.
-**Auto** restores DuckDB's own sizing unless the environment requires enforcement.
+Select **Reset** to restore the default memory and thread settings, then save
+to apply them. Environment overrides still apply.
 
-Use the **DuckDB threads** slider to set the thread limit for each worker.
-Move it to **Auto** for automatic sizing. A custom value is saved as `duckdb_threads` in
-`~/.kavla/config.yaml`.
+The **DuckDB threads** slider starts at the saved limit or the current worker's
+thread count. With neither available, it starts at the number of CPUs visible to
+Kavla. Changes are saved as `duckdb_threads` in `~/.kavla/config.yaml`.
 
 The slider saves `memory.limit_mib`. For example, 4096 gives compute a budget
 of 4 GiB, subject to available memory and inherited limits on Linux. Each
