@@ -28,6 +28,12 @@ finishes. Other local canvases pick up the setting when their workers next start
 Select **Reset** to restore the default memory and thread settings, then save
 to apply them. Environment overrides still apply.
 
+Click **Query** to add the stats source and a connected SQL node to the canvas.
+The query runs immediately and shows the newest samples first.
+Each open document runtime appends one timestamped sample per second to its
+JSONL file under `~/.kavla/duckdb-stats/`. Rerun the query to read the latest
+rows. The file continues growing across worker restarts and canvas sessions.
+
 The **DuckDB threads** slider starts at the saved limit or the current worker's
 thread count. With neither available, it starts at the number of CPUs visible to
 Kavla. Changes are saved as `duckdb_threads` in `~/.kavla/config.yaml`.

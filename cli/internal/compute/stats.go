@@ -2,9 +2,11 @@ package compute
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -120,5 +122,53 @@ func readProcessStats(result *Stats) error {
 	if result.ResidentBytes == nil {
 		return fmt.Errorf("process memory is unavailable; the worker may have exited")
 	}
+	return nil
+}
+
+// Each append is one complete JSON line. A document keeps the same file across
+// worker restarts and canvas renames.
+func (c *Client) startStatsHistory(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(file)
+	record := func() error {
+		return encoder.Encode(struct {
+			Timestamp time.Time `json:"timestamp"`
+			Stats
+		}{time.Now().UTC(), c.Stats()})
+	}
+	if err := record(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	c.historyDone = make(chan struct{})
+	go func() {
+		defer close(c.historyDone)
+		defer func() {
+			if err := file.Close(); err != nil {
+				c.logf("Close DuckDB stats history: %v", err)
+			}
+		}()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		failed := false
+		for {
+			select {
+			case <-c.ctx.Done():
+				return
+			case <-ticker.C:
+				err := record()
+				if err != nil && !failed {
+					c.logf("Append DuckDB stats history: %v", err)
+				}
+				failed = err != nil
+			}
+		}
+	}()
 	return nil
 }

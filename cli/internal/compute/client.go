@@ -61,11 +61,15 @@ type Client struct {
 	journal         []request // Successful source/view mutations, replayed after a crash.
 	restoredViews   map[string]bool
 
+	historyDone       chan struct{}
 	previousWorkerPID int // Protected by mu.
 }
 
-func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf, verbosef func(string, ...interface{}), directories []string) (*Client, error) {
-	c := NewLazy(ctx, sources, logf, verbosef, directories)
+func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf, verbosef func(string, ...interface{}), directories []string, historyPath string) (*Client, error) {
+	c, err := NewLazy(ctx, sources, logf, verbosef, directories, historyPath)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := c.call(ctx, request{Op: "initialize"}); err != nil {
 		_ = c.Close()
 		return nil, err
@@ -75,7 +79,7 @@ func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf,
 
 // NewLazy keeps canvas opening independent of native compute and source I/O.
 // The first compute request starts the supervised worker through the same gate.
-func NewLazy(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf, verbosef func(string, ...interface{}), directories []string) *Client {
+func NewLazy(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf, verbosef func(string, ...interface{}), directories []string, historyPath string) (*Client, error) {
 	if logf == nil {
 		logf = log.Printf
 	}
@@ -89,7 +93,14 @@ func NewLazy(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, l
 	for name, source := range sources {
 		c.statuses = append(c.statuses, engine.SourceStatus{Name: name, Type: source.Type})
 	}
-	return c
+	if historyPath != "" {
+		c.config.StatsHistoryPath = historyPath
+		if err := c.startStatsHistory(historyPath); err != nil {
+			cancel()
+			return nil, fmt.Errorf("open DuckDB stats history: %w", err)
+		}
+	}
+	return c, nil
 }
 
 func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
@@ -656,6 +667,9 @@ func (c *Client) stopWorker(ctx context.Context, reason string) error {
 
 func (c *Client) Close() error {
 	c.cancel()
+	if c.historyDone != nil {
+		<-c.historyDone
+	}
 	c.mu.Lock()
 	c.closed = true
 	p := c.worker

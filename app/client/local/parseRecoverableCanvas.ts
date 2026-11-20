@@ -13,7 +13,7 @@ export function parseRecoverableCanvas(editor: Editor, json: string): CanvasReco
   const { kavlaUndo: _undo, ...canvasFile } = JSON.parse(json) as Record<string, unknown>;
   const strict = parseTldrawJsonFile({ json: JSON.stringify(canvasFile), schema: editor.store.schema });
   if (strict.ok) return { snapshot: strict.value.getStoreSnapshot(), warnings: [] };
-  const input = JSON.parse(json) as { tldrawFileFormatVersion: number; schema: SerializedSchema; records: unknown[] };
+  const input = canvasFile as { tldrawFileFormatVersion: number; schema: SerializedSchema; records: unknown[] };
   if (input.tldrawFileFormatVersion !== 1 || !Array.isArray(input.records) || input.schema?.schemaVersion !== 2) {
     throw new Error("This file is not a supported Kavla canvas document.");
   }

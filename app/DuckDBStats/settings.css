@@ -91,3 +91,15 @@
   width: 7em;
   text-align: right;
 }
+
+.duckdb-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 2px solid #111;
+  background: #fef08a;
+}
+.duckdb-settings-header + .duckdb-settings {
+  background: white;
+}
