@@ -19,6 +19,7 @@ type Stats struct {
 	PeakResidentBytes *uint64 `json:"peakResidentBytes,omitempty"`
 	SwapBytes         *uint64 `json:"swapBytes,omitempty"`
 	Threads           *uint64 `json:"threads,omitempty"`
+	BufferLimit       string  `json:"bufferLimit,omitempty"`
 	DuckDBLimitBytes  uint64  `json:"duckdbLimitBytes,omitempty"`
 	SharedLimitBytes  uint64  `json:"sharedLimitBytes,omitempty"`
 	Error             string  `json:"error,omitempty"`
@@ -55,6 +56,7 @@ func (c *Client) Stats() Stats {
 	}
 	result.PID = p.cmd.Process.Pid
 	result.UptimeSeconds = time.Since(p.started).Seconds()
+	result.BufferLimit = p.limits.DuckDBMemoryLimit
 	result.DuckDBLimitBytes = p.limits.Memory.DuckDBLimit
 	result.SharedLimitBytes = p.limits.Memory.Limit
 	if err := readProcessStats(&result); err != nil {

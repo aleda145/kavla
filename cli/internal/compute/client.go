@@ -601,6 +601,24 @@ func (c *Client) Suspend(ctx context.Context) error {
 		return err
 	}
 	defer done()
+	return c.stopWorker(ctx, "canvas idle")
+}
+
+func (c *Client) Restart(ctx context.Context) error {
+	ctx, done, err := c.operation(ctx)
+	if err != nil {
+		return err
+	}
+	defer done()
+	if err := c.stopWorker(ctx, "restart requested"); err != nil {
+		return err
+	}
+	_, err = c.ensureWorker(ctx)
+	return err
+}
+
+// The caller holds the operation gate through shutdown and any replacement.
+func (c *Client) stopWorker(ctx context.Context, reason string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -608,7 +626,7 @@ func (c *Client) Suspend(ctx context.Context) error {
 	p := c.worker
 	if p != nil {
 		c.previousWorkerPID = p.cmd.Process.Pid
-		p.stopping("canvas idle")
+		p.stopping(reason)
 	}
 	c.worker = nil
 	c.workerError = ""

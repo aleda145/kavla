@@ -139,6 +139,13 @@ func (s *Session) Close() error {
 	return s.engine.Close()
 }
 
+func (s *Session) RestartCompute(ctx context.Context) error {
+	if s.engine == nil {
+		return fmt.Errorf("compute session is unavailable")
+	}
+	return s.engine.Restart(ctx)
+}
+
 func (s *Session) SuspendCompute(ctx context.Context) error {
 	if s.engine == nil {
 		return nil

@@ -92,7 +92,11 @@ var viewConfigCmd = &cobra.Command{
 			fmt.Println("  Existing OS and container limits still apply.")
 		} else {
 			fmt.Printf("  Compute memory enforcement: %s\n", memory.Enforcement)
-			fmt.Printf("  Compute budget: %d%% of available RAM (including inherited cgroup limits)\n", memory.LimitPercent)
+			if memory.LimitMiB > 0 {
+				fmt.Printf("  Compute budget: %d MiB\n", memory.LimitMiB)
+			} else {
+				fmt.Printf("  Compute budget: %d%% of available RAM (including inherited cgroup limits)\n", memory.LimitPercent)
+			}
 			fmt.Printf("  DuckDB budget per worker: %d%% of the compute limit\n", memory.DuckDBPercentOfLimit)
 			fmt.Printf("  Shared swap limit when compute enforcement is active: %d MiB\n", memory.SwapLimitMiB)
 		}
