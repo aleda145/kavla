@@ -3,11 +3,17 @@ import { createPortal } from "react-dom";
 import { Pin } from "lucide-react";
 import { siDuckdb } from "simple-icons";
 import { createShapeId, useEditor } from "tldraw";
+import { DuckDBSettings } from "./DuckDBSettings";
 import { DuckDBStatsPanel } from "./DuckDBStatsPanel";
 
 export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
   const editor = useEditor();
   const [open, setOpen] = useState(false);
+  const keepOpen = useRef(false);
+  const close = () => {
+    setOpen(false);
+    keepOpen.current = false;
+  };
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -19,9 +25,10 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
   };
   const scheduleClose = () => {
     cancelClose();
+    if (keepOpen.current) return;
     timer.current = setTimeout(() => {
       if (panel.current?.contains(document.activeElement) || trigger.current === document.activeElement) return;
-      setOpen(false);
+      close();
     }, 150);
   };
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -44,12 +51,12 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
     if (!open) return;
     const outside = (event: PointerEvent) => {
       if (!(event.target instanceof Node)) return;
-      if (!trigger.current?.contains(event.target) && !panel.current?.contains(event.target)) setOpen(false);
+      if (!trigger.current?.contains(event.target) && !panel.current?.contains(event.target)) close();
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (panel.current?.contains(document.activeElement)) trigger.current?.focus();
-        setOpen(false);
+        close();
       }
     };
     document.addEventListener("pointerdown", outside);
@@ -64,7 +71,7 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
       <button
         ref={trigger}
         type="button"
-        aria-label="DuckDB process stats"
+        aria-label="DuckDB stats and settings"
         aria-expanded={open}
         aria-haspopup="dialog"
         onPointerEnter={(event) => {
@@ -80,7 +87,11 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
         onPointerLeave={scheduleClose}
         onFocus={show}
         onBlur={scheduleClose}
-        onClick={show}
+        onClick={() => {
+          show();
+          keepOpen.current = true;
+          requestAnimationFrame(() => panel.current?.focus());
+        }}
         style={{
           display: "flex",
           alignItems: "center",
@@ -108,8 +119,9 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
         createPortal(
           <div
             ref={panel}
+            tabIndex={-1}
             role="dialog"
-            aria-label="DuckDB process stats"
+            aria-label="DuckDB stats and settings"
             onPointerEnter={cancelClose}
             onPointerLeave={scheduleClose}
             onFocus={cancelClose}
@@ -129,41 +141,31 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
           >
             <DuckDBStatsPanel
               action={
-                <button
-                  type="button"
-                  title="Pin DuckDB stats to canvas"
-                  aria-label="Pin DuckDB stats to canvas"
-                  onClick={() => {
-                    const viewport = editor.getViewportPageBounds();
-                    editor.createShape({
-                      id: createShapeId(),
-                      type: "duckdb-stats",
-                      x: viewport.center.x - 180,
-                      y: viewport.center.y - 185,
-                      props: { w: 360, h: 370 },
-                    });
-                    setOpen(false);
-                  }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                    height: 24,
-                    padding: "0 6px",
-                    border: "2px solid #000",
-                    borderRadius: 4,
-                    background: "#fff",
-                    color: "#000",
-                    fontSize: 10,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  <Pin size={12} />
-                  <span className="kavla-control-label">Pin to canvas</span>
-                </button>
+                <div className="duckdb-header-actions">
+                  <button
+                    type="button"
+                    title="Pin DuckDB stats to canvas"
+                    aria-label="Pin DuckDB stats to canvas"
+                    onClick={() => {
+                      const viewport = editor.getViewportPageBounds();
+                      editor.createShape({
+                        id: createShapeId(),
+                        type: "duckdb-stats",
+                        x: viewport.center.x - 180,
+                        y: viewport.center.y - 185,
+                        props: { w: 360, h: 370 },
+                      });
+                      close();
+                    }}
+                  >
+                    <Pin size={13} aria-hidden="true" />
+                    <span className="kavla-control-label">Pin to canvas</span>
+                  </button>
+                </div>
               }
-            />
+            >
+              <DuckDBSettings />
+            </DuckDBStatsPanel>
           </div>,
           document.body
         )}

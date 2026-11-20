@@ -431,7 +431,7 @@ func (c *canvasRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	stream := strings.HasSuffix(apiPath, "/events")
-	sharedMutation := r.Method != http.MethodGet && (strings.HasPrefix(apiPath, "/api/cli/sources") || apiPath == "/api/agent/auth")
+	sharedMutation := r.Method != http.MethodGet && (strings.HasPrefix(apiPath, "/api/cli/sources") || apiPath == "/api/agent/auth" || apiPath == "/api/session/compute-settings")
 	if !stream {
 		if sharedMutation {
 			c.settings.Lock()

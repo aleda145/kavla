@@ -10,14 +10,16 @@ import (
 
 // Pointers distinguish omitted limits from explicitly configured values.
 type MemoryConfig struct {
-	Enforcement          string `yaml:"enforcement,omitempty"`
-	LimitPercent         *int   `yaml:"limit_percent,omitempty"`
-	DuckDBPercentOfLimit *int   `yaml:"duckdb_percent_of_limit,omitempty"`
-	SwapLimitMiB         *int64 `yaml:"swap_limit_mib,omitempty"`
+	LimitMiB             *int64 `yaml:"limit_mib,omitempty" json:"limit_mib,omitempty"`
+	Enforcement          string `yaml:"enforcement,omitempty" json:"enforcement,omitempty"`
+	LimitPercent         *int   `yaml:"limit_percent,omitempty" json:"limit_percent,omitempty"`
+	DuckDBPercentOfLimit *int   `yaml:"duckdb_percent_of_limit,omitempty" json:"duckdb_percent_of_limit,omitempty"`
+	SwapLimitMiB         *int64 `yaml:"swap_limit_mib,omitempty" json:"swap_limit_mib,omitempty"`
 }
 
 // MemorySettings contains validated defaults, also sent to compute workers.
 type MemorySettings struct {
+	LimitMiB             int64
 	Configured           bool
 	Enforcement          string
 	LimitPercent         int
@@ -37,6 +39,15 @@ func (m MemoryConfig) Resolve() (MemorySettings, error) {
 	// Preserve the existing defaults for explicitly configured limits, but
 	// leave DuckDB's own memory management alone when no limit was requested.
 	settings.Configured = m.LimitPercent != nil || m.DuckDBPercentOfLimit != nil || m.SwapLimitMiB != nil || settings.Enforcement == "required"
+	if m.LimitMiB != nil {
+		if *m.LimitMiB < 1 || *m.LimitMiB > math.MaxInt64/(1<<20) || m.LimitPercent != nil {
+			return settings, fmt.Errorf("memory.limit_mib must be a positive memory size and cannot be combined with limit_percent")
+		}
+		settings.Configured = true
+		settings.LimitMiB = *m.LimitMiB
+		settings.LimitPercent = 100
+		settings.DuckDBPercentOfLimit = 80
+	}
 	if m.LimitPercent != nil {
 		settings.LimitPercent = *m.LimitPercent
 	}
@@ -75,7 +86,7 @@ func (m MemorySettings) SwapBytes() uint64 {
 // Keep the existing decoding rules for older, unrelated configuration fields.
 func (m *MemoryConfig) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("memory must contain enforcement, limit_percent, duckdb_percent_of_limit, or swap_limit_mib settings")
+		return fmt.Errorf("memory must contain enforcement, limit_mib, limit_percent, duckdb_percent_of_limit, or swap_limit_mib settings")
 	}
 	for i := 0; i < len(node.Content); i += 2 {
 		switch node.Content[i].Value {
@@ -83,7 +94,7 @@ func (m *MemoryConfig) UnmarshalYAML(node *yaml.Node) error {
 			if node.Content[i+1].Tag != "!!str" {
 				return fmt.Errorf("memory.enforcement must be auto, required, or off")
 			}
-		case "limit_percent", "duckdb_percent_of_limit", "swap_limit_mib":
+		case "limit_mib", "limit_percent", "duckdb_percent_of_limit", "swap_limit_mib":
 			value := node.Content[i+1]
 			if value.Tag != "!!int" {
 				return fmt.Errorf("memory.%s must be an integer", node.Content[i].Value)

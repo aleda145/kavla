@@ -9,7 +9,7 @@ function bytes(value: number | undefined) {
   return `${(value / 1024 ** 2).toFixed(1)} MiB`;
 }
 
-export function DuckDBStatsPanel({ action }: { action?: ReactNode }) {
+export function DuckDBStatsPanel({ action, children }: { action?: ReactNode; children?: ReactNode }) {
   const { stats, error } = useDuckDBStats();
   const connected = useCliStatus();
   const state = !connected
@@ -34,10 +34,20 @@ export function DuckDBStatsPanel({ action }: { action?: ReactNode }) {
         ...(stats.peakResidentBytes !== undefined ? [["Peak process memory", bytes(stats.peakResidentBytes)]] : []),
         ...(stats.swapBytes !== undefined ? [["Process swap", bytes(stats.swapBytes)]] : []),
         ...(stats.threads !== undefined ? [["Threads", String(stats.threads)]] : []),
-        ["DuckDB memory budget", bytes(stats.duckdbLimitBytes)],
-        ["Shared compute cap", stats.sharedLimitBytes ? bytes(stats.sharedLimitBytes) : "Not enforced"],
+        ["Worker buffer limit", stats.bufferLimit || bytes(stats.duckdbLimitBytes)],
+        ...(stats.sharedLimitBytes ? [["Shared RAM cap", bytes(stats.sharedLimitBytes)]] : []),
       ]
     : [];
+  const metrics = (
+    <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "1fr auto", gap: "9px 12px" }}>
+      {rows.map(([label, value]) => (
+        <div key={label} style={{ display: "contents" }}>
+          <dt style={{ color: "#475569" }}>{label}</dt>
+          <dd style={{ margin: 0, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
   return (
     <div style={{ background: "#fff", color: "#000", fontFamily: "Inter, sans-serif", fontSize: 12, height: "100%" }}>
       <div
@@ -59,19 +69,11 @@ export function DuckDBStatsPanel({ action }: { action?: ReactNode }) {
         </span>
         {action && <div style={{ marginLeft: "auto" }}>{action}</div>}
       </div>
-      <div style={{ padding: 12 }}>
+      {children}
+      <div style={{ padding: rows.length || stats?.error || stats?.metricsError || error ? 12 : 0 }}>
         {connected && !error && stats && (
           <>
-            {rows.length > 0 && (
-              <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "1fr auto", gap: "9px 12px" }}>
-                {rows.map(([label, value]) => (
-                  <div key={label} style={{ display: "contents" }}>
-                    <dt style={{ color: "#475569" }}>{label}</dt>
-                    <dd style={{ margin: 0, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{value}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
+            {rows.length > 0 && metrics}
             {stats.error && (
               <p role="alert" style={{ color: "#b91c1c", overflowWrap: "anywhere" }}>
                 {stats.error}

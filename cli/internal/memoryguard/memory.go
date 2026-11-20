@@ -33,6 +33,15 @@ type SystemLimits struct {
 	TotalSwapBytes  *uint64
 }
 
+// AvailableMiB returns the memory visible to compute, or zero when unknown.
+func AvailableMiB() uint64 {
+	bytes, _, err := fallbackBudget(100)
+	if err != nil {
+		return 0
+	}
+	return bytes >> 20
+}
+
 // Enable is process-wide. Only publish Limit after verifying enforcement;
 // neither a Go GC limit nor DuckDB's buffer budget contains native allocations.
 func Enable(settings kavlaconfig.MemorySettings) (Status, error) {
@@ -66,6 +75,12 @@ func Enable(settings kavlaconfig.MemorySettings) (Status, error) {
 		if status.Limit == 0 {
 			var err error
 			budget, status.InheritedLimit, err = fallbackBudget(settings.LimitPercent)
+			if settings.LimitMiB > 0 {
+				requested := uint64(settings.LimitMiB) << 20
+				if budget == 0 || requested < budget {
+					budget = requested
+				}
+			}
 			if err != nil {
 				status.Warning += fmt.Sprintf("; determine fallback budget: %v; using a conservative compute budget", err)
 			}
