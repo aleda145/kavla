@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime"
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
 	"github.com/aleda145/kavla/cli/internal/memoryguard"
@@ -27,33 +28,45 @@ func (s *Server) handleComputeSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPut {
-		var memory *kavlaconfig.MemoryConfig
+		var settings *struct {
+			kavlaconfig.MemoryConfig
+			DuckDBThreads json.RawMessage `json:"duckdbThreads"`
+		}
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&memory); err != nil || memory == nil || decoder.Decode(new(interface{})) != io.EOF {
-			http.Error(w, "Invalid memory settings", http.StatusBadRequest)
+		if err := decoder.Decode(&settings); err != nil || settings == nil || decoder.Decode(new(interface{})) != io.EOF {
+			http.Error(w, "Invalid compute settings", http.StatusBadRequest)
 			return
 		}
-		switch memory.Enforcement {
+		switch settings.Enforcement {
 		case "", "auto", "required", "off":
 		default:
 			http.Error(w, "Enforcement must be auto, required, or off", http.StatusBadRequest)
 			return
 		}
-		if _, err := memory.Resolve(); err != nil {
+		config.Memory = settings.MemoryConfig
+		// Older clients omit this field. An explicit null restores DuckDB's default.
+		if settings.DuckDBThreads != nil {
+			if err := json.Unmarshal(settings.DuckDBThreads, &config.DuckDBThreads); err != nil {
+				http.Error(w, "DuckDB threads must be a positive integer or Auto", http.StatusBadRequest)
+				return
+			}
+		}
+		if err := config.Validate(); err != nil {
 			writeAPIError(w, http.StatusBadRequest, err)
 			return
 		}
-		config.Memory = *memory
 		if err := kavlaconfig.SaveConfig(config); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, err)
 			return
 		}
-		s.logCLIOutput("Updated DuckDB memory settings for future worker starts")
+		s.logCLIOutput("Updated DuckDB settings for future worker starts")
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"memory":              config.Memory,
+		"duckdbThreads":       config.DuckDBThreads,
+		"availableCPUs":       runtime.NumCPU(),
 		"availableMiB":        memoryguard.AvailableMiB(),
 		"enforcementOverride": os.Getenv("KAVLA_MEMORY_ENFORCEMENT"),
 	})

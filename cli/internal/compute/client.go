@@ -95,7 +95,7 @@ func NewLazy(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, l
 func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 	userConfig, err := kavlaconfig.LoadConfigAllowMissing()
 	if err != nil {
-		return nil, ready{}, fmt.Errorf("load compute memory settings: %w", err)
+		return nil, ready{}, fmt.Errorf("load compute settings: %w", err)
 	}
 	settings, err := userConfig.Memory.Resolve()
 	if err != nil {
@@ -111,6 +111,9 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 	}
 	config := c.config
 	config.Memory = settings
+	if userConfig.DuckDBThreads != nil {
+		config.DuckDBThreads = *userConfig.DuckDBThreads
+	}
 	config.Token = hex.EncodeToString(secret)
 	cmd := exec.Command(executable, workerArgument)
 	control, err := cmd.StdinPipe()

@@ -15,13 +15,22 @@ type SourceConfig struct {
 }
 
 type Config struct {
-	Token        string                  `yaml:"token,omitempty"`
-	APIURL       string                  `yaml:"api_url,omitempty"`
-	AuthURL      string                  `yaml:"auth_url,omitempty"`
-	AppURL       string                  `yaml:"app_url,omitempty"`
-	LastDocument string                  `yaml:"last_document,omitempty"`
-	Sources      map[string]SourceConfig `yaml:"sources,omitempty"`
-	Memory       MemoryConfig            `yaml:"memory,omitempty"`
+	Token         string                  `yaml:"token,omitempty"`
+	APIURL        string                  `yaml:"api_url,omitempty"`
+	AuthURL       string                  `yaml:"auth_url,omitempty"`
+	AppURL        string                  `yaml:"app_url,omitempty"`
+	LastDocument  string                  `yaml:"last_document,omitempty"`
+	Sources       map[string]SourceConfig `yaml:"sources,omitempty"`
+	Memory        MemoryConfig            `yaml:"memory,omitempty"`
+	DuckDBThreads *int                    `yaml:"duckdb_threads,omitempty"`
+}
+
+func (c *Config) Validate() error {
+	if c.DuckDBThreads != nil && *c.DuckDBThreads < 1 {
+		return fmt.Errorf("duckdb_threads must be a positive integer")
+	}
+	_, err := c.Memory.Resolve()
+	return err
 }
 
 func RememberDocumentPath(documentPath string) error {
@@ -53,7 +62,7 @@ func GetConfigPath() (string, error) {
 }
 
 func SaveConfig(config *Config) error {
-	if _, err := config.Memory.Resolve(); err != nil {
+	if err := config.Validate(); err != nil {
 		return err
 	}
 	path, err := GetConfigPath()
@@ -110,7 +119,7 @@ func LoadConfig() (*Config, error) {
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, err
 	}
-	if _, err := config.Memory.Resolve(); err != nil {
+	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 

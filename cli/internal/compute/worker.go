@@ -61,7 +61,7 @@ func runWorker() error {
 	if config.Verbose {
 		logDetails = log.Printf
 	}
-	eng, err := engine.NewLazyWithAllowedDirectories(config.Sources, logDetails, config.Directories)
+	eng, err := engine.NewLazyWithAllowedDirectories(config.Sources, logDetails, config.Directories, config.DuckDBThreads)
 	if err != nil {
 		return err
 	}

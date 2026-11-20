@@ -100,6 +100,11 @@ var viewConfigCmd = &cobra.Command{
 			fmt.Printf("  DuckDB budget per worker: %d%% of the compute limit\n", memory.DuckDBPercentOfLimit)
 			fmt.Printf("  Shared swap limit when compute enforcement is active: %d MiB\n", memory.SwapLimitMiB)
 		}
+		if config.DuckDBThreads != nil {
+			fmt.Printf("DuckDB threads: %d per worker\n", *config.DuckDBThreads)
+		} else {
+			fmt.Println("DuckDB threads: Auto")
+		}
 		if len(config.Sources) == 0 {
 			fmt.Println("No data sources configured.")
 			return

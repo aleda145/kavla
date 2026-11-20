@@ -91,7 +91,7 @@
 .duckdb-cap-options button:focus-visible {
   outline-offset: -2px;
 }
-.duckdb-settings .duckdb-swap {
+.duckdb-settings .duckdb-setting-number {
   width: 7em;
   text-align: right;
 }

@@ -33,7 +33,6 @@ export function DuckDBStatsPanel({ action, children }: { action?: ReactNode; chi
         ["Process memory (RSS)", bytes(stats.residentBytes)],
         ...(stats.peakResidentBytes !== undefined ? [["Peak process memory", bytes(stats.peakResidentBytes)]] : []),
         ...(stats.swapBytes !== undefined ? [["Process swap", bytes(stats.swapBytes)]] : []),
-        ...(stats.threads !== undefined ? [["Process threads", String(stats.threads)]] : []),
         ...(stats.duckdbThreadLimit !== undefined ? [["DuckDB thread limit", String(stats.duckdbThreadLimit)]] : []),
         ["Worker buffer limit", stats.bufferLimit || bytes(stats.duckdbLimitBytes)],
         ...(stats.sharedLimitBytes ? [["Shared RAM cap", bytes(stats.sharedLimitBytes)]] : []),
