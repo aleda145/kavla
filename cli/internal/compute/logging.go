@@ -31,14 +31,44 @@ func QueryLogPrefix(ctx context.Context) string {
 	if query == nil {
 		return ""
 	}
+	return query.prefix(query.worker)
+}
+
+func (query *queryLog) prefix(worker *process) string {
 	prefix := ""
-	if query.worker != nil {
-		prefix = fmt.Sprintf("(%d) ", query.worker.cmd.Process.Pid)
+	if worker != nil {
+		prefix = fmt.Sprintf("(%d) ", worker.cmd.Process.Pid)
 	}
-	if query.name != "" {
+	if query != nil && query.name != "" {
 		prefix += "(" + query.name + ") "
 	}
 	return prefix
+}
+
+func (c *Client) verboseWait(ctx context.Context, worker *process, label string) func(error) {
+	if c.verbosef == nil {
+		return func(error) {}
+	}
+	query, _ := ctx.Value(queryLogKey{}).(*queryLog)
+	prefix := query.prefix(worker)
+	started := time.Now()
+	reported := make(chan struct{})
+	timer := time.AfterFunc(5*time.Second, func() {
+		c.verbosef("%sWaiting for %s (5s)", prefix, label)
+		close(reported)
+	})
+	return func(err error) {
+		if timer.Stop() {
+			return
+		}
+		<-reported
+		elapsed := time.Since(started).Round(time.Millisecond)
+		if err != nil {
+			c.verbosef("%sWait for %s ended after %s: %v", prefix, label, elapsed, err)
+			return
+		}
+		c.verbosef("%sWait for %s ended after %s", prefix, label, elapsed)
+	}
 }
 
 func (c *Client) logWorker(p *process, format string, args ...interface{}) {

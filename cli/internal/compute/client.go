@@ -320,20 +320,13 @@ func (c *Client) ensureWorker(ctx context.Context) (_ *process, startupErr error
 func (c *Client) operation(ctx context.Context) (context.Context, func(), error) {
 	ctx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(c.ctx, cancel)
-	started := time.Now()
-	waiting := time.AfterFunc(5*time.Second, func() {
-		c.logf("DuckDB: still waiting for the previous compute operation to release its slot (5s).\n")
-	})
-	defer waiting.Stop()
-	defer func() {
-		if elapsed := time.Since(started); elapsed >= 5*time.Second {
-			c.logf("DuckDB: compute slot wait ended after %s (canceled=%t).\n", elapsed.Round(time.Millisecond), ctx.Err() != nil)
-		}
-	}()
+	finishWait := c.verboseWait(ctx, nil, "the compute slot")
 	select {
 	case c.gate <- struct{}{}:
+		finishWait(nil)
 		return ctx, func() { stop(); cancel(); <-c.gate }, nil
 	case <-ctx.Done():
+		finishWait(ctx.Err())
 		stop()
 		cancel()
 		return nil, nil, ctx.Err()
@@ -355,7 +348,6 @@ func (c *Client) invalidate(ctx context.Context, p *process) {
 	c.mu.Unlock()
 	// Cancellation also discards the worker: an interrupted mutation must not
 	// keep running after its caller rolls back an upload or deletes a file.
-	c.logf("DuckDB service %d discarded after an interrupted operation; compute will restart on demand.\n", p.cmd.Process.Pid)
 	p.kill()
 	c.notifySourcesChanged()
 }
@@ -374,15 +366,9 @@ func (c *Client) send(ctx context.Context, p *process, req request) (*http.Respo
 	if ctx.Err() == nil {
 		c.logSQL(ctx, p, req)
 	}
-	started := time.Now()
-	waiting := time.AfterFunc(5*time.Second, func() {
-		c.logf("DuckDB service %d: %s still waiting for worker response (5s).\n", p.cmd.Process.Pid, req.Op)
-	})
+	finishWait := c.verboseWait(ctx, p, "the worker response to "+req.Op)
 	result, err := c.http.Do(httpReq)
-	waiting.Stop()
-	if elapsed := time.Since(started); elapsed >= 5*time.Second {
-		c.logf("DuckDB service %d: %s response wait ended after %s (error=%v).\n", p.cmd.Process.Pid, req.Op, elapsed.Round(time.Millisecond), err)
-	}
+	finishWait(err)
 	if err != nil {
 		if req.Op != "estimate-ready" {
 			c.invalidate(ctx, p)
