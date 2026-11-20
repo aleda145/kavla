@@ -54,7 +54,7 @@ func New(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ..
 }
 
 func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), additionalDirectories []string) (result *Engine, resultErr error) {
-	e, err := NewLazyWithAllowedDirectories(sourceConfigs, logf, additionalDirectories, 0)
+	e, err := NewLazyWithAllowedDirectories(sourceConfigs, logf, additionalDirectories, 0, "")
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig
 // NewLazyWithAllowedDirectories configures DuckDB without connecting sources.
 // Source paths are collected before locking configuration; validation, directory
 // scans, extension loading and catalog attachment happen only on first use.
-func NewLazyWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), additionalDirectories []string, threads int) (result *Engine, resultErr error) {
+func NewLazyWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), additionalDirectories []string, threads int, historyPath string) (result *Engine, resultErr error) {
 	if logf == nil {
 		logf = log.Printf
 	}
@@ -120,7 +120,7 @@ func NewLazyWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceCo
 		sourceStatuses:  make(map[string]SourceStatus),
 	}
 
-	if err := e.initializeStartup(context.Background(), sourceConfigs, additionalDirectories); err != nil {
+	if err := e.initializeStartup(context.Background(), sourceConfigs, additionalDirectories, historyPath); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func NewLazyWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceCo
 	return e, nil
 }
 
-func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string]kavlaconfig.SourceConfig, additionalDirectories []string) error {
+func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string]kavlaconfig.SourceConfig, additionalDirectories []string, historyPath string) error {
 	e.sourceConfigs = make(map[string]kavlaconfig.SourceConfig, len(sourceConfigs))
 	for name := range sourceConfigs {
 		if strings.EqualFold(name, UploadedFilesSource) {
@@ -149,6 +149,12 @@ func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string
 		}
 	}
 	pathSet := make(map[string]struct{})
+	if historyPath != "" {
+		pathSet[historyPath] = struct{}{}
+		if err := e.createStatsHistoryView(ctx, historyPath); err != nil {
+			return fmt.Errorf("register DuckDB stats history: %w", err)
+		}
+	}
 	for _, name := range sourceNames {
 		src := sourceConfigs[name]
 		e.sourceConfigs[name] = src

@@ -23,6 +23,7 @@ type Client interface {
 }
 
 type Session struct {
+	StatsHistoryPath   string
 	sources            map[string]kavlaconfig.SourceConfig
 	allowedDirectories []string
 	engine             *compute.Client
@@ -102,7 +103,7 @@ func (s *Session) verbose(format string, args ...interface{}) {
 
 func (s *Session) Start() error {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	eng, err := compute.New(s.ctx, s.sources, s.logf, s.verbosef, s.allowedDirectories)
+	eng, err := compute.New(s.ctx, s.sources, s.logf, s.verbosef, s.allowedDirectories, s.StatsHistoryPath)
 	if err != nil {
 		s.cancel()
 		s.ctx = nil
@@ -115,7 +116,12 @@ func (s *Session) Start() error {
 
 func (s *Session) StartLazy() error {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	s.engine = compute.NewLazy(s.ctx, s.sources, s.logf, s.verbosef, s.allowedDirectories)
+	eng, err := compute.NewLazy(s.ctx, s.sources, s.logf, s.verbosef, s.allowedDirectories, s.StatsHistoryPath)
+	if err != nil {
+		s.cancel()
+		return err
+	}
+	s.engine = eng
 	return nil
 }
 

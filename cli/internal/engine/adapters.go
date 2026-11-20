@@ -171,7 +171,7 @@ func (e *Engine) sourceStatsSQL(tableRef string) (string, error) {
 }
 
 func (e *Engine) exportTableSQL(tableRef string) (string, error) {
-	if sourceNameFromTableRef(tableRef) == UploadedFilesSource {
+	if tableRef == "memory.kavla.duckdb_stats" || tableRef == `"memory"."kavla"."duckdb_stats"` || sourceNameFromTableRef(tableRef) == UploadedFilesSource {
 		return "SELECT * FROM " + tableRef, nil
 	}
 	for _, adapter := range e.adapters {

@@ -1,13 +1,21 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Pin } from "lucide-react";
+import { Search } from "lucide-react";
 import { siDuckdb } from "simple-icons";
-import { createShapeId, useEditor } from "tldraw";
+import { createShapeId, useEditor, useToasts } from "tldraw";
+import { useData } from "../client/useLocalServer";
+import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
 import { DuckDBSettings } from "./DuckDBSettings";
-import { DuckDBStatsPanel } from "./DuckDBStatsPanel";
+import type { DataSourceShape } from "../DataSource/data-source-types";
+import { calculateDataSourceHeight, calculateDataSourceWidth } from "../DataSource/ingestLocalDataSourceFile";
+import { getFallbackNodePosition } from "../client/canvas/fallbackNodePosition";
+import { getUniqueName } from "../util/getUniqueName";
+import { connectShapes } from "../util/shapeConnections";
 
 export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
   const editor = useEditor();
+  const data = useData();
+  const { addToast } = useToasts();
   const [open, setOpen] = useState(false);
   const keepOpen = useRef(false);
   const close = () => {
@@ -66,12 +74,58 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
       document.removeEventListener("keydown", escape);
     };
   }, [open]);
+  async function queryStats() {
+    const sourceId = createShapeId();
+    const queryId = createShapeId();
+    const name = getUniqueName(editor, "duckdb_stats");
+    const sql = `SELECT\n  *\nFROM\n  ${name}\nORDER BY\n  timestamp DESC`;
+    const center = editor.getViewportPageBounds().center;
+    const w = calculateDataSourceWidth(null, "duckdb_stats");
+    const h = calculateDataSourceHeight(null, null);
+    editor.markHistoryStoppingPoint("Query DuckDB stats");
+    editor.run(() => {
+      editor.createShape<DataSourceShape>({
+        id: sourceId,
+        type: "data-source",
+        x: center.x - w / 2,
+        y: center.y - h / 2,
+        props: {
+          w,
+          h,
+          name,
+          filename: "duckdb_stats",
+          sourceName: "memory",
+          sourceType: "duckdb",
+          remoteTableRef: "memory.kavla.duckdb_stats",
+        },
+      });
+      editor.createShape({
+        id: queryId,
+        type: "sql-text-area",
+        ...getFallbackNodePosition(editor, sourceId),
+        props: { w: 400, text: sql },
+      });
+      connectShapes(editor, sourceId, queryId);
+      editor.select(sourceId, queryId);
+    });
+    editor.zoomToSelection({ animation: { duration: 250 } });
+    close();
+    try {
+      await executeSQLShape(editor, data, queryId, sql, new AbortController().signal);
+    } catch (error) {
+      addToast({
+        title: "Could not run stats query",
+        description: error instanceof Error ? error.message : String(error),
+        severity: "error",
+      });
+    }
+  }
   return (
     <>
       <button
         ref={trigger}
         type="button"
-        aria-label="DuckDB stats and settings"
+        aria-label="DuckDB settings"
         aria-expanded={open}
         aria-haspopup="dialog"
         onPointerEnter={(event) => {
@@ -121,7 +175,7 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
             ref={panel}
             tabIndex={-1}
             role="dialog"
-            aria-label="DuckDB stats and settings"
+            aria-label="DuckDB settings"
             onPointerEnter={cancelClose}
             onPointerLeave={scheduleClose}
             onFocus={cancelClose}
@@ -139,33 +193,16 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
               boxShadow: "4px 4px 0 #000",
             }}
           >
-            <DuckDBStatsPanel
-              action={
-                <div className="duckdb-header-actions">
-                  <button
-                    type="button"
-                    title="Pin DuckDB stats to canvas"
-                    aria-label="Pin DuckDB stats to canvas"
-                    onClick={() => {
-                      const viewport = editor.getViewportPageBounds();
-                      editor.createShape({
-                        id: createShapeId(),
-                        type: "duckdb-stats",
-                        x: viewport.center.x - 180,
-                        y: viewport.center.y - 185,
-                        props: { w: 360, h: 370 },
-                      });
-                      close();
-                    }}
-                  >
-                    <Pin size={13} aria-hidden="true" />
-                    <span className="kavla-control-label">Pin to canvas</span>
-                  </button>
-                </div>
-              }
-            >
-              <DuckDBSettings />
-            </DuckDBStatsPanel>
+            <div className="duckdb-settings-header">
+              <strong>DuckDB</strong>
+              <div className="duckdb-header-actions">
+                <button type="button" title="Query DuckDB stats" aria-label="Query DuckDB stats" onClick={queryStats}>
+                  <Search size={13} aria-hidden="true" />
+                  <span className="kavla-control-label">Query</span>
+                </button>
+              </div>
+            </div>
+            <DuckDBSettings />
           </div>,
           document.body
         )}

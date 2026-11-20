@@ -95,7 +95,7 @@ func TestInitializeStartupKeepsHealthySourcesWhenOneSourceFailsValidation(t *tes
 	err := eng.initializeStartup(context.Background(), map[string]kavlaconfig.SourceConfig{
 		"good": {Type: "healthy"},
 		"bad":  {Type: "broken"},
-	}, nil)
+	}, nil, "")
 	if err != nil {
 		t.Fatalf("initializeStartup returned error: %v", err)
 	}
