@@ -8,7 +8,6 @@ export interface DuckDBStats {
   residentBytes?: number;
   peakResidentBytes?: number;
   swapBytes?: number;
-  threads?: number;
   duckdbThreadLimit?: number;
   bufferLimit?: string;
   duckdbLimitBytes?: number;

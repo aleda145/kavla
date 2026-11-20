@@ -13,7 +13,13 @@ type Memory = {
   duckdb_percent_of_limit?: number;
   swap_limit_mib?: number;
 };
-type Settings = { memory: Memory; enforcementOverride: string; availableMiB: number };
+type Settings = {
+  memory: Memory;
+  duckdbThreads?: number | null;
+  availableCPUs?: number;
+  enforcementOverride: string;
+  availableMiB: number;
+};
 
 function amount(mib: number) {
   return mib < 1024 ? `${mib} MiB` : `${Number((mib / 1024).toFixed(2))} GiB`;
@@ -33,6 +39,7 @@ export function DuckDBSettings() {
   const { stats } = useDuckDBStats();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [draft, setDraft] = useState<Memory>({});
+  const [threads, setThreads] = useState<number | null>(null);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -45,6 +52,7 @@ export function DuckDBSettings() {
         if (!controller.signal.aborted) {
           setSettings(data);
           setDraft(data.memory);
+          setThreads(data.duckdbThreads ?? null);
         }
       } catch (err) {
         if (!controller.signal.aborted) setError(err instanceof Error ? err.message : String(err));
@@ -54,8 +62,12 @@ export function DuckDBSettings() {
     return () => controller.abort();
   }, []);
 
-  const dirty = settings && JSON.stringify(settings.memory) !== JSON.stringify(draft);
+  const dirty =
+    settings &&
+    (JSON.stringify(settings.memory) !== JSON.stringify(draft) || (settings.duckdbThreads ?? null) !== threads);
   const running = !!stats?.pid;
+  const availableCPUs = settings?.availableCPUs ?? stats?.duckdbThreadLimit ?? 1;
+  const maxThreads = Math.max(availableCPUs, settings?.duckdbThreads ?? 0, threads ?? 0);
   const limited = hasLimit(draft);
   const available = settings?.availableMiB || 0;
   const maximum = Math.max(available || 65536, draft.limit_mib || 0);
@@ -90,11 +102,12 @@ export function DuckDBSettings() {
         const response = await backendRequest(endpoint, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(draft),
+          body: JSON.stringify({ ...draft, duckdbThreads: threads }),
         });
         const data: Settings = await response.json();
         setSettings(data);
         setDraft(data.memory);
+        setThreads(data.duckdbThreads ?? null);
         setMessage("Saved for next start.");
       }
       setBusy(stats?.state === "busy" ? "Waiting for current work…" : running ? "Restarting…" : "Starting…");
@@ -108,7 +121,13 @@ export function DuckDBSettings() {
   }
 
   return (
-    <div className="duckdb-settings">
+    <form
+      className="duckdb-settings"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void restartWorker();
+      }}
+    >
       <fieldset disabled={!!busy}>
         {settings && (
           <>
@@ -157,7 +176,7 @@ export function DuckDBSettings() {
             <label className="duckdb-setting-heading">
               Swap limit (MiB)
               <input
-                className="kavla-knob-input duckdb-swap"
+                className="kavla-knob-input duckdb-setting-number"
                 type="number"
                 min={0}
                 step={1}
@@ -169,11 +188,36 @@ export function DuckDBSettings() {
               />
             </label>
             {settings.enforcementOverride && <small>CLI hard cap: {settings.enforcementOverride}</small>}
+            <div className="duckdb-setting-heading">
+              <label htmlFor="duckdb-threads">
+                <strong>DuckDB threads</strong> <small>All canvases</small>
+              </label>
+              <output htmlFor="duckdb-threads">{threads ?? "Auto"}</output>
+            </div>
+            <input
+              className="kavla-knob-slider"
+              id="duckdb-threads"
+              type="range"
+              min={0}
+              max={maxThreads}
+              step={1}
+              value={threads ?? 0}
+              aria-valuetext={threads === null ? "Automatic" : String(threads)}
+              onChange={(event) => {
+                setThreads(event.currentTarget.valueAsNumber || null);
+                setError("");
+                setMessage("");
+              }}
+            />
+            <div className="kavla-knob-range">
+              <span>Auto</span>
+              <span>{maxThreads}</span>
+            </div>
           </>
         )}
         {!settings && !error && <span>Loading…</span>}
         <div className="duckdb-actions">
-          <button type="button" onClick={() => void restartWorker()}>
+          <button type="submit">
             <RotateCw size={13} />
             {dirty ? (running ? "Save & restart" : "Save & start") : running ? "Restart worker" : "Start worker"}
           </button>
@@ -181,6 +225,6 @@ export function DuckDBSettings() {
       </fieldset>
       {(busy || message) && <span role="status">{busy || message}</span>}
       {error && <span role="alert">{error}</span>}
-    </div>
+    </form>
   );
 }
