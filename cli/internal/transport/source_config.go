@@ -74,6 +74,7 @@ func (m *Manager) configureSources(request sources.ConfigChange) (interface{}, e
 		return nil, err
 	}
 	next := session.New(config.Sources)
+	next.StatsHistoryPath = m.session.StatsHistoryPath
 	next.SetLogger(m.Log)
 	if m.verbose {
 		next.SetVerboseLogger(m.Log)

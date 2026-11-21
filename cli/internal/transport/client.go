@@ -65,6 +65,7 @@ func (c *Client) websocketDialConfig() (string, *websocket.DialOptions, error) {
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+c.token)
+	headers.Set("X-Kavla-DuckDB-Settings", "1")
 	return parsed.String(), &websocket.DialOptions{HTTPHeader: headers}, nil
 }
 

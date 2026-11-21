@@ -4,11 +4,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
-	"runtime"
 
 	kavlaconfig "github.com/aleda145/kavla/cli/internal/config"
-	"github.com/aleda145/kavla/cli/internal/memoryguard"
+	"github.com/aleda145/kavla/cli/internal/session"
 )
 
 func (s *Server) handleComputeStats(w http.ResponseWriter, r *http.Request) {
@@ -63,14 +61,7 @@ func (s *Server) handleComputeSettings(w http.ResponseWriter, r *http.Request) {
 		s.logCLIOutput("Updated DuckDB settings for future worker starts")
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"memory":              config.Memory,
-		"duckdbThreads":       config.DuckDBThreads,
-		"availableCPUs":       runtime.NumCPU(),
-		"supportsOSLimit":     runtime.GOOS == "linux",
-		"availableMiB":        memoryguard.AvailableMiB(),
-		"enforcementOverride": os.Getenv("KAVLA_MEMORY_ENFORCEMENT"),
-	})
+	writeJSON(w, http.StatusOK, session.ComputeSettings(config))
 }
 
 func (s *Server) handleComputeRestart(w http.ResponseWriter, r *http.Request) {
