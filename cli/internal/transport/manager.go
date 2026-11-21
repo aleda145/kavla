@@ -2,9 +2,11 @@ package transport
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +65,12 @@ func (m *Manager) Prepare() error {
 	if m.prepared {
 		return nil
 	}
+	configPath, err := kavlaconfig.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("locate CLI stats directory: %w", err)
+	}
+	roomKey := sha256.Sum256([]byte(strings.TrimRight(m.client.workerURL, "/") + "\x00" + m.client.roomID))
+	m.session.StatsHistoryPath = filepath.Join(filepath.Dir(configPath), "duckdb-stats", "hosted", fmt.Sprintf("%x.jsonl", roomKey))
 	m.session.SetLogger(m.Log)
 	if m.verbose {
 		m.session.SetVerboseLogger(m.Log)
@@ -161,6 +169,8 @@ func (m *Manager) readLoop() {
 func (m *Manager) handleMessage(message map[string]interface{}) {
 	messageType, _ := message["type"].(string)
 	switch messageType {
+	case "cli_duckdb_settings":
+		go m.handleDuckDBSettings(message)
 	case "cli_sources_config", "get_cli_source_paths":
 		go m.handleSourceConfig(message)
 	case "get_source_tables":
