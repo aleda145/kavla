@@ -45,6 +45,8 @@ export function DuckDBSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [draft, setDraft] = useState<Memory>({});
   const [draftThreads, setDraftThreads] = useState<number | null>();
+  const [memoryInput, setMemoryInput] = useState<string | null>(null);
+  const [threadsInput, setThreadsInput] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -95,10 +97,18 @@ export function DuckDBSettings() {
   }
 
   function chooseLimit(mib: number) {
+    setMemoryInput(null);
     const next = { ...draft, limit_mib: mib };
     delete next.limit_percent;
     delete next.duckdb_percent_of_limit;
     edit(next);
+  }
+
+  function chooseThreads(threads: number) {
+    setThreadsInput(null);
+    setDraftThreads(threads);
+    setError("");
+    setMessage("");
   }
 
   async function restartWorker() {
@@ -141,9 +151,22 @@ export function DuckDBSettings() {
           <>
             <div className="duckdb-setting-heading">
               <label htmlFor="duckdb-budget">
-                <strong>Memory</strong>
+                <strong>Memory</strong> (MiB)
               </label>
-              <output htmlFor="duckdb-budget">{amount(requested)}</output>
+              <input
+                className="kavla-knob-input duckdb-setting-number"
+                type="number"
+                aria-label="Memory limit in MiB"
+                min={amounts[0]}
+                max={maximum}
+                step={1}
+                required
+                value={memoryInput ?? requested}
+                onChange={({ currentTarget }) => {
+                  if (currentTarget.validity.valid) chooseLimit(currentTarget.valueAsNumber);
+                  else setMemoryInput(currentTarget.value);
+                }}
+              />
             </div>
             <input
               className="kavla-knob-slider"
@@ -195,7 +218,20 @@ export function DuckDBSettings() {
               <label htmlFor="duckdb-threads">
                 <strong>DuckDB threads</strong>
               </label>
-              <output htmlFor="duckdb-threads">{selectedThreads}</output>
+              <input
+                className="kavla-knob-input duckdb-setting-number"
+                type="number"
+                aria-label="DuckDB thread limit"
+                min={1}
+                max={maxThreads}
+                step={1}
+                required
+                value={threadsInput ?? selectedThreads}
+                onChange={({ currentTarget }) => {
+                  if (currentTarget.validity.valid) chooseThreads(currentTarget.valueAsNumber);
+                  else setThreadsInput(currentTarget.value);
+                }}
+              />
             </div>
             <input
               className="kavla-knob-slider"
@@ -205,11 +241,7 @@ export function DuckDBSettings() {
               max={maxThreads}
               step={1}
               value={selectedThreads}
-              onChange={(event) => {
-                setDraftThreads(event.currentTarget.valueAsNumber);
-                setError("");
-                setMessage("");
-              }}
+              onChange={(event) => chooseThreads(event.currentTarget.valueAsNumber)}
             />
             <div className="kavla-knob-range">
               <span>1</span>
@@ -228,6 +260,8 @@ export function DuckDBSettings() {
               type="button"
               onClick={() => {
                 edit({});
+                setMemoryInput(null);
+                setThreadsInput(null);
                 setDraftThreads(null);
               }}
             >

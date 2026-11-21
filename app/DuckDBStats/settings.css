@@ -49,10 +49,6 @@
 .duckdb-settings [role="alert"] {
   color: #b91c1c;
 }
-.duckdb-setting-heading output {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
 .duckdb-cap-options {
   display: flex;
   overflow: hidden;
@@ -72,6 +68,14 @@
 .duckdb-settings .duckdb-setting-number {
   width: 7em;
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.duckdb-setting-number:focus-visible {
+  outline: 2px solid #0d9488;
+  outline-offset: 2px;
+}
+.duckdb-setting-number:invalid {
+  border-color: #b91c1c;
 }
 
 .duckdb-settings-header {
