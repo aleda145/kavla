@@ -181,7 +181,7 @@ export function LocalSourcesDialog({ onClose }: LocalSourcesDialogProps) {
     const metadata = details.columns;
     const viewport = editor.getViewportPageBounds();
     const width = calculateDataSourceWidth(metadata, displayTableName);
-    const height = calculateDataSourceHeight(metadata, details.rowCount);
+    const height = calculateDataSourceHeight(metadata, details.rowCount !== null);
     editor.createShape<DataSourceShape>({
       id: shapeId,
       type: "data-source",

@@ -1,3 +1,5 @@
+export const DUCKDB_STATS_TABLE_REF = "memory.kavla.duckdb_stats";
+
 export type RemoteSourceMetadata = {
   sourceName: string;
   sourceType: string | null;

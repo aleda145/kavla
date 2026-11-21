@@ -7,7 +7,7 @@ import { DataSourcePicker } from "./CliSourcesList";
 import { DataSourceActionBar } from "./DataSourceActionBar";
 import { RemoteTablesList } from "./RemoteTablesList";
 import { DemoDatasetBrowser, type DemoFileRecord } from "./DemoDatasetBrowser";
-import type { RemoteSourceMetadata } from "./remote-source-metadata";
+import { DUCKDB_STATS_TABLE_REF, type RemoteSourceMetadata } from "./remote-source-metadata";
 import type { DataSourceShape } from "./data-source-types";
 import type { useTldrawScrollArea } from "./useTldrawScrollArea";
 import { TldrawScrollAreaIndicator } from "./TldrawScrollAreaIndicator";
@@ -136,12 +136,18 @@ export function LocalDataSourceBody({
                 <strong>{remoteSourceInfo ? "Table:" : "File:"}</strong>{" "}
                 {remoteSourceInfo ? remoteTableDisplayName : shape.props.filename}
               </div>
-              {shape.props.rowCount !== null && (
-                <div>
-                  <strong>Rows:</strong> {shape.props.rowCount.toLocaleString()}
-                </div>
+              {remoteSourceInfo?.remoteTableRef === DUCKDB_STATS_TABLE_REF ? (
+                <div>1 sample / sec</div>
+              ) : (
+                <>
+                  {shape.props.rowCount !== null && (
+                    <div>
+                      <strong>Rows:</strong> {shape.props.rowCount.toLocaleString()}
+                    </div>
+                  )}
+                  <SampledRowCount editor={editor} shape={shape} runRemoteQuery={runRemoteQuery} />
+                </>
               )}
-              <SampledRowCount editor={editor} shape={shape} runRemoteQuery={runRemoteQuery} />
               {shape.props.metadata && (
                 <div>
                   <strong>Columns:</strong> {shape.props.metadata.length.toLocaleString()}
