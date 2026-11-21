@@ -5,6 +5,7 @@ import { siDuckdb } from "simple-icons";
 import { createShapeId, useEditor, useToasts } from "tldraw";
 import { useData } from "../client/useLocalServer";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
+import { queryActionButtonClass } from "../SQLTextArea/SQLTextAreaActionBar";
 import { DuckDBSettings } from "./DuckDBSettings";
 import type { DataSourceShape } from "../DataSource/data-source-types";
 import { calculateDataSourceHeight, calculateDataSourceWidth } from "../DataSource/ingestLocalDataSourceFile";
@@ -195,9 +196,15 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
           >
             <div className="duckdb-settings-header">
               <strong>DuckDB</strong>
-              <div className="duckdb-header-actions">
-                <button type="button" title="Query DuckDB stats" aria-label="Query DuckDB stats" onClick={queryStats}>
-                  <Search size={13} aria-hidden="true" />
+              <div className="kavla-shape-actions">
+                <button
+                  type="button"
+                  className={queryActionButtonClass}
+                  title="Query DuckDB stats"
+                  aria-label="Query DuckDB stats"
+                  onClick={queryStats}
+                >
+                  <Search size={16} aria-hidden="true" />
                   <span className="kavla-control-label">Query</span>
                 </button>
               </div>
