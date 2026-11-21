@@ -69,10 +69,10 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
         close();
       }
     };
-    document.addEventListener("pointerdown", outside);
+    window.addEventListener("pointerdown", outside, true);
     document.addEventListener("keydown", escape);
     return () => {
-      document.removeEventListener("pointerdown", outside);
+      window.removeEventListener("pointerdown", outside, true);
       document.removeEventListener("keydown", escape);
     };
   }, [open]);
