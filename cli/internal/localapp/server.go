@@ -230,6 +230,13 @@ func (s *Server) newQuerySession(document *Document, sources map[string]kavlacon
 		s.document.mu.RUnlock()
 		s.writeCLIOutput(fmt.Sprintf("(%s) %s", canvas, fmt.Sprintf(format, args...)))
 	}
+	querySession.OnWorkerFailure = func(failure compute.WorkerFailure) {
+		s.document.mu.RLock()
+		defer s.document.mu.RUnlock()
+		if s.document.workingDir == workingDir {
+			s.broadcastRuntimeEvent(cliRuntimeEvent{name: "duckdb-worker-failure", data: failure})
+		}
+	}
 	querySession.SetLogger(logf)
 	if s.verbose {
 		querySession.SetVerboseLogger(logf)

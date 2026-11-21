@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 import { siDuckdb } from "simple-icons";
 import { createShapeId, useEditor, useToasts } from "tldraw";
 import { useData } from "../client/useLocalServer";
+import { subscribeRuntimeEvents } from "../client/canvasConnection";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
 import { queryActionButtonClass } from "../SQLTextArea/SQLTextAreaActionBar";
 import { DuckDBSettings } from "./DuckDBSettings";
@@ -27,6 +28,24 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  useEffect(
+    () =>
+      subscribeRuntimeEvents((event) => {
+        if (event.stream !== "cli" || event.name !== "duckdb-worker-failure") return;
+        const { message, customSettings } = event.data as { message: string; customSettings: boolean };
+        addToast({
+          id: "duckdb-worker-failure",
+          title: message,
+          description: customSettings ? "Review the worker settings before retrying." : undefined,
+          severity: "error",
+          keepOpen: true,
+          actions: customSettings
+            ? [{ label: "Open DuckDB settings", type: "primary", onClick: () => trigger.current?.click() }]
+            : undefined,
+        });
+      }),
+    [addToast]
+  );
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const cancelClose = () => clearTimeout(timer.current);
   const show = () => {

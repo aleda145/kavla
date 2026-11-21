@@ -38,7 +38,7 @@ func (c *Client) Stats() Stats {
 	select {
 	case <-p.done:
 		result.State = "stopped"
-		result.Error = stoppedMessage
+		result.Error = p.failureMessage()
 		return result
 	default:
 	}

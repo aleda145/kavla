@@ -26,7 +26,13 @@ import (
 	"github.com/apache/arrow/go/v14/arrow/ipc"
 )
 
+const interruptedConnection = "worker connection interrupted"
 const stoppedMessage = "DuckDB service stopped or lost its connection. Your canvas is still open. Run the operation again to restart compute"
+
+type WorkerFailure struct {
+	Message        string `json:"message"`
+	CustomSettings bool   `json:"customSettings"`
+}
 
 type process struct {
 	cmd        *exec.Cmd
@@ -35,6 +41,7 @@ type process struct {
 	token      string
 	done       chan struct{}
 	stopReason atomic.Pointer[string]
+	failure    string // Published by closing done.
 	started    time.Time
 	limits     ready
 }
@@ -55,6 +62,7 @@ type Client struct {
 	worker          *process
 	statuses        []engine.SourceStatus
 	sourcesChanged  func()
+	onWorkerFailure func(WorkerFailure)
 	closed          bool
 	uploadsEnabled  bool
 	workerError     string
@@ -65,8 +73,8 @@ type Client struct {
 	previousWorkerPID int // Protected by mu.
 }
 
-func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf, verbosef func(string, ...interface{}), directories []string, historyPath string) (*Client, error) {
-	c, err := NewLazy(ctx, sources, logf, verbosef, directories, historyPath)
+func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf, verbosef func(string, ...interface{}), directories []string, historyPath string, onWorkerFailure func(WorkerFailure)) (*Client, error) {
+	c, err := NewLazy(ctx, sources, logf, verbosef, directories, historyPath, onWorkerFailure)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +87,7 @@ func New(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf,
 
 // NewLazy keeps canvas opening independent of native compute and source I/O.
 // The first compute request starts the supervised worker through the same gate.
-func NewLazy(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf, verbosef func(string, ...interface{}), directories []string, historyPath string) (*Client, error) {
+func NewLazy(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, logf, verbosef func(string, ...interface{}), directories []string, historyPath string, onWorkerFailure func(WorkerFailure)) (*Client, error) {
 	if logf == nil {
 		logf = log.Printf
 	}
@@ -87,7 +95,8 @@ func NewLazy(ctx context.Context, sources map[string]kavlaconfig.SourceConfig, l
 	transport := &http.Transport{MaxIdleConnsPerHost: 1, IdleConnTimeout: time.Minute}
 	c := &Client{
 		ctx: ctx, cancel: cancel, logf: logf, verbosef: verbosef, transport: transport,
-		http: &http.Client{Transport: transport}, gate: make(chan struct{}, 1),
+		onWorkerFailure: onWorkerFailure,
+		http:            &http.Client{Transport: transport}, gate: make(chan struct{}, 1),
 		config: configuration{Sources: sources, Directories: slices.Clone(directories), Verbose: verbosef != nil},
 	}
 	for name, source := range sources {
@@ -182,17 +191,35 @@ func (c *Client) startWorker(ctx context.Context) (*process, ready, error) {
 	}()
 	go func() {
 		waitErr := cmd.Wait()
+		reason := p.stopReason.Load()
+		switch {
+		case reason == nil:
+			p.failure = "DuckDB worker crashed"
+			if waitErr != nil {
+				p.failure += fmt.Sprintf(" (%v)", waitErr)
+			} else {
+				p.failure = "DuckDB worker exited unexpectedly"
+			}
+		case *reason == interruptedConnection:
+			p.failure = "Lost the DuckDB worker connection; Kavla stopped the worker"
+		}
+		if p.failure != "" && settings.LimitMiB > 0 {
+			p.failure += fmt.Sprintf(". Configured memory budget: %d MiB", settings.LimitMiB)
+		}
 		if err := spilldir.Cleanup(); err != nil {
 			c.logWorker(p, "Could not clean up DuckDB spill files: %v", err)
 		}
-		reason := p.stopReason.Load()
 		close(p.done)
-		if reason != nil {
-			c.logWorker(p, "DuckDB worker stopped (%s)", *reason)
-		} else if waitErr != nil {
-			c.logWorker(p, "DuckDB worker exited unexpectedly: %v", waitErr)
+		if p.failure != "" {
+			c.logWorker(p, "%s", p.failure)
+			if c.onWorkerFailure != nil {
+				c.onWorkerFailure(WorkerFailure{
+					Message:        p.failure,
+					CustomSettings: settings.Configured || settings.Enforcement != "auto" || config.DuckDBThreads > 0,
+				})
+			}
 		} else {
-			c.logWorker(p, "DuckDB worker exited unexpectedly")
+			c.logWorker(p, "DuckDB worker stopped (%s)", *reason)
 		}
 		c.mu.Lock()
 		isCurrent := c.worker == p
@@ -347,22 +374,41 @@ func (c *Client) operation(ctx context.Context) (context.Context, func(), error)
 	}
 }
 
+func (p *process) failureMessage() string {
+	select {
+	case <-p.done:
+		if p.failure != "" {
+			return p.failure
+		}
+	default:
+	}
+	return stoppedMessage
+}
+
 func (c *Client) invalidate(ctx context.Context, p *process) {
 	if ctx.Err() != nil {
 		p.stopping("request canceled or timed out")
-	} else {
-		p.stopping("worker connection interrupted")
+	} else if p.stopReason.Load() == nil {
+		// A dead worker's socket can close just before Wait reports its exit.
+		// Give the supervisor a chance to collect the real status before killing it.
+		select {
+		case <-p.done:
+		case <-ctx.Done():
+			p.stopping("request canceled or timed out")
+		case <-time.After(200 * time.Millisecond):
+			p.stopping(interruptedConnection)
+		}
 	}
+	// Cancellation also discards the worker: an interrupted mutation must not
+	// keep running after its caller rolls back an upload or deletes a file.
+	p.kill()
 	c.mu.Lock()
 	if c.worker == p {
 		c.worker = nil
 		c.previousWorkerPID = p.cmd.Process.Pid
-		c.workerError = stoppedMessage
+		c.workerError = p.failureMessage()
 	}
 	c.mu.Unlock()
-	// Cancellation also discards the worker: an interrupted mutation must not
-	// keep running after its caller rolls back an upload or deletes a file.
-	p.kill()
 	c.notifySourcesChanged()
 }
 
@@ -390,7 +436,7 @@ func (c *Client) send(ctx context.Context, p *process, req request) (*http.Respo
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, fmt.Errorf("%s: %w", stoppedMessage, err)
+		return nil, fmt.Errorf("%s: %w", p.failureMessage(), err)
 	}
 	if data := result.Header.Get(sourceStatusesHeader); data != "" {
 		var statuses []engine.SourceStatus
@@ -436,7 +482,7 @@ func (c *Client) sendJSON(ctx context.Context, p *process, req request) (respons
 		if req.Op != "estimate-ready" {
 			c.invalidate(ctx, p)
 		}
-		return result, fmt.Errorf("%s: %w", stoppedMessage, err)
+		return result, fmt.Errorf("%s: %w", p.failureMessage(), err)
 	}
 	if result.Error != "" {
 		return result, fmt.Errorf("%s", result.Error)
@@ -553,7 +599,7 @@ func (c *Client) query(ctx context.Context, req request) (array.RecordReader, er
 		var result response
 		if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&result); err != nil {
 			c.invalidate(ctx, p)
-			return nil, fmt.Errorf("%s: %w", stoppedMessage, err)
+			return nil, fmt.Errorf("%s: %w", p.failureMessage(), err)
 		}
 		return nil, fmt.Errorf("%s", result.Error)
 	}
@@ -561,9 +607,15 @@ func (c *Client) query(ctx context.Context, req request) (array.RecordReader, er
 	if err != nil {
 		_ = res.Body.Close()
 		c.invalidate(ctx, p)
-		return nil, fmt.Errorf("%s: %w", stoppedMessage, err)
+		return nil, fmt.Errorf("%s: %w", p.failureMessage(), err)
 	}
-	result := &streamReader{Reader: reader, response: res, done: done, failed: func() { c.invalidate(ctx, p) }}
+	result := &streamReader{Reader: reader, response: res, done: done, failed: func(abandoned bool) string {
+		if abandoned {
+			p.stopping("result reader closed")
+		}
+		c.invalidate(ctx, p)
+		return p.failureMessage()
+	}}
 	result.refs.Store(1)
 	success = true
 	return result, nil
@@ -573,7 +625,7 @@ type streamReader struct {
 	*ipc.Reader
 	response *http.Response
 	done     func()
-	failed   func()
+	failed   func(abandoned bool) string
 	refs     atomic.Int64
 	err      error
 	finished bool
@@ -585,7 +637,7 @@ func (r *streamReader) Release() {
 		r.Reader.Release()
 		_ = r.response.Body.Close()
 		if !r.finished {
-			r.failed()
+			r.failed(true)
 		}
 		r.done()
 	}
@@ -600,8 +652,7 @@ func (r *streamReader) Next() bool {
 	r.finished = true
 	_, transportErr := io.Copy(io.Discard, r.response.Body)
 	if r.Reader.Err() != nil || transportErr != nil || r.response.Trailer.Get(completeTrailer) != "1" {
-		r.err = fmt.Errorf("%s; the result was interrupted", stoppedMessage)
-		r.failed()
+		r.err = fmt.Errorf("%s; the result was interrupted", r.failed(false))
 	}
 	return false
 }
@@ -738,7 +789,7 @@ func (c *Client) SourceStatuses() []engine.SourceStatus {
 	if c.worker != nil {
 		select {
 		case <-c.worker.done:
-			message = stoppedMessage
+			message = c.worker.failureMessage()
 		default:
 		}
 	}
