@@ -6,6 +6,8 @@ const buttonBaseClass =
 
 const buttonShadowClass = "shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]";
 
+export const queryActionButtonClass = `${buttonBaseClass} ${buttonShadowClass} bg-[#fef9c3]`;
+
 const buttonPressedClass = "shadow-[inset_2px_2px_0px_0px_rgba(0,0,0,0.1)] translate-y-[1px]";
 
 const ctaButtonClass =
@@ -109,12 +111,11 @@ export function SQLTextAreaActionBar({
           event.stopPropagation();
           if (event.pointerType === "touch") onChainQuery();
         }}
-        className={`${buttonBaseClass} ${buttonShadowClass}`}
+        className={queryActionButtonClass}
         style={{
           width: "100%",
           justifyContent: "center",
           touchAction: "none",
-          backgroundColor: "#fef9c3", // Yellow match (Self)
         }}
         aria-label="Chain Query"
         title="Chain Query"
