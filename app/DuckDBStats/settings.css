@@ -49,21 +49,36 @@
 .duckdb-settings [role="alert"] {
   color: #b91c1c;
 }
-.duckdb-cap-options {
-  display: flex;
-  overflow: hidden;
-  border: 1px solid #111;
-  border-radius: 4px;
+.duckdb-cap-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
-.duckdb-cap-options button {
+.duckdb-cap-label .duckdb-cap-info {
+  display: inline-flex;
+  padding: 3px;
   border: 0;
-  padding: 3px 7px;
+  background: transparent;
+  cursor: help;
 }
-.duckdb-cap-options button[aria-pressed="true"] {
-  background: #ccfbf1;
+.duckdb-cap-label [role="tooltip"] {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  z-index: 1;
+  width: min(230px, calc(100vw - 64px));
+  padding: 6px 8px;
+  border: 2px solid #111;
+  border-radius: 4px;
+  background: white;
+  box-shadow: 2px 2px 0 #111;
 }
-.duckdb-cap-options button:focus-visible {
-  outline-offset: -2px;
+.duckdb-cap-info:hover + [role="tooltip"],
+.duckdb-cap-info:focus + [role="tooltip"],
+.duckdb-cap-label [role="tooltip"]:hover {
+  display: block;
 }
 .duckdb-settings .duckdb-setting-number {
   width: 7em;
