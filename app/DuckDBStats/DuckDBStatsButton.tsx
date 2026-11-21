@@ -8,6 +8,7 @@ import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
 import { queryActionButtonClass } from "../SQLTextArea/SQLTextAreaActionBar";
 import { DuckDBSettings } from "./DuckDBSettings";
 import type { DataSourceShape } from "../DataSource/data-source-types";
+import { DUCKDB_STATS_TABLE_REF } from "../DataSource/remote-source-metadata";
 import { calculateDataSourceHeight, calculateDataSourceWidth } from "../DataSource/ingestLocalDataSourceFile";
 import { getFallbackNodePosition } from "../client/canvas/fallbackNodePosition";
 import { getUniqueName } from "../util/getUniqueName";
@@ -82,7 +83,7 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
     const sql = `SELECT\n  *\nFROM\n  ${name}\nORDER BY\n  timestamp DESC`;
     const center = editor.getViewportPageBounds().center;
     const w = calculateDataSourceWidth(null, "duckdb_stats");
-    const h = calculateDataSourceHeight(null, null);
+    const h = calculateDataSourceHeight(null, true);
     editor.markHistoryStoppingPoint("Query DuckDB stats");
     editor.run(() => {
       editor.createShape<DataSourceShape>({
@@ -97,7 +98,7 @@ export function DuckDBStatsButton({ isComputing }: { isComputing: boolean }) {
           filename: "duckdb_stats",
           sourceName: "memory",
           sourceType: "duckdb",
-          remoteTableRef: "memory.kavla.duckdb_stats",
+          remoteTableRef: DUCKDB_STATS_TABLE_REF,
         },
       });
       editor.createShape({

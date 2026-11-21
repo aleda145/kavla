@@ -5,10 +5,10 @@ import { toValidSqlName } from "../util/sql";
 import type { ColumnMetadata, DataSourceShape } from "./data-source-types";
 import { rememberUploadedBlob, type KavlaBlobDescriptor } from "../client/local/localSession";
 
-export function calculateDataSourceHeight(metadata: ColumnMetadata[] | null, rowCount: number | null): number {
+export function calculateDataSourceHeight(metadata: ColumnMetadata[] | null, showRowInfo: boolean): number {
   const HEADER_HEIGHT = 42;
   const PADDING = 12;
-  const FILE_INFO_HEIGHT = rowCount !== null ? 40 : 0;
+  const FILE_INFO_HEIGHT = showRowInfo ? 40 : 0;
   const TABLE_HEADER_HEIGHT = 28;
   const TABLE_ROW_HEIGHT = 24;
   const TABLE_MARGIN_TOP = 12;
@@ -92,7 +92,7 @@ export async function ingestLocalDataSourceFile(
     error: null,
     fileSize: file.size,
     filename: file.name,
-    h: calculateDataSourceHeight(metadata, count),
+    h: calculateDataSourceHeight(metadata, true),
     isRunning: false,
     metadata,
     name,
