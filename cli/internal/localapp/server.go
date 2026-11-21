@@ -3,6 +3,7 @@ package localapp
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -83,6 +84,7 @@ type Server struct {
 	baseURL          string
 	queries          *session.Session
 	queriesMu        sync.RWMutex
+	statsDir         string
 	transientDir     string
 	transientMu      sync.Mutex
 	transientResults map[string]transientResult
@@ -150,6 +152,10 @@ func (s *Server) notifyDocumentChanged() {
 }
 
 func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.SourceConfig, verbose bool) (*Server, error) {
+	configPath, err := kavlaconfig.GetConfigPath()
+	if err != nil {
+		return nil, err
+	}
 	transientDir, err := os.MkdirTemp("", "kavla-query-results-*")
 	if err != nil {
 		return nil, fmt.Errorf("create temporary query result directory: %w", err)
@@ -164,6 +170,7 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 		assets:            assets,
 		verbose:           verbose,
 		transientDir:      transientDir,
+		statsDir:          filepath.Join(filepath.Dir(configPath), "duckdb-stats"),
 		transientResults:  make(map[string]transientResult),
 		eventSubscribers:  make(map[chan cliRuntimeEvent]struct{}),
 		agentStatus:       agent.Status{State: "checking", Message: "Preparing Agent connection…"},
@@ -203,8 +210,15 @@ func NewServer(document *Document, assets fs.FS, sources map[string]kavlaconfig.
 func (s *Server) newQuerySession(document *Document, sources map[string]kavlaconfig.SourceConfig) *session.Session {
 	document.mu.RLock()
 	workingDir, originalName := document.workingDir, document.nameLocked()
+	documentID := document.manifest.DocumentID
+	if documentID == "" {
+		documentID = document.path
+	}
 	document.mu.RUnlock()
 	querySession := session.NewWithAllowedDirectories(sources, []string{s.transientDir, workingDir})
+	if s.statsDir != "" {
+		querySession.StatsHistoryPath = filepath.Join(s.statsDir, fmt.Sprintf("%x.jsonl", sha256.Sum256([]byte(documentID))))
+	}
 	logf := func(format string, args ...interface{}) {
 		// The working copy survives renames and is replaced on a canvas switch.
 		// Keep late logs from the outgoing worker attributed to its own canvas.
@@ -215,6 +229,13 @@ func (s *Server) newQuerySession(document *Document, sources map[string]kavlacon
 		}
 		s.document.mu.RUnlock()
 		s.writeCLIOutput(fmt.Sprintf("(%s) %s", canvas, fmt.Sprintf(format, args...)))
+	}
+	querySession.OnWorkerFailure = func(failure compute.WorkerFailure) {
+		s.document.mu.RLock()
+		defer s.document.mu.RUnlock()
+		if s.document.workingDir == workingDir {
+			s.broadcastRuntimeEvent(cliRuntimeEvent{name: "duckdb-worker-failure", data: failure})
+		}
 	}
 	querySession.SetLogger(logf)
 	if s.verbose {
@@ -402,6 +423,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/session/query-estimate", s.sameOriginMutation(s.handleQueryEstimate))
 	mux.HandleFunc("POST /api/session/widget-query", s.sameOriginMutation(s.handleCompute))
 	mux.HandleFunc("GET /api/session", s.handleSession)
+	mux.HandleFunc("GET /api/session/compute-stats", s.handleComputeStats)
+	mux.HandleFunc("POST /api/session/compute-restart", s.sameOriginMutation(s.handleComputeRestart))
+	mux.HandleFunc("GET /api/session/compute-settings", s.handleComputeSettings)
+	mux.HandleFunc("PUT /api/session/compute-settings", s.sameOriginMutation(s.handleComputeSettings))
 	mux.HandleFunc("GET /api/runtime/events", s.sameOriginMutation(s.handleRuntimeEvents))
 	mux.HandleFunc("PUT /api/session/document", s.sameOriginMutation(s.handleDocument))
 	mux.HandleFunc("PUT /api/session/undo", s.sameOriginMutation(s.handleUndo))
@@ -1617,7 +1642,7 @@ func (s *Server) writeQueryArrow(w http.ResponseWriter, ctx context.Context, rea
 
 func writeArrowResult(w http.ResponseWriter, reader array.RecordReader) (rows, size int64, err error) {
 	w.Header().Set("Content-Type", "application/vnd.apache.arrow.stream")
-	return encodeArrowResult(w, reader)
+	return encodeArrowResult(resultWriter{w: w}, reader)
 }
 
 func encodeArrowResult(w io.Writer, reader array.RecordReader) (rows, size int64, err error) {

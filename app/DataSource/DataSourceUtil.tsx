@@ -8,7 +8,7 @@ import { getUniqueName } from "../util/getUniqueName";
 import { toValidSqlName } from "../util/sql";
 import { quoteDottedIdentifier } from "../src/duckdb/sql";
 import { useTldrawScrollArea } from "./useTldrawScrollArea";
-import { getRemoteSourceMetadata, getRemoteTableDisplayName } from "./remote-source-metadata";
+import { DUCKDB_STATS_TABLE_REF, getRemoteSourceMetadata, getRemoteTableDisplayName } from "./remote-source-metadata";
 import { DataSourceHeader } from "./DataSourceHeader";
 import { DataSourceSampleControl } from "./DataSourceSampleControl";
 import { LocalDataSourceBody as DataSourceBody } from "./LocalDataSourceBody";
@@ -157,7 +157,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
           sourceName,
           sourceType,
           remoteTableRef,
-          h: calculateDataSourceHeight(null, null),
+          h: calculateDataSourceHeight(null, false),
           w: calculateDataSourceWidth(null, filename),
         },
       });
@@ -233,7 +233,8 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
             }
             const quotedTableName = quoteDottedIdentifier(remoteSource.remoteTableRef);
             const { columns: schema } = await getSourceSchema({ tableRef: quotedTableName });
-            const { rowCount } = await getSourceStats({ tableRef: quotedTableName });
+            const isStatsHistory = remoteSource.remoteTableRef === DUCKDB_STATS_TABLE_REF;
+            const rowCount = isStatsHistory ? null : (await getSourceStats({ tableRef: quotedTableName })).rowCount;
 
             this.editor.updateShape<DataSourceShape>({
               id: currentShape.id,
@@ -243,7 +244,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
                 rowCount,
                 isRunning: false,
                 error: null,
-                h: calculateDataSourceHeight(schema, rowCount),
+                h: calculateDataSourceHeight(schema, isStatsHistory || rowCount !== null),
                 w: calculateDataSourceWidth(schema, currentShape.props.filename!),
               },
             });

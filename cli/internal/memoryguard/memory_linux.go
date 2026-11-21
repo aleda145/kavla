@@ -23,6 +23,9 @@ func enable(settings kavlaconfig.MemorySettings) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("determine Kavla memory cap: %w", err)
 	}
+	if settings.LimitMiB > 0 {
+		limit = min(limit, uint64(settings.LimitMiB)<<20)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

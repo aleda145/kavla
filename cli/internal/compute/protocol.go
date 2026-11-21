@@ -17,21 +17,24 @@ const sourceStatusesHeader = "Kavla-Source-Statuses"
 const sourceStatusPrefix = "KAVLA_SOURCE_STATUS "
 
 type configuration struct {
-	Sources     map[string]kavlaconfig.SourceConfig
-	Directories []string
-	Token       string
-	Memory      kavlaconfig.MemorySettings
-	Verbose     bool
+	Sources          map[string]kavlaconfig.SourceConfig
+	Directories      []string
+	Token            string
+	Memory           kavlaconfig.MemorySettings
+	DuckDBThreads    int
+	StatsHistoryPath string
+	Verbose          bool
 }
 
 type ready struct {
-	Address           string
-	Statuses          []engine.SourceStatus
-	Memory            memoryguard.Status
-	SystemLimits      memoryguard.SystemLimits
-	DuckDBMemoryLimit string
-	DuckDBThreads     int
-	Error             string
+	Address                string
+	Statuses               []engine.SourceStatus
+	Memory                 memoryguard.Status
+	SystemLimits           memoryguard.SystemLimits
+	DuckDBMemoryLimit      string
+	DuckDBMemoryLimitBytes uint64
+	DuckDBThreads          int
+	Error                  string
 }
 
 type request struct {

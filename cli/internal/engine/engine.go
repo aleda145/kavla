@@ -54,7 +54,7 @@ func New(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ..
 }
 
 func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), additionalDirectories []string) (result *Engine, resultErr error) {
-	e, err := NewLazyWithAllowedDirectories(sourceConfigs, logf, additionalDirectories)
+	e, err := NewLazyWithAllowedDirectories(sourceConfigs, logf, additionalDirectories, 0, "")
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func NewWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig
 // NewLazyWithAllowedDirectories configures DuckDB without connecting sources.
 // Source paths are collected before locking configuration; validation, directory
 // scans, extension loading and catalog attachment happen only on first use.
-func NewLazyWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), additionalDirectories []string) (result *Engine, resultErr error) {
+func NewLazyWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceConfig, logf func(string, ...interface{}), additionalDirectories []string, threads int, historyPath string) (result *Engine, resultErr error) {
 	if logf == nil {
 		logf = log.Printf
 	}
@@ -88,6 +88,12 @@ func NewLazyWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceCo
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("failed to ping DuckDB: %w", err)
+	}
+	if threads > 0 {
+		if _, err := db.Exec(fmt.Sprintf("SET threads = %d", threads)); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("set DuckDB threads: %w", err)
+		}
 	}
 	if err := spill.Configure(db); err != nil {
 		_ = db.Close()
@@ -114,7 +120,7 @@ func NewLazyWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceCo
 		sourceStatuses:  make(map[string]SourceStatus),
 	}
 
-	if err := e.initializeStartup(context.Background(), sourceConfigs, additionalDirectories); err != nil {
+	if err := e.initializeStartup(context.Background(), sourceConfigs, additionalDirectories, historyPath); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -122,7 +128,7 @@ func NewLazyWithAllowedDirectories(sourceConfigs map[string]kavlaconfig.SourceCo
 	return e, nil
 }
 
-func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string]kavlaconfig.SourceConfig, additionalDirectories []string) error {
+func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string]kavlaconfig.SourceConfig, additionalDirectories []string, historyPath string) error {
 	e.sourceConfigs = make(map[string]kavlaconfig.SourceConfig, len(sourceConfigs))
 	for name := range sourceConfigs {
 		if strings.EqualFold(name, UploadedFilesSource) {
@@ -143,6 +149,12 @@ func (e *Engine) initializeStartup(ctx context.Context, sourceConfigs map[string
 		}
 	}
 	pathSet := make(map[string]struct{})
+	if historyPath != "" {
+		pathSet[historyPath] = struct{}{}
+		if err := e.createStatsHistoryView(ctx, historyPath); err != nil {
+			return fmt.Errorf("register DuckDB stats history: %w", err)
+		}
+	}
 	for _, name := range sourceNames {
 		src := sourceConfigs[name]
 		e.sourceConfigs[name] = src
@@ -225,9 +237,10 @@ func (e *Engine) execStartupSQL(ctx context.Context, sql string) error {
 	return nil
 }
 
-func (e *Engine) StartupSettings(ctx context.Context) (memoryLimit string, threads int, err error) {
-	err = e.db.QueryRowContext(ctx, "SELECT current_setting('memory_limit'), current_setting('threads')").Scan(&memoryLimit, &threads)
-	return memoryLimit, threads, err
+func (e *Engine) StartupSettings(ctx context.Context) (memoryLimit string, memoryLimitBytes uint64, threads int, err error) {
+	err = e.db.QueryRowContext(ctx, `SELECT current_setting('memory_limit') AS buffer_limit,
+		parse_formatted_bytes(buffer_limit), current_setting('threads')`).Scan(&memoryLimit, &memoryLimitBytes, &threads)
+	return memoryLimit, memoryLimitBytes, threads, err
 }
 
 func sqlStringList(values []string) string {

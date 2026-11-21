@@ -22,7 +22,37 @@ management, whose buffer manager defaults to approximately 80% of available RAM;
 see [DuckDB's limits](https://duckdb.org/docs/current/operations_manual/limits).
 This replaces Kavla's previous automatic 50% compute cap and 25% DuckDB budget.
 
-To opt into Kavla's limits, configure `~/.kavla/config.yaml`, for example:
+Click the DuckDB icon and drag the memory slider to set a budget.
+**Save & restart** applies it to this canvas after the current compute operation
+finishes. Other local canvases pick up the setting when their workers next start.
+Select **Reset** to restore the default memory and thread settings, then save
+to apply them. Environment overrides still apply.
+
+Click **Query** to add the stats source and a connected SQL node to the canvas.
+The query runs immediately and shows the newest samples first.
+Each open document runtime appends one timestamped sample per second to its
+JSONL file under `~/.kavla/duckdb-stats/`. Rerun the query to read the latest
+rows. The file continues growing across worker restarts and canvas sessions.
+
+`uptime` is rounded to the nearest second. `memory_allocated` measures the worker's resident
+memory in bytes, including allocations outside DuckDB's buffer manager.
+`memory_limit` is the startup buffer limit in bytes. For an automatic limit,
+its precision follows DuckDB's reported setting. `threads_limit` is the
+DuckDB thread limit at startup. `cpu_usage` measures worker CPU time between
+samples as a percentage. One fully used core is 100%, so parallel queries can
+exceed 100%. The first sample for each worker has a null CPU percentage.
+
+The **DuckDB threads** slider starts at the saved limit or the current worker's
+thread count. With neither available, it starts at the number of CPUs visible to
+Kavla. Changes are saved as `duckdb_threads` in `~/.kavla/config.yaml`.
+
+The slider saves `memory.limit_mib`. For example, 4096 gives compute a budget
+of 4 GiB, subject to available memory and inherited limits on Linux. Each
+worker uses 80% of that budget for DuckDB buffers by default, leaving the rest
+for other allocations. When Linux enforcement is available, workers share the
+hard cap. The CLI also supports sizing the budget relative to available RAM.
+
+To configure relative limits, edit `~/.kavla/config.yaml`, for example:
 
 ```yaml
 memory:

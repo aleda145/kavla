@@ -23,6 +23,8 @@ type Client interface {
 }
 
 type Session struct {
+	StatsHistoryPath   string
+	OnWorkerFailure    func(compute.WorkerFailure)
 	sources            map[string]kavlaconfig.SourceConfig
 	allowedDirectories []string
 	engine             *compute.Client
@@ -102,7 +104,7 @@ func (s *Session) verbose(format string, args ...interface{}) {
 
 func (s *Session) Start() error {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	eng, err := compute.New(s.ctx, s.sources, s.logf, s.verbosef, s.allowedDirectories)
+	eng, err := compute.New(s.ctx, s.sources, s.logf, s.verbosef, s.allowedDirectories, s.StatsHistoryPath, s.OnWorkerFailure)
 	if err != nil {
 		s.cancel()
 		s.ctx = nil
@@ -115,7 +117,12 @@ func (s *Session) Start() error {
 
 func (s *Session) StartLazy() error {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	s.engine = compute.NewLazy(s.ctx, s.sources, s.logf, s.verbosef, s.allowedDirectories)
+	eng, err := compute.NewLazy(s.ctx, s.sources, s.logf, s.verbosef, s.allowedDirectories, s.StatsHistoryPath, s.OnWorkerFailure)
+	if err != nil {
+		s.cancel()
+		return err
+	}
+	s.engine = eng
 	return nil
 }
 
@@ -137,6 +144,13 @@ func (s *Session) Close() error {
 		return nil
 	}
 	return s.engine.Close()
+}
+
+func (s *Session) RestartCompute(ctx context.Context) error {
+	if s.engine == nil {
+		return fmt.Errorf("compute session is unavailable")
+	}
+	return s.engine.Restart(ctx)
 }
 
 func (s *Session) SuspendCompute(ctx context.Context) error {
@@ -629,4 +643,12 @@ func (s *Session) EstimateQuery(ctx context.Context, executionEngine, sourceName
 	ctx, cancel := s.OperationContext(ctx)
 	defer cancel()
 	return s.engine.EstimateQuery(ctx, executionEngine, sourceName, sql)
+}
+
+// ComputeStats observes the worker without starting it or waiting for SQL.
+func (s *Session) ComputeStats() compute.Stats {
+	if s.engine == nil {
+		return compute.Stats{State: "standby"}
+	}
+	return s.engine.Stats()
 }

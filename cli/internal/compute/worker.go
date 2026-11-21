@@ -61,7 +61,7 @@ func runWorker() error {
 	if config.Verbose {
 		logDetails = log.Printf
 	}
-	eng, err := engine.NewLazyWithAllowedDirectories(config.Sources, logDetails, config.Directories)
+	eng, err := engine.NewLazyWithAllowedDirectories(config.Sources, logDetails, config.Directories, config.DuckDBThreads, config.StatsHistoryPath)
 	if err != nil {
 		return err
 	}
@@ -94,10 +94,14 @@ func runWorker() error {
 	}
 	defer server.Close()
 	info := ready{Address: listener.Addr().String(), Statuses: eng.SourceStatuses(), Memory: memory, SystemLimits: memoryguard.ReadSystemLimits()}
-	if limit, threads, err := eng.StartupSettings(ctx); err != nil {
+	if limit, limitBytes, threads, err := eng.StartupSettings(ctx); err != nil {
 		log.Printf("Could not read DuckDB startup settings: %v", err)
 	} else {
 		info.DuckDBMemoryLimit = limit
+		info.DuckDBMemoryLimitBytes = memory.DuckDBLimit
+		if info.DuckDBMemoryLimitBytes == 0 {
+			info.DuckDBMemoryLimitBytes = limitBytes
+		}
 		info.DuckDBThreads = threads
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(info); err != nil {

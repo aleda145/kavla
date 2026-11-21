@@ -1,0 +1,91 @@
+.duckdb-settings {
+  padding: 12px;
+  font:
+    12px/1.4 Inter,
+    sans-serif;
+  color: #111;
+}
+.duckdb-settings fieldset {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.duckdb-setting-heading,
+.duckdb-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.duckdb-setting-heading {
+  justify-content: space-between;
+}
+.duckdb-settings button {
+  color: #111;
+  background: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.duckdb-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 2px solid #111;
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+.duckdb-actions button:first-child {
+  background: #fef08a;
+  box-shadow: 2px 2px 0 #111;
+}
+.duckdb-settings [role="status"],
+.duckdb-settings [role="alert"] {
+  display: block;
+  margin-top: 8px;
+}
+.duckdb-settings [role="alert"] {
+  color: #b91c1c;
+}
+.duckdb-cap-options {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid #111;
+  border-radius: 4px;
+}
+.duckdb-cap-options button {
+  border: 0;
+  padding: 3px 7px;
+}
+.duckdb-cap-options button[aria-pressed="true"] {
+  background: #ccfbf1;
+}
+.duckdb-cap-options button:focus-visible {
+  outline-offset: -2px;
+}
+.duckdb-settings .duckdb-setting-number {
+  width: 7em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.duckdb-setting-number:focus-visible {
+  outline: 2px solid #0d9488;
+  outline-offset: 2px;
+}
+.duckdb-setting-number:invalid {
+  border-color: #b91c1c;
+}
+
+.duckdb-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 2px solid #111;
+  background: #fef08a;
+}
+.duckdb-settings-header + .duckdb-settings {
+  background: white;
+}
