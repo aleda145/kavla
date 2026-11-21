@@ -67,6 +67,7 @@ func (s *Server) handleComputeSettings(w http.ResponseWriter, r *http.Request) {
 		"memory":              config.Memory,
 		"duckdbThreads":       config.DuckDBThreads,
 		"availableCPUs":       runtime.NumCPU(),
+		"supportsOSLimit":     runtime.GOOS == "linux",
 		"availableMiB":        memoryguard.AvailableMiB(),
 		"enforcementOverride": os.Getenv("KAVLA_MEMORY_ENFORCEMENT"),
 	})

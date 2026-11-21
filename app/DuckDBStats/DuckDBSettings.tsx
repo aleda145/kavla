@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { RotateCw } from "lucide-react";
+import { Info, RotateCw } from "lucide-react";
 import { backendRequest } from "../client/backendCompute";
 import { useDuckDBStats } from "./useDuckDBStats";
+import { getColumnTypeColor } from "../util/column-colors";
 import "../Knob/knob.css";
 import "./settings.css";
 
@@ -17,7 +18,8 @@ type Settings = {
   memory: Memory;
   duckdbThreads?: number | null;
   availableCPUs?: number;
-  enforcementOverride: string;
+  supportsOSLimit: boolean;
+  enforcementOverride: NonNullable<Memory["enforcement"]> | "";
   availableMiB: number;
 };
 
@@ -25,13 +27,13 @@ function amount(mib: number) {
   return mib < 1024 ? `${mib} MiB` : `${Number((mib / 1024).toFixed(2))} GiB`;
 }
 
-function hasLimit(memory: Memory) {
+function hasLimit(memory: Memory, enforcement = memory.enforcement) {
   return (
     memory.limit_mib !== undefined ||
     memory.limit_percent !== undefined ||
     memory.duckdb_percent_of_limit !== undefined ||
     memory.swap_limit_mib !== undefined ||
-    memory.enforcement === "required"
+    enforcement === "required"
   );
 }
 
@@ -78,7 +80,9 @@ export function DuckDBSettings() {
   const dirty =
     settings && (JSON.stringify(settings.memory) !== JSON.stringify(draft) || requestedThreads !== savedThreads);
   const capRequired = settings?.enforcementOverride === "required";
-  const limited = hasLimit(draft) || capRequired;
+  const enforcement = settings?.enforcementOverride || draft.enforcement || "auto";
+  const limited = hasLimit(draft, enforcement);
+  const osLimitEnabled = !!settings?.supportsOSLimit && limited && enforcement !== "off";
   const available = settings?.availableMiB || 0;
   const savedBudget = memoryBudget(settings?.memory ?? {}, available, capRequired);
   const requested = memoryBudget(draft, available, capRequired);
@@ -184,37 +188,6 @@ export function DuckDBSettings() {
               <span>{amount(maximum)}</span>
             </div>
             <div className="duckdb-setting-heading">
-              <span id="duckdb-cap-label">Linux hard cap</span>
-              <div className="duckdb-cap-options" role="group" aria-labelledby="duckdb-cap-label">
-                {(["auto", "required", "off"] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    disabled={!!settings.enforcementOverride}
-                    aria-pressed={(settings.enforcementOverride || draft.enforcement || "auto") === mode}
-                    onClick={() => edit({ ...draft, enforcement: mode })}
-                  >
-                    {{ auto: "If available", required: "Required", off: "Off" }[mode]}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <label className="duckdb-setting-heading">
-              Swap limit (MiB)
-              <input
-                className="kavla-knob-input duckdb-setting-number"
-                type="number"
-                min={0}
-                step={1}
-                value={draft.swap_limit_mib ?? ""}
-                placeholder={limited ? "0" : "System"}
-                onChange={(event) =>
-                  edit({ ...draft, swap_limit_mib: event.target.value === "" ? undefined : event.target.valueAsNumber })
-                }
-              />
-            </label>
-            {settings.enforcementOverride && <small>CLI hard cap: {settings.enforcementOverride}</small>}
-            <div className="duckdb-setting-heading">
               <label htmlFor="duckdb-threads">
                 <strong>DuckDB threads</strong>
               </label>
@@ -247,6 +220,53 @@ export function DuckDBSettings() {
               <span>1</span>
               <span>{maxThreads}</span>
             </div>
+            <label className="duckdb-setting-heading">
+              Swap limit (MiB)
+              <input
+                className="kavla-knob-input duckdb-setting-number"
+                type="number"
+                min={0}
+                step={1}
+                value={draft.swap_limit_mib ?? ""}
+                placeholder={limited ? "0" : "System"}
+                onChange={(event) =>
+                  edit({ ...draft, swap_limit_mib: event.target.value === "" ? undefined : event.target.valueAsNumber })
+                }
+              />
+            </label>
+            <div className="duckdb-setting-heading">
+              <div className="duckdb-cap-label">
+                <span id="duckdb-cap-label">OS limit</span>
+                <button
+                  type="button"
+                  className="duckdb-cap-info"
+                  aria-label="About the OS limit"
+                  aria-describedby="duckdb-cap-help"
+                >
+                  <Info size={14} aria-hidden="true" />
+                </button>
+                <span id="duckdb-cap-help" role="tooltip">
+                  (Linux only) Use cgroups to enforce the memory budget. DuckDB will try to use the set limit, but the
+                  process will not be killed.
+                </span>
+              </div>
+              <button
+                type="button"
+                className="kavla-knob-toggle"
+                role="switch"
+                aria-labelledby="duckdb-cap-label"
+                aria-describedby="duckdb-cap-help"
+                aria-checked={osLimitEnabled}
+                disabled={!settings.supportsOSLimit || !!settings.enforcementOverride}
+                onClick={() => edit({ ...draft, enforcement: osLimitEnabled ? "off" : "required" })}
+              >
+                <span className={`kavla-knob-toggle-track ${getColumnTypeColor("BOOLEAN")}`} aria-hidden="true">
+                  <span />
+                </span>
+                <span>{osLimitEnabled ? "Yes" : "No"}</span>
+              </button>
+            </div>
+            {settings.enforcementOverride && <small>OS limit set by the CLI.</small>}
           </>
         )}
         {!settings && !error && <span>Loading…</span>}
