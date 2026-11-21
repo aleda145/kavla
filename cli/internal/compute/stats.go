@@ -1,32 +1,21 @@
 package compute
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
-	"strconv"
-	"strings"
 	"time"
 )
 
 type Stats struct {
-	State             string  `json:"state"`
-	PID               int     `json:"pid,omitempty"`
-	UptimeSeconds     float64 `json:"uptimeSeconds,omitempty"`
-	ResidentBytes     *uint64 `json:"residentBytes,omitempty"`
-	PeakResidentBytes *uint64 `json:"peakResidentBytes,omitempty"`
-	SwapBytes         *uint64 `json:"swapBytes,omitempty"`
-	Threads           *uint64 `json:"threads,omitempty"`
-	DuckDBThreadLimit int     `json:"duckdbThreadLimit,omitempty"`
-	BufferLimit       string  `json:"bufferLimit,omitempty"`
-	DuckDBLimitBytes  uint64  `json:"duckdbLimitBytes,omitempty"`
-	SharedLimitBytes  uint64  `json:"sharedLimitBytes,omitempty"`
-	Error             string  `json:"error,omitempty"`
-	MetricsError      string  `json:"metricsError,omitempty"`
+	State           string   `json:"state"`
+	PID             int      `json:"pid,omitempty"`
+	Uptime          *int64   `json:"uptime,omitempty"`
+	MemoryAllocated *uint64  `json:"memory_allocated,omitempty"`
+	MemoryLimit     uint64   `json:"memory_limit,omitempty"`
+	ThreadsLimit    int      `json:"threads_limit,omitempty"`
+	CPUUsage        *float64 `json:"cpu_usage,omitempty"`
+	Error           string   `json:"error,omitempty"`
 }
 
 // Stats does not take the operation gate or send SQL to the worker. Monitoring
@@ -58,71 +47,11 @@ func (c *Client) Stats() Stats {
 		result.State = "busy"
 	}
 	result.PID = p.cmd.Process.Pid
-	result.UptimeSeconds = time.Since(p.started).Seconds()
-	result.BufferLimit = p.limits.DuckDBMemoryLimit
-	result.DuckDBThreadLimit = p.limits.DuckDBThreads
-	result.DuckDBLimitBytes = p.limits.Memory.DuckDBLimit
-	result.SharedLimitBytes = p.limits.Memory.Limit
-	if err := readProcessStats(&result); err != nil {
-		result.MetricsError = err.Error()
-	}
+	uptime := int64(time.Since(p.started).Round(time.Second) / time.Second)
+	result.Uptime = &uptime
+	result.ThreadsLimit = p.limits.DuckDBThreads
+	result.MemoryLimit = p.limits.DuckDBMemoryLimitBytes
 	return result
-}
-
-func readProcessStats(result *Stats) error {
-	if runtime.GOOS == "darwin" {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		output, err := exec.CommandContext(ctx, "ps", "-o", "rss=", "-p", strconv.Itoa(result.PID)).Output()
-		if err != nil {
-			return fmt.Errorf("read process memory: %w", err)
-		}
-		value, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64)
-		if err != nil {
-			return fmt.Errorf("read process memory: %w", err)
-		}
-		value *= 1024
-		result.ResidentBytes = &value
-		return nil
-	}
-	if runtime.GOOS != "linux" {
-		return fmt.Errorf("process memory metrics are unavailable on %s", runtime.GOOS)
-	}
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", result.PID))
-	if err != nil {
-		return fmt.Errorf("read process metrics: %w", err)
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		var target **uint64
-		switch fields[0] {
-		case "VmRSS:":
-			target = &result.ResidentBytes
-		case "VmHWM:":
-			target = &result.PeakResidentBytes
-		case "VmSwap:":
-			target = &result.SwapBytes
-		case "Threads:":
-			target = &result.Threads
-		default:
-			continue
-		}
-		value, err := strconv.ParseUint(fields[1], 10, 64)
-		if err != nil {
-			return fmt.Errorf("parse process metric %s: %w", fields[0], err)
-		}
-		if fields[0] != "Threads:" {
-			value *= 1024
-		}
-		*target = &value
-	}
-	if result.ResidentBytes == nil {
-		return fmt.Errorf("process memory is unavailable; the worker may have exited")
-	}
-	return nil
 }
 
 // Each append is one complete JSON line. A document keeps the same file across
@@ -136,11 +65,33 @@ func (c *Client) startStatsHistory(path string) error {
 		return err
 	}
 	encoder := json.NewEncoder(file)
+	var previousPID int
+	var previousTime time.Time
+	var previousCPU time.Duration
 	record := func() error {
+		stats := c.Stats()
+		now := time.Now()
+		if stats.PID != 0 {
+			resident, cpu, err := readWorkerUsage(stats.PID)
+			now = time.Now()
+			if err != nil {
+				stats.Error = err.Error()
+				previousPID = 0
+			} else {
+				stats.MemoryAllocated = &resident
+				if stats.PID == previousPID && cpu >= previousCPU && now.After(previousTime) {
+					percent := 100 * float64(cpu-previousCPU) / float64(now.Sub(previousTime))
+					stats.CPUUsage = &percent
+				}
+				previousPID, previousTime, previousCPU = stats.PID, now, cpu
+			}
+		} else {
+			previousPID = 0
+		}
 		return encoder.Encode(struct {
 			Timestamp time.Time `json:"timestamp"`
 			Stats
-		}{time.Now().UTC(), c.Stats()})
+		}{now.UTC(), stats})
 	}
 	if err := record(); err != nil {
 		_ = file.Close()

@@ -67,10 +67,10 @@ export function DuckDBSettings() {
   }, []);
 
   const running = !!stats?.pid;
-  const availableCPUs = settings?.availableCPUs ?? stats?.duckdbThreadLimit ?? 1;
+  const availableCPUs = settings?.availableCPUs ?? stats?.threads_limit ?? 1;
   const savedThreads = settings?.duckdbThreads ?? null;
   const requestedThreads = draftThreads === undefined ? savedThreads : draftThreads;
-  const defaultThreads = (savedThreads === null ? stats?.duckdbThreadLimit : undefined) ?? availableCPUs;
+  const defaultThreads = (savedThreads === null ? stats?.threads_limit : undefined) ?? availableCPUs;
   const selectedThreads = requestedThreads ?? defaultThreads;
   const maxThreads = Math.max(availableCPUs, savedThreads ?? 0, selectedThreads);
   const dirty =
