@@ -4,16 +4,10 @@ import { sessionFetch } from "../client/backendCompute";
 export interface DuckDBStats {
   state: "standby" | "starting" | "stopped" | "idle" | "busy";
   pid?: number;
-  uptimeSeconds?: number;
-  residentBytes?: number;
-  peakResidentBytes?: number;
-  swapBytes?: number;
-  duckdbThreadLimit?: number;
-  bufferLimit?: string;
-  duckdbLimitBytes?: number;
-  sharedLimitBytes?: number;
+  uptime?: number;
+  memory_limit?: number;
+  threads_limit?: number;
   error?: string;
-  metricsError?: string;
 }
 
 type Snapshot = { stats: DuckDBStats | null; error: string | null };

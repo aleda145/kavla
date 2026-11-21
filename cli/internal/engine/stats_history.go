@@ -8,12 +8,11 @@ func (e *Engine) createStatsHistoryView(ctx context.Context, path string) error 
 	}
 	// Fix the schema even when the first samples describe a sleeping worker.
 	_, err := e.db.ExecContext(ctx, `CREATE VIEW memory.kavla.duckdb_stats AS
-		SELECT * FROM read_json(`+sqlStringLiteral(path)+`, format='newline_delimited', columns={
-			'timestamp':'TIMESTAMPTZ', 'state':'VARCHAR', 'pid':'BIGINT', 'uptimeSeconds':'DOUBLE',
-			'residentBytes':'UBIGINT', 'peakResidentBytes':'UBIGINT', 'swapBytes':'UBIGINT',
-			'threads':'UBIGINT', 'duckdbThreadLimit':'INTEGER', 'bufferLimit':'VARCHAR',
-			'duckdbLimitBytes':'UBIGINT', 'sharedLimitBytes':'UBIGINT',
-			'error':'VARCHAR', 'metricsError':'VARCHAR'
+		SELECT * REPLACE (round(uptime)::BIGINT AS uptime)
+		FROM read_json(`+sqlStringLiteral(path)+`, format='newline_delimited', columns={
+			'timestamp':'TIMESTAMPTZ', 'state':'VARCHAR', 'pid':'BIGINT', 'uptime':'DOUBLE',
+			'memory_allocated':'UBIGINT', 'memory_limit':'UBIGINT', 'threads_limit':'INTEGER',
+			'cpu_usage':'DOUBLE', 'error':'VARCHAR'
 		})`)
 	return err
 }

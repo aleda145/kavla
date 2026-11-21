@@ -34,6 +34,14 @@ Each open document runtime appends one timestamped sample per second to its
 JSONL file under `~/.kavla/duckdb-stats/`. Rerun the query to read the latest
 rows. The file continues growing across worker restarts and canvas sessions.
 
+`uptime` is rounded to the nearest second. `memory_allocated` measures the worker's resident
+memory in bytes, including allocations outside DuckDB's buffer manager.
+`memory_limit` is the startup buffer limit in bytes. For an automatic limit,
+its precision follows DuckDB's reported setting. `threads_limit` is the
+DuckDB thread limit at startup. `cpu_usage` measures worker CPU time between
+samples as a percentage. One fully used core is 100%, so parallel queries can
+exceed 100%. The first sample for each worker has a null CPU percentage.
+
 The **DuckDB threads** slider starts at the saved limit or the current worker's
 thread count. With neither available, it starts at the number of CPUs visible to
 Kavla. Changes are saved as `duckdb_threads` in `~/.kavla/config.yaml`.
