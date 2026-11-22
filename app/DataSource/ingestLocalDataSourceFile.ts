@@ -4,6 +4,8 @@ import { getUniqueName } from "../util/getUniqueName";
 import { toValidSqlName } from "../util/sql";
 import type { ColumnMetadata, DataSourceShape } from "./data-source-types";
 import { rememberUploadedBlob, type KavlaBlobDescriptor } from "../client/local/localSession";
+import { isExcelFile, type ExcelImportConfig, type ExcelImportResult } from "./excel-import";
+import { openExcelImport } from "./ExcelImportDialog";
 
 export function calculateDataSourceHeight(metadata: ColumnMetadata[] | null, showRowInfo: boolean): number {
   const HEADER_HEIGHT = 42;
@@ -52,6 +54,7 @@ type LocalDataSourceProps = Pick<
   | "error"
   | "fileSize"
   | "filename"
+  | "excelImport"
   | "h"
   | "isRunning"
   | "metadata"
@@ -67,7 +70,11 @@ export async function ingestLocalDataSourceFile(
   editor: Editor,
   shapeId: TLShapeId,
   file: File
-): Promise<LocalDataSourceProps> {
+): Promise<LocalDataSourceProps | null> {
+  if (isExcelFile(file)) {
+    const result = await openExcelImport({ file });
+    return result ? excelDataSourceProps(editor, shapeId, result) : null;
+  }
   const result = await withBackendActivity(async () => {
     const response = await backendRequest(`/api/session/uploads?${new URLSearchParams({ fileName: file.name })}`, {
       method: "POST",
@@ -93,6 +100,7 @@ export async function ingestLocalDataSourceFile(
     fileSize: file.size,
     filename: file.name,
     h: calculateDataSourceHeight(metadata, true),
+    excelImport: null,
     isRunning: false,
     metadata,
     name,
@@ -102,4 +110,33 @@ export async function ingestLocalDataSourceFile(
     sourceType: "duckdb",
     w: calculateDataSourceWidth(metadata, file.name),
   };
+}
+
+function excelDataSourceProps(editor: Editor, shapeId: TLShapeId, result: ExcelImportResult): LocalDataSourceProps {
+  rememberUploadedBlob(result.blob);
+  return {
+    columnStats: null,
+    error: null,
+    fileSize: result.fileSize,
+    filename: result.fileName,
+    excelImport: result.excelImport,
+    h: calculateDataSourceHeight(result.schema, result.rowCount),
+    w: calculateDataSourceWidth(result.schema, result.fileName),
+    isRunning: false,
+    metadata: result.schema,
+    name: getUniqueName(editor, toValidSqlName(result.tableName), shapeId),
+    remoteTableRef: result.tableRef,
+    rowCount: result.rowCount,
+    sourceName: "uploaded_files",
+    sourceType: "duckdb",
+  };
+}
+
+export async function reimportExcelDataSource(
+  editor: Editor,
+  shapeId: TLShapeId,
+  config: ExcelImportConfig
+): Promise<LocalDataSourceProps | null> {
+  const result = await openExcelImport({ config });
+  return result ? excelDataSourceProps(editor, shapeId, result) : null;
 }

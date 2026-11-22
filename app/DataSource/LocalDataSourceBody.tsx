@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { FileSpreadsheet, Loader2 } from "lucide-react";
 import type { Editor } from "tldraw";
 import { useData, type CliSource } from "../client/useLocalServer";
 import { SchemaTable } from "./ColumnProfileTable";
@@ -11,6 +11,7 @@ import { DUCKDB_STATS_TABLE_REF, type RemoteSourceMetadata } from "./remote-sour
 import type { DataSourceShape } from "./data-source-types";
 import type { useTldrawScrollArea } from "./useTldrawScrollArea";
 import { TldrawScrollAreaIndicator } from "./TldrawScrollAreaIndicator";
+import { rangeLabel } from "./excel-import";
 import { SampledRowCount } from "./SampledRowCount";
 
 const buttonClass =
@@ -30,6 +31,7 @@ interface LocalDataSourceBodyProps {
   onClearSelectedColumns: () => void;
   onColumnClick: (columnName: string, shiftKey: boolean) => void;
   onLocalFilePickerOpen: () => void;
+  onEditExcel: () => void;
   onDemoFileSelect: (file: DemoFileRecord) => Promise<void>;
   onRemoteTableSelect: (sourceName: string, table: string) => void;
   remoteSourceInfo: RemoteSourceMetadata | null;
@@ -47,6 +49,7 @@ export function LocalDataSourceBody({
   onClearSelectedColumns,
   onColumnClick,
   onLocalFilePickerOpen,
+  onEditExcel,
   onDemoFileSelect,
   onRemoteTableSelect,
   remoteSourceInfo,
@@ -148,6 +151,26 @@ export function LocalDataSourceBody({
                   <SampledRowCount editor={editor} shape={shape} runRemoteQuery={runRemoteQuery} />
                 </>
               )}
+              {shape.props.excelImport && (
+                <div>
+                  <div className="mt-1 text-xs text-slate-600">
+                    {shape.props.excelImport.sheet} · {rangeLabel(shape.props.excelImport)}
+                  </div>
+                  <button
+                    type="button"
+                    className={`${buttonClass} mt-2 mb-2`}
+                    disabled={shape.props.isRunning}
+                    title="Edit Excel selection"
+                    aria-label="Edit Excel selection"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={onEditExcel}
+                  >
+                    <FileSpreadsheet size={16} />
+                    <span className="kavla-control-label">Edit Excel selection</span>
+                  </button>
+                </div>
+              )}
+              <SampledRowCount editor={editor} shape={shape} runRemoteQuery={runRemoteQuery} />
               {shape.props.metadata && (
                 <div>
                   <strong>Columns:</strong> {shape.props.metadata.length.toLocaleString()}

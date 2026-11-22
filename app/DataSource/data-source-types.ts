@@ -1,6 +1,7 @@
 import { TLBaseShape, TLDefaultColorStyle } from "tldraw";
 import type { RemoteSourceInfo } from "../SQLTextArea/remote-column-stats";
 import type { ColumnStats } from "../src/duckdb/column-stats-types";
+import type { ExcelImportConfig } from "./excel-import";
 
 export type ColumnMetadata = {
   name: string;
@@ -27,6 +28,7 @@ export type DataSourceShape = TLBaseShape<
     isRunning: boolean;
     name: string;
     filename: string | null;
+    excelImport?: ExcelImportConfig | null;
     sourceName: string | null;
     sourceType: string | null;
     remoteTableRef: string | null;

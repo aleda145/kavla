@@ -5,6 +5,7 @@ const versions = createShapePropsMigrationIds("data-source", {
   AddColumnStats: 2,
   AddRemoteSourceMetadata: 3,
   AddSamplePercent: 4,
+  AddExcelImport: 5,
 });
 
 export const DataSourceMigrations = createShapePropsMigrationSequence({
@@ -47,6 +48,15 @@ export const DataSourceMigrations = createShapePropsMigrationSequence({
       },
       down(props) {
         delete props.samplePercent;
+      },
+    },
+    {
+      id: versions.AddExcelImport,
+      up(props) {
+        props.excelImport = null;
+      },
+      down(props) {
+        delete props.excelImport;
       },
     },
   ],

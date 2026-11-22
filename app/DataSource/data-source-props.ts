@@ -10,6 +10,19 @@ export const DataSourceProps = {
   isRunning: T.boolean,
   name: T.string,
   filename: T.string.nullable(),
+  excelImport: T.object({
+    workbookId: T.string,
+    sheet: T.string,
+    startRow: T.integer,
+    endRow: T.integer,
+    startCol: T.integer,
+    endCol: T.integer,
+    headerRow: T.integer.nullable(),
+    columns: T.arrayOf(T.integer),
+    skipEmptyRows: T.boolean,
+  })
+    .nullable()
+    .optional(),
   sourceName: T.string.nullable(),
   sourceType: T.string.nullable(),
   remoteTableRef: T.string.nullable(),

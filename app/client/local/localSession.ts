@@ -6,6 +6,7 @@ import type { LensShape } from "../../Lens/lens-shape-types";
 import type { Editor, TLAsset, TLAssetPartial, TLCamera } from "tldraw";
 import { CameraRecordType } from "tldraw";
 import type { DataSourceShape } from "../../DataSource/data-source-types";
+import type { ExcelImportConfig } from "../../DataSource/excel-import";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { getAgentChat, updateAgentChat } from "../../AgentBlob/agent-chat-store";
 import { getUndoAssetIds, restoreCanvasUndo, serializeCanvasUndo } from "./canvasUndo";
@@ -13,6 +14,7 @@ import { getUndoAssetIds, restoreCanvasUndo, serializeCanvasUndo } from "./canva
 export type KavlaBlobKind = "source" | "asset";
 
 export interface KavlaBlobDescriptor {
+  excelImport?: ExcelImportConfig;
   tableName?: string;
   id: string;
   kind: KavlaBlobKind;
