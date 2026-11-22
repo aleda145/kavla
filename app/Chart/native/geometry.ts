@@ -1,5 +1,5 @@
 import { scaleLinear, scaleLog, line, scaleBand } from "d3";
-import { normalize, type Axis, type Point } from "./selection.ts";
+import { containsPoint, normalize, type Axis, type Point } from "./selection.ts";
 
 export function drawingToPlotPoints(
   points: Point[],
@@ -11,6 +11,31 @@ export function drawingToPlotPoints(
     const local = pageToChart(drawingToPage(point));
     return { x: local.x - plotOffset.x, y: local.y - plotOffset.y };
   });
+}
+
+// Fractional index along the drawn path where it first enters the unit plot.
+// Test whole segments: a fast stroke can cross the plot between sampled points.
+export function firstPlotEntry(points: Point[], closed: boolean): number | null {
+  for (let i = 1; i < points.length; i++) {
+    const start = points[i - 1],
+      end = points[i];
+    let enter = 0,
+      leave = 1;
+    for (const axis of ["x", "y"] as const) {
+      const delta = end[axis] - start[axis];
+      if (delta === 0) {
+        if (start[axis] <= 0 || start[axis] >= 1) leave = 0;
+      } else {
+        const a = -start[axis] / delta,
+          b = (1 - start[axis]) / delta;
+        enter = Math.max(enter, Math.min(a, b));
+        leave = Math.min(leave, Math.max(a, b));
+      }
+    }
+    if (enter < leave) return i - 1 + enter;
+  }
+  // A loop can surround the whole plot without crossing its interior.
+  return closed && containsPoint({ x: 0.5, y: 0.5 }, points) ? points.length : null;
 }
 
 export function chartGeometry(width: number, height: number, x: Axis, y: Axis) {

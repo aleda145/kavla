@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import {
   HTMLContainer,
   createShapeId,
@@ -33,7 +33,8 @@ import { executeSQLShape } from "../../SQLTextArea/executeSQLShape";
 import { getUniqueName } from "../../util/getUniqueName";
 import { getColumnTypeColor } from "../../util/column-colors";
 import { connectShapes } from "../../util/shapeConnections";
-import { chartGeometry, drawingToPlotPoints } from "./geometry";
+import { registerChartLasso } from "./chart-lasso";
+import { chartGeometry, drawingToPlotPoints, firstPlotEntry } from "./geometry";
 import {
   loadChartData,
   isNumericColumn,
@@ -105,7 +106,6 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     },
     [editor, shape.id]
   );
-  const pendingDrawings = useRef(new Set<TLShapeId>());
   const currentTool = useValue("chart outline tool", () => editor.getCurrentToolId(), [editor]);
   const capturing = currentTool === "draw" && canSelect;
   const controlsHeight = compact
@@ -276,33 +276,33 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     return selection.polygon.map((p) => geometry.normalize(original.unproject(original.fromAnalytical(p))));
   }, [selectionCurrent, selection, geometry, width, height, preview, currentPlot]);
 
-  const acceptDrawing = useCallback(
-    (drawing: TLDrawShape, explicit = false) => {
-      if (!editor.getShape(drawing.id) || !editor.getShape(shape.id)) return;
-      if (!canSelect || !geometry || !source || !currentPlot) {
-        if (explicit) setSelectionError("Wait for a current plot before selecting.");
-        return;
-      }
-      const transform = editor.getShapePageTransform(drawing);
-      const rawPoints = drawing.props.segments.flatMap((segment) => segment.points);
-      if (!rawPoints.length) return;
-      if (
-        !explicit &&
-        editor.getShapeAtPoint(transform.applyToPoint(rawPoints[0]), {
-          hitInside: true,
-          filter: (candidate) => candidate.type === "chart-shape",
-        })?.id !== shape.id
-      )
-        return;
-      const points = drawingToPlotPoints(
-        rawPoints,
-        (p) => transform.applyToPoint(p),
-        (p) => editor.getPointInShapeSpace(shape.id, p),
-        { x: 4, y: 4 + headerHeight }
-      );
-      if (!points.length) return;
-      const first = geometry.toAnalytical(points[0]);
-      if (!explicit && (first.x < 0 || first.x > 1 || first.y < 0 || first.y > 1)) return;
+  function getLassoTarget(drawing: TLDrawShape, explicit = false) {
+    if (!canSelect || !geometry || !source || !currentPlot) {
+      if (explicit) setSelectionError("Wait for a current plot before selecting.");
+      return null;
+    }
+    const transform = editor.getShapePageTransform(drawing);
+    const pageToChart = editor.getShapePageTransform(shape.id).clone().invert();
+    const rawPoints = drawing.props.segments.flatMap((segment) => segment.points);
+    if (!rawPoints.length) return null;
+    const points = drawingToPlotPoints(
+      rawPoints,
+      (p) => transform.applyToPoint(p),
+      (p) => pageToChart.applyToPoint(p),
+      { x: 4, y: 4 + headerHeight }
+    );
+    const polygon = points.map(geometry.toAnalytical);
+    const start = points[0];
+    const end = points[points.length - 1];
+    const closed = drawing.props.isClosed || Math.hypot(end.x - start.x, end.y - start.y) <= 12;
+    const entry = firstPlotEntry(polygon, closed);
+    const legacy = selection?.drawingId === drawing.id && !selection.outline;
+    if (entry === null && !(explicit && legacy)) {
+      if (explicit) setSelectionError("Draw an outline that overlaps the plot.");
+      return null;
+    }
+
+    const attach = () => {
       try {
         if (
           editor.getIsReadonly() ||
@@ -311,37 +311,32 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         )
           throw new Error("Unlock the chart and drawing before attaching an outline.");
         if (!drawing.props.isComplete) throw new Error("Finish the drawing before selecting.");
-        const end = points.at(-1)!;
-        if (!drawing.props.isClosed && Math.hypot(end.x - points[0].x, end.y - points[0].y) > 12)
+        const crossesEdge = polygon.some(({ x, y }) => x <= 0 || x >= 1 || y <= 0 || y >= 1);
+        if (!closed && !crossesEdge)
           throw new Error("Close the freehand outline (end within 12 chart pixels of the start), then retry.");
-        const polygon = validatePolygon(points.map(geometry.toAnalytical));
+        const validatedPolygon = validatePolygon(polygon);
         const outline = {
           color: getDefaultColorTheme({ isDarkMode: false })[drawing.props.color].solid,
           width: (STROKE_SIZES[drawing.props.size] + 1) * drawing.props.scale,
           opacity: drawing.opacity,
           dash: drawing.props.dash,
         };
-        const next: ScatterSelection =
-          selection?.drawingId === drawing.id && !selection.outline
-            ? {
-                ...selection,
-                chartId: shape.id,
-                outline,
-              }
-            : {
-                version: 1,
-                semantics: "observations",
-                policy: "live",
-                sourceId: source.id,
-                sourceRevision: source.revision,
-                sourceSQL: source.sql,
-                chartId: shape.id,
-                drawingId: drawing.id,
-                x: currentPlot.x,
-                y: currentPlot.y,
-                polygon,
-                outline,
-              };
+        const next: ScatterSelection = legacy
+          ? { ...selection, chartId: shape.id, outline }
+          : {
+              version: 1,
+              semantics: "observations",
+              policy: "live",
+              sourceId: source.id,
+              sourceRevision: source.revision,
+              sourceSQL: source.sql,
+              chartId: shape.id,
+              drawingId: drawing.id,
+              x: currentPlot.x,
+              y: currentPlot.y,
+              polygon: validatedPolygon,
+              outline,
+            };
         setCount(null);
         setSelectionError(null);
         // Automatic capture joins the draw gesture's history entry. An explicit
@@ -359,48 +354,12 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         setSelectionError(message(error));
         setMeta({ nativeLassoDrawing: drawing.id, nativeLassoError: message(error) });
       }
-    },
-    [editor, shape.id, geometry, source, currentPlot, setMeta, canSelect, selection]
-  );
-
-  useEffect(() => {
-    // Observe fresh pen gestures, including the canvas Draw tool. Completed
-    // strokes restored by undo, paste, or document loading are not new gestures.
-    const stopCreate = editor.sideEffects.registerAfterCreateHandler("shape", (record, changeSource) => {
-      if (
-        changeSource === "user" &&
-        record.type === "draw" &&
-        !(record as TLDrawShape).props.isComplete &&
-        editor.getCurrentToolId() === "draw"
-      ) {
-        pendingDrawings.current.add(record.id);
-      }
-    });
-    const stopChange = editor.sideEffects.registerAfterChangeHandler("shape", (before, after, changeSource) => {
-      if (
-        changeSource === "user" &&
-        pendingDrawings.current.has(after.id) &&
-        before.type === "draw" &&
-        after.type === "draw" &&
-        !(before as TLDrawShape).props.isComplete &&
-        (after as TLDrawShape).props.isComplete
-      ) {
-        pendingDrawings.current.delete(after.id);
-        queueMicrotask(() => {
-          const drawing = editor.getShape<TLDrawShape>(after.id);
-          if (drawing?.type === "draw" && drawing.props.isComplete) acceptDrawing(drawing);
-        });
-      }
-    });
-    const stopDelete = editor.sideEffects.registerAfterDeleteHandler("shape", (record) => {
-      pendingDrawings.current.delete(record.id);
-    });
-    return () => {
-      stopCreate();
-      stopChange();
-      stopDelete();
     };
-  }, [editor, acceptDrawing]);
+    return { entry: entry ?? 0, attach };
+  }
+
+  const targetDrawing = useEffectEvent((drawing: TLDrawShape) => getLassoTarget(drawing));
+  useEffect(() => registerChartLasso(editor, shape.id, (drawing) => targetDrawing(drawing)), [editor, shape.id]);
 
   useEffect(() => {
     setCount(null);
@@ -508,7 +467,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     const drawing =
       editor.getSelectedShapes().find((s) => s.type === "draw") ??
       (typeof drawingId === "string" ? editor.getShape(drawingId as TLShapeId) : undefined);
-    if (drawing?.type === "draw") acceptDrawing(drawing as TLDrawShape, true);
+    if (drawing?.type === "draw") getLassoTarget(drawing as TLDrawShape, true)?.attach();
     else setSelectionError("Select a freehand drawing, then retry.");
   };
   const download = async (format: "svg" | "png") => {
@@ -809,7 +768,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 type="button"
                 className="kavla-scatter__button kavla-scatter__button--icon"
                 disabled={!currentPlot}
-                title={capturing ? "Cancel drawing an outline" : "Draw a closed outline to select rows"}
+                title={capturing ? "Cancel drawing an outline" : "Draw around the rows to select"}
                 aria-label={selection ? "Redraw selection" : "Select rows"}
                 aria-pressed={capturing}
                 onClick={() => {
