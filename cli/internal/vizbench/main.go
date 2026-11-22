@@ -46,7 +46,7 @@ func main() {
 			}
 			start := time.Now()
 			if req.Operation == "create" {
-				result, err := s.RunQuery(r.Context(), nil, runner.QueryRequest{SQL: req.SQL, ShapeId: req.ShapeID, QueryName: req.ShapeID})
+				result, err := s.RunQuery(r.Context(), nil, runner.QueryRequest{SQL: req.SQL, ShapeId: req.ShapeID, QueryName: req.ShapeID}, nil)
 				if err != nil {
 					http.Error(w, err.Error(), 422)
 					return
@@ -113,7 +113,7 @@ func main() {
 		case "create":
 			result, err = s.RunQuery(context.Background(), nil, runner.QueryRequest{
 				SQL: req.SQL, ShapeId: req.ShapeID, QueryName: req.ShapeID,
-			})
+			}, nil)
 		case "page":
 			reader, err = s.QueryResultPage(context.Background(), req.ShapeID, req.Offset, req.Limit)
 		default:
