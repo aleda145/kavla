@@ -209,7 +209,19 @@ export const StaticSQLHighlighter = memo(
 
         return lineNodes;
       });
-    }, [sql, contextSql, renderIdentifier, validTableNames, sources, queries, columnMapping, upstreamTableNames, editor, hasArea, shapeId]);
+    }, [
+      sql,
+      contextSql,
+      renderIdentifier,
+      validTableNames,
+      sources,
+      queries,
+      columnMapping,
+      upstreamTableNames,
+      editor,
+      hasArea,
+      shapeId,
+    ]);
 
     if (inline) {
       return (
