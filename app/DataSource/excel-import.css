@@ -272,22 +272,6 @@
   }
 }
 
-.entry-grid {
-  touch-action: auto;
-}
-.entry-grid textarea.excel-cell {
-  resize: none;
-  cursor: text;
-  user-select: text;
-}
-.entry-grid textarea.excel-cell:focus {
-  outline-offset: -2px;
-}
-.entry-grid .excel-row-number,
-.entry-grid .excel-column-letter {
-  cursor: default;
-}
-
 .entry-sheet {
   display: flex;
   flex: 1;
@@ -295,21 +279,140 @@
   min-width: 0;
   min-height: 0;
 }
-.entry-sheet .entry-grid {
+.entry-grid {
+  flex: 1;
   min-height: 0;
+  overflow: auto;
+  color: #000;
+  background: #fff;
 }
-.entry-sheet .excel-footer {
+.entry-headers {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f9f9f9;
+}
+.entry-row {
+  position: absolute;
+  width: 100%;
+}
+.entry-cell,
+.entry-row-number {
+  box-sizing: border-box;
+  height: 100%;
+  border-right: 2px solid #000;
+  border-bottom: 2px solid #000;
+}
+.entry-row-number {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 8px;
+  background: #f9f9f9;
+  color: #555;
+  font: 12px monospace;
+}
+.entry-cell {
+  position: absolute;
+  top: 0;
+}
+.entry-cell textarea {
+  display: block;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 0;
+  resize: none;
+  background: transparent;
+  color: inherit;
+  font: 13px/20px monospace;
+  white-space: pre;
+  user-select: text;
+  cursor: text;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.entry-headers textarea {
+  position: relative;
+  font-family: inherit;
+  font-weight: 800;
+}
+.entry-type-highlight {
+  position: absolute;
+  top: 6px;
+  left: 4px;
+  max-width: calc(100% - 8px);
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: pre;
+  color: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 20px;
+  pointer-events: none;
+  user-select: none;
+}
+.entry-cell textarea:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+.entry-resizer {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  z-index: 1;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.entry-resizer:hover,
+.entry-resizer:active {
+  background: #22c55e;
+}
+.entry-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
+  padding: 8px;
+  flex-shrink: 0;
+  border-top: 4px solid #000;
+  background: #f9f9f9;
+  color: #666;
+  font-size: 12px;
+  font-weight: bold;
 }
-.entry-sheet .excel-footer button {
+.entry-footer nav,
+.entry-footer button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.entry-footer button {
+  height: 26px;
+  padding: 0 8px;
   border: 2px solid #000;
   border-radius: 4px;
-  padding: 4px 10px;
-  background: #fde047;
-  font-weight: 700;
+  box-shadow: 2px 2px 0 rgb(0 0 0 / 20%);
+  background: #fff;
+  color: #000;
+  font: inherit;
   cursor: pointer;
 }
-.entry-sheet .excel-footer button:disabled {
-  opacity: 0.45;
+.entry-footer .entry-save {
+  background: #fde047;
+}
+.entry-footer button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

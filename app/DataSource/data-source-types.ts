@@ -29,6 +29,7 @@ export type DataSourceShape = TLBaseShape<
     name: string;
     filename: string | null;
     entryDraft?: string[][] | null;
+    entryColumnWidths?: Record<string, number>;
     excelImport?: ExcelImportConfig | null;
     sourceName: string | null;
     sourceType: string | null;

@@ -491,6 +491,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
                 props: {
                   ...entrySize,
                   entryDraft: [],
+                  entryColumnWidths: {},
                   name: shape.props.remoteTableRef ? shape.props.name : getUniqueName(this.editor, "entry", shape.id),
                   filename: null,
                   remoteTableRef: null,
@@ -509,6 +510,26 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
             entrySheet={
               (shape.props.entryDraft != null || entryBlob) && (
                 <SpreadsheetEntrySheet
+                  tableName={shape.props.name}
+                  remoteSource={
+                    remoteSourceInfo && {
+                      ...remoteSourceInfo,
+                      fullTableRef: remoteSourceInfo.remoteTableRef,
+                      runRemoteQuery,
+                      cancelRemoteQuery,
+                    }
+                  }
+                  metadata={shape.props.metadata}
+                  columnWidths={shape.props.entryColumnWidths}
+                  onResizeColumn={(column, width) => {
+                    const current = this.editor.getShape<DataSourceShape>(shape.id);
+                    if (current)
+                      this.editor.updateShape<DataSourceShape>({
+                        id: current.id,
+                        type: "data-source",
+                        props: { entryColumnWidths: { ...current.props.entryColumnWidths, [column]: width } },
+                      });
+                  }}
                   blobId={entryBlob ? entryBlob.id : null}
                   draft={shape.props.entryDraft ?? null}
                   readonly={shape.isLocked || this.editor.getIsReadonly() || shape.props.isRunning}
