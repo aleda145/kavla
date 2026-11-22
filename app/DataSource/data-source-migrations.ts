@@ -8,6 +8,7 @@ const versions = createShapePropsMigrationIds("data-source", {
   AddExcelImport: 5,
   AddEntryDraft: 6,
   AddEntryColumnWidths: 7,
+  AddEntryDirty: 8,
 });
 
 export const DataSourceMigrations = createShapePropsMigrationSequence({
@@ -73,6 +74,14 @@ export const DataSourceMigrations = createShapePropsMigrationSequence({
       up() {},
       down(props) {
         delete props.entryColumnWidths;
+      },
+    },
+    {
+      id: versions.AddEntryDirty,
+      up() {},
+      down(props) {
+        if (props.entryDirty === false && props.remoteTableRef) props.entryDraft = null;
+        delete props.entryDirty;
       },
     },
   ],

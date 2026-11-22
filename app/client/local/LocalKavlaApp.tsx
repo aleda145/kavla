@@ -52,6 +52,7 @@ import { KavlaArrowBindingUtil, KavlaArrowShapeUtil } from "../KavlaArrowShapeUt
 import { getBookmarkAsset } from "../getBookmarkAsset";
 import { enableRightClickDragPan } from "../canvas/enableRightClickDragPan";
 import { registerSpreadsheetPaste } from "../canvas/spreadsheetPaste";
+import { registerEntryAutosave } from "../../DataSource/spreadsheet-entry";
 import { useCanvasFileDrop } from "../canvas/useCanvasFileDrop";
 import { LocalServerProvider, useData } from "../useLocalServer";
 import { localUiOverrides, useLocalComponents } from "./localUi";
@@ -660,6 +661,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
 
       for (const cleanup of shapeSideEffectCleanupRef.current) cleanup();
       shapeSideEffectCleanupRef.current = [
+        registerEntryAutosave(editor),
         registerAutoPlacement(editor, () => loadedRef.current && !loadingDocumentRef.current),
         editor.sideEffects.registerAfterDeleteHandler("shape", (shape) => {
           if (loadingDocumentRef.current || !loadedRef.current) return;

@@ -6,7 +6,7 @@ import {
   type VecLike,
 } from "tldraw";
 import type { DataSourceShape } from "../../DataSource/data-source-types";
-import { clipboardTable, entrySize, saveSpreadsheetEntry } from "../../DataSource/spreadsheet-entry";
+import { clipboardTable, entrySize } from "../../DataSource/spreadsheet-entry";
 import { columnLabel } from "../../DataSource/excel-import";
 import { getUniqueName } from "../../util/getUniqueName";
 
@@ -48,11 +48,7 @@ function pasteCanvasText(editor: Editor, content: TLTextExternalContent) {
   return pasteSpreadsheet(editor, rows, content.point);
 }
 
-async function pasteSpreadsheet(
-  editor: Editor,
-  rows: string[][],
-  point: VecLike = editor.getViewportPageBounds().center
-) {
+function pasteSpreadsheet(editor: Editor, rows: string[][], point: VecLike = editor.getViewportPageBounds().center) {
   if (editor.isDisposed || editor.getIsReadonly()) return;
 
   // Keep the first record when a copied range starts with values instead of column names.
@@ -68,21 +64,7 @@ async function pasteSpreadsheet(
     type: "data-source",
     x: point.x - entrySize.w / 2,
     y: point.y - entrySize.h / 2,
-    props: { ...entrySize, name: getUniqueName(editor, "entry", id), entryDraft: rows, isRunning: true },
+    props: { ...entrySize, name: getUniqueName(editor, "entry", id), entryDraft: rows, entryDirty: true },
   });
   editor.select(id);
-  try {
-    await saveSpreadsheetEntry(editor, id, rows);
-  } catch (error) {
-    if (!editor.isDisposed && editor.getShape(id)) {
-      editor.updateShape<DataSourceShape>({
-        id,
-        type: "data-source",
-        props: {
-          error: error instanceof Error ? error.message : String(error),
-          isRunning: false,
-        },
-      });
-    }
-  }
 }

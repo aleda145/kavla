@@ -409,9 +409,6 @@
   font: inherit;
   cursor: pointer;
 }
-.entry-footer .entry-save {
-  background: #fde047;
-}
 .entry-footer button:disabled {
   opacity: 0.5;
   cursor: default;

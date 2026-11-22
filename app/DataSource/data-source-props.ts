@@ -11,6 +11,7 @@ export const DataSourceProps = {
   name: T.string,
   filename: T.string.nullable(),
   entryDraft: T.arrayOf(T.arrayOf(T.string)).nullable().optional(),
+  entryDirty: T.boolean.optional(),
   entryColumnWidths: T.dict(T.string, T.number).optional(),
   excelImport: T.object({
     workbookId: T.string,

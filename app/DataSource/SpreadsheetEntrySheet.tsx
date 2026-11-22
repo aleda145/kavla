@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Save } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { csvParseRows, tsvParseRows } from "d3";
 import { getColumnTypeColor } from "../util/column-colors";
 import type { ColumnMetadata } from "./data-source-types";
@@ -35,7 +35,7 @@ type Props = {
   draft: string[][] | null;
   readonly: boolean;
   onChange: (rows: string[][]) => void;
-  onSave: (rows: string[][]) => Promise<void>;
+  dirty: boolean;
 };
 
 const emptyRows: string[][] = [];
@@ -68,7 +68,7 @@ export function SpreadsheetEntrySheet({
   draft,
   readonly,
   onChange,
-  onSave,
+  dirty,
   columnWidths,
   onResizeColumn,
   metadata,
@@ -78,15 +78,14 @@ export function SpreadsheetEntrySheet({
   const [loaded, setLoaded] = useState<{ id: string; rows: string[][] } | null>(null);
   const rows = draft ?? (loaded?.id === blobId ? loaded?.rows : null) ?? emptyRows;
   const ready = draft !== null || loaded?.id === blobId;
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [selectedPage, setPage] = useState(0);
   const [minWidth, setWidth] = useState(6);
   const [lastBlankRow, setLastBlankRow] = useState(0);
   const dataColumns = useMemo(() => rows.reduce((max, row) => Math.max(max, row.length), 0), [rows]);
   const columnTypes = useMemo(
-    () => (draft || !metadata ? inferDraftColumnTypes(rows) : metadata.map((column) => column.type)),
-    [draft, rows, metadata]
+    () => (dirty || !metadata ? inferDraftColumnTypes(rows) : metadata.map((column) => column.type)),
+    [dirty, rows, metadata]
   );
   const width = Math.max(minWidth, dataColumns + 1);
   const [hover, setHover] = useState<{ column: number; rect: DOMRect } | null>(null);
@@ -106,7 +105,7 @@ export function SpreadsheetEntrySheet({
     clearTimeout(hoverTimer.current);
     hoverTimer.current = setTimeout(clearHover, 200);
   }
-  const savedSource = draft === null && metadata ? remoteSource : null;
+  const savedSource = !dirty && metadata ? remoteSource : null;
   const hoverType = hover ? (columnTypes[hover.column] ?? "UNKNOWN") : "";
   const draftStats = useMemo(
     () => (hover && !savedSource ? profileEntryColumn(rows, hover.column, hoverType) : null),
@@ -178,15 +177,16 @@ export function SpreadsheetEntrySheet({
     }
   }
 
+  const loadBlobId = draft === null ? blobId : null;
   useEffect(() => {
-    if (!blobId) return;
+    if (!loadBlobId) return;
     let active = true;
-    void downloadSessionBlob(blobId)
+    void downloadSessionBlob(loadBlobId)
       .then((file) => file.text())
       .then((csv) => {
         if (!active) return;
         const data = csvParseRows(csv);
-        setLoaded({ id: blobId, rows: data });
+        setLoaded({ id: loadBlobId, rows: data });
       })
       .catch((reason: unknown) => {
         if (active) setError(String(reason));
@@ -194,7 +194,7 @@ export function SpreadsheetEntrySheet({
     return () => {
       active = false;
     };
-  }, [blobId]);
+  }, [loadBlobId]);
 
   function write(row: number, col: number, block: string[][]) {
     const next = rows.slice();
@@ -240,22 +240,9 @@ export function SpreadsheetEntrySheet({
     setPage(Math.max(0, Math.min(index, pageCount - 1)));
   }
 
-  async function save() {
-    if (!ready || saving || readonly) return;
-    setError("");
-    setSaving(true);
-    try {
-      await onSave(rows);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setSaving(false);
-    }
-  }
-
   function cell(row: number, col: number) {
     const type = row === 0 ? columnTypes[col] : undefined;
-    const typeLabel = type ? `${draft || !metadata ? "Estimated type" : "Type"}: ${type}` : undefined;
+    const typeLabel = type ? `${dirty || !metadata ? "Estimated type" : "Type"}: ${type}` : undefined;
     return (
       <textarea
         rows={1}
@@ -264,7 +251,7 @@ export function SpreadsheetEntrySheet({
         aria-label={row === 0 ? `Column name ${cellLabel(row, col)}` : cellLabel(row, col)}
         placeholder={row === 0 ? `Column ${columnLabel(col)}` : undefined}
         value={rows[row]?.[col] ?? ""}
-        disabled={!ready || saving || readonly}
+        disabled={!ready || readonly}
         onChange={(event) => write(row, col, [[event.target.value]])}
         onKeyDown={(event) => navigate(event, row, col)}
         onPaste={(event) => {
@@ -451,17 +438,6 @@ export function SpreadsheetEntrySheet({
             </button>
           </nav>
         )}
-        <button
-          type="button"
-          className="entry-save"
-          title="Save sheet for queries"
-          aria-label="Save sheet for queries"
-          disabled={!draft || !ready || saving || readonly}
-          onClick={() => void save()}
-        >
-          <Save size={14} aria-hidden="true" />
-          <span className="kavla-control-label">{saving ? "Saving…" : "Save"}</span>
-        </button>
       </footer>
     </div>
   );

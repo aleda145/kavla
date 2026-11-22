@@ -7,6 +7,7 @@ import { TableDownloadButtons } from "@/components/TableDownloadButtons";
 import { useData } from "../client/useLocalServer";
 import { confirmLargeTableDownload, estimateTableDownloadBytesFromSchema } from "../util/largeTableDownload";
 import type { DataSourceShape } from "./data-source-types";
+import { isEntryDirty } from "./spreadsheet-entry";
 
 interface DataSourceActionBarProps {
   buttonClassName: string;
@@ -166,7 +167,7 @@ export function DataSourceActionBar({
       </button>
 
       <button
-        disabled={shape.props.entryDraft != null}
+        disabled={shape.props.entryDraft != null && (!shape.props.remoteTableRef || isEntryDirty(shape.props))}
         onClick={handleQuery}
         onPointerDown={(event) => {
           event.stopPropagation();

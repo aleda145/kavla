@@ -3,6 +3,7 @@ import EditableText from "../util/EditableText";
 import { DataSourceShape } from "./data-source-types";
 import { AlertCircle, Loader2 } from "lucide-react";
 import type { CliSource } from "../client/useLocalServer";
+import { isEntryDirty } from "./spreadsheet-entry";
 
 interface DataSourceHeaderProps {
   editor: Editor;
@@ -25,18 +26,25 @@ export function DataSourceHeader({ editor, shape, source }: DataSourceHeaderProp
         letterSpacing: "0.5px",
       }}
     >
-      <EditableText
-        text={shape.props.name}
-        onSave={(name) =>
-          editor.updateShape({
-            id: shape.id,
-            type: shape.type,
-            props: { name },
-          })
-        }
-        editor={editor}
-        shapeId={shape.id}
-      />
+      <div className="flex items-center">
+        <EditableText
+          text={shape.props.name}
+          onSave={(name) =>
+            editor.updateShape({
+              id: shape.id,
+              type: shape.type,
+              props: { name },
+            })
+          }
+          editor={editor}
+          shapeId={shape.id}
+        />
+        {isEntryDirty(shape.props) && (
+          <span title="Unsaved sheet edits" aria-label="Unsaved sheet edits">
+            *
+          </span>
+        )}
+      </div>
       {source?.loading ? (
         <span
           role="status"

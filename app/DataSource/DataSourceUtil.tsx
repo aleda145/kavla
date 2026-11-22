@@ -26,7 +26,7 @@ import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { clearRestoredRemoteQueryMetadata } from "../SQLTextArea/restoreRemoteQueryView";
 
 import { SpreadsheetEntrySheet } from "./SpreadsheetEntrySheet";
-import { ENTRY_MIME, entrySize, saveSpreadsheetEntry } from "./spreadsheet-entry";
+import { ENTRY_MIME, entrySize, isEntryDirty } from "./spreadsheet-entry";
 import { isExcelFile, type ExcelImportConfig } from "./excel-import";
 import { getActiveLocalSession } from "../client/local/localSession";
 
@@ -491,6 +491,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
                 props: {
                   ...entrySize,
                   entryDraft: [],
+                  entryDirty: false,
                   entryColumnWidths: {},
                   name: shape.props.remoteTableRef ? shape.props.name : getUniqueName(this.editor, "entry", shape.id),
                   filename: null,
@@ -532,15 +533,15 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
                   }}
                   blobId={entryBlob ? entryBlob.id : null}
                   draft={shape.props.entryDraft ?? null}
+                  dirty={isEntryDirty(shape.props)}
                   readonly={shape.isLocked || this.editor.getIsReadonly() || shape.props.isRunning}
                   onChange={(entryDraft) =>
                     this.editor.updateShape<DataSourceShape>({
                       id: shape.id,
                       type: "data-source",
-                      props: { entryDraft, error: null },
+                      props: { entryDraft, entryDirty: true, error: null },
                     })
                   }
-                  onSave={(rows) => saveSpreadsheetEntry(this.editor, shape.id, rows)}
                 />
               )
             }
