@@ -1,3 +1,5 @@
+import { quoteSqlString } from "../../src/duckdb/sql.ts";
+
 // Analytical coordinates, shared by SQL and every renderer. Never use rendered
 // row IDs as the authoritative selection, including when the plot shows bins.
 export type Point = { x: number; y: number };
@@ -8,8 +10,13 @@ export type OutlineStyle = {
   opacity: number;
   dash: "draw" | "solid" | "dashed" | "dotted";
 };
-export type ScatterSelection = {
-  version: 1;
+export type BarKey = [category: string | null, group: string | null];
+export type SeriesSelection =
+  | { kind: "line"; xKind: "number" | "time" }
+  | { kind: "line"; xKind: "category"; categories: (string | null)[] }
+  | { kind: "bar"; color: string | null; stacked: boolean; keys: BarKey[] };
+
+export type ChartSelection = ({ version: 1; series?: undefined } | { version: 2; series: SeriesSelection }) & {
   semantics: "observations";
   policy: "live";
   sourceId: string;
@@ -40,7 +47,10 @@ export function normalize(value: number, axis: Axis): number {
 }
 
 export function coordinateSQL(axis: Axis, qualifier = "observation"): string {
-  const value = `CAST(${identifier(qualifier)}.${identifier(axis.field)} AS DOUBLE)`;
+  return normalizedSQL(axis, `CAST(${identifier(qualifier)}.${identifier(axis.field)} AS DOUBLE)`);
+}
+
+function normalizedSQL(axis: Axis, value: string): string {
   const transform = (n: number) => (axis.type === "log" ? Math.log(n) : n);
   const lo = transform(axis.domain[0]);
   const span = transform(axis.domain[1]) - lo;
@@ -89,15 +99,61 @@ export function containsPoint(point: Point, polygon: Point[]): boolean {
   return inside;
 }
 
-export function selectionSQL(sourceSQL: string, selection: Pick<ScatterSelection, "x" | "y" | "polygon">): string {
-  return `SELECT observation.*
-FROM (${sourceSQL.trim().replace(/;+\s*$/, "")}) AS observation
-WHERE ${selectionPredicate(selection)}`;
+type SelectionGeometry = Pick<ChartSelection, "x" | "y" | "polygon">;
+const sqlKey = (key: string | null) => (key === null ? "NULL::VARCHAR" : quoteSqlString(key));
+
+export function chartValueSQL(field: string, kind: "number" | "time"): string {
+  return kind === "time" ? `epoch_ms(TRY_CAST(${field} AS TIMESTAMP))` : `TRY_CAST(${field} AS DOUBLE)`;
+}
+
+export function selectionSQL(sourceSQL: string, selection: SelectionGeometry & { series?: SeriesSelection }): string {
+  const input = `(${sourceSQL.trim().replace(/;+\s*$/, "")})`;
+  const { series, x, y } = selection;
+  const from = `SELECT observation.* FROM ${input} AS observation`;
+  if (!series) return `${from} WHERE ${selectionPredicate(selection)}`;
+  const field = identifier(x.field);
+  if (series.kind === "bar") {
+    if (!series.keys.length) return `${from} WHERE FALSE`;
+    const keys = series.keys.map(([category, group]) => `(${sqlKey(category)}, ${sqlKey(group)})`).join(", ");
+    const category = `CAST(numbered.original_row.${field} AS VARCHAR)`;
+    const group =
+      series.color === null ? "NULL::VARCHAR" : `CAST(numbered.original_row.${identifier(series.color)} AS VARCHAR)`;
+    // Keep the input order before grouping, just as the chart planner does. Pack
+    // the row so user columns can have any name, including our temporary aliases.
+    return `SELECT original_row.* FROM (
+      SELECT numbered.original_row FROM (
+        SELECT struct_pack(*COLUMNS(*)) AS original_row, row_number() OVER () AS ord FROM ${input} AS src
+      ) AS numbered
+      WHERE EXISTS (SELECT 1 FROM (VALUES ${keys}) AS hit(category, series)
+        WHERE hit.category IS NOT DISTINCT FROM ${category} AND hit.series IS NOT DISTINCT FROM ${group})
+      QUALIFY row_number() OVER (PARTITION BY ${category}, ${group} ORDER BY numbered.ord) = 1
+    ) AS chosen WHERE isfinite(TRY_CAST(chosen.original_row.${identifier(y.field)} AS DOUBLE))`;
+  }
+
+  let relation = from;
+  let xValue: string;
+  if (series.xKind === "category") {
+    if (!series.categories.length) return `${from} WHERE FALSE`;
+    const offset = x.domain[0] + 0.5;
+    const values = series.categories.map((key, i) => `(${sqlKey(key)}, ${literal(offset + i)})`).join(", ");
+    relation += ` JOIN (VALUES ${values}) AS visible_category(label, position)
+      ON visible_category.label IS NOT DISTINCT FROM CAST(observation.${field} AS VARCHAR)`;
+    xValue = "visible_category.position";
+  } else {
+    xValue = chartValueSQL(`observation.${field}`, series.xKind);
+  }
+  const yValue = chartValueSQL(`observation.${identifier(y.field)}`, "number");
+  const predicate = selectionPredicate(selection, normalizedSQL(x, xValue), normalizedSQL(y, yValue));
+  return `${relation} WHERE ${predicate}`;
 }
 
 // Custom Mosaic clients can reuse this predicate with an "observation" alias.
 // Polygon metadata intentionally does not pretend to be an interval index.
-export function selectionPredicate(selection: Pick<ScatterSelection, "x" | "y" | "polygon">): string {
+export function selectionPredicate(
+  selection: SelectionGeometry,
+  xCoordinate = coordinateSQL(selection.x),
+  yCoordinate = coordinateSQL(selection.y)
+): string {
   const polygon = validatePolygon(selection.polygon);
   const xs = polygon.map((p) => p.x),
     ys = polygon.map((p) => p.y);
@@ -111,8 +167,8 @@ export function selectionPredicate(selection: Pick<ScatterSelection, "x" | "y" |
   // the selected output, even if upstream columns happen to have these names.
   return `EXISTS (
   SELECT 1
-  FROM (SELECT ${coordinateSQL(selection.x)} AS px,
-               ${coordinateSQL(selection.y)} AS py) AS point
+  FROM (SELECT ${xCoordinate} AS px,
+               ${yCoordinate} AS py) AS point
   WHERE isfinite(px) AND isfinite(py)
     AND px BETWEEN ${literal(Math.min(...xs) - boundaryEpsilon)} AND ${literal(Math.max(...xs) + boundaryEpsilon)}
     AND py BETWEEN ${literal(Math.min(...ys) - boundaryEpsilon)} AND ${literal(Math.max(...ys) + boundaryEpsilon)}
@@ -134,11 +190,14 @@ export function selectionPredicate(selection: Pick<ScatterSelection, "x" | "y" |
 )`;
 }
 
-export function readSelection(value: unknown): ScatterSelection | null {
+export function readSelection(value: unknown): ChartSelection | null {
   if (typeof value !== "string") return null;
-  const s = JSON.parse(value) as ScatterSelection;
+  const s = JSON.parse(value) as ChartSelection;
   if (
-    s.version !== 1 ||
+    !s ||
+    (s.version !== 1 && s.version !== 2) ||
+    (s.version === 1 && s.series !== undefined) ||
+    (s.version === 2 && !validSeries(s.series)) ||
     s.semantics !== "observations" ||
     s.policy !== "live" ||
     typeof s.sourceRevision !== "string" ||
@@ -174,4 +233,22 @@ export function readSelection(value: unknown): ScatterSelection | null {
   coordinateSQL(s.x);
   coordinateSQL(s.y);
   return s;
+}
+
+function validSeries(series: SeriesSelection | undefined): boolean {
+  const isKey = (key: unknown) => key === null || typeof key === "string";
+  if (series?.kind === "bar") {
+    return (
+      isKey(series.color) &&
+      typeof series.stacked === "boolean" &&
+      Array.isArray(series.keys) &&
+      series.keys.every((key) => Array.isArray(key) && key.length === 2 && key.every(isKey))
+    );
+  }
+  return (
+    series?.kind === "line" &&
+    (series.xKind === "time" ||
+      series.xKind === "number" ||
+      (series.xKind === "category" && Array.isArray(series.categories) && series.categories.every(isKey)))
+  );
 }

@@ -1,29 +1,10 @@
 import { area, line } from "d3";
 import { memo, useEffect, useId, useMemo, useRef } from "react";
 import { groupColor } from "./appearance";
-import type { chartGeometry } from "./geometry";
+import { barRectangles, type chartGeometry } from "./geometry";
+import { containsPoint, normalize, type ChartSelection } from "./selection";
 import type { ChartData } from "./chart-data";
 import type { Mark } from "./ScatterMarks";
-
-export type BarRect = { mark: Mark; x: number; y: number; width: number; height: number; color: string };
-export function barRectangles(data: ChartData, geometry: ReturnType<typeof chartGeometry>): BarRect[] {
-  if (data.kind !== "bar") return [];
-  const bandwidth = (geometry.plot.width / Math.max(1, data.categories.length)) * 0.78;
-  const groups = data.groups.length || 1;
-  const width = bandwidth / (data.stacked ? 1 : groups);
-  return data.marks.map((mark) => {
-    const point = geometry.fromAnalytical(mark);
-    const base = geometry.fromAnalytical({ x: mark.x, y: mark.y0 ?? 0 }).y;
-    return {
-      mark,
-      x: point.x - bandwidth / 2 + (data.stacked ? 0 : Math.max(0, data.groups.indexOf(mark.group ?? null))) * width,
-      y: Math.min(point.y, base),
-      width: Math.max(0.5, width - (data.stacked ? 0 : 1)),
-      height: Math.abs(point.y - base),
-      color: data.groups.length ? groupColor(mark.group) : "#3b82f6",
-    };
-  });
-}
 
 export const SeriesMarks = memo(function SeriesMarks({
   data,
@@ -32,6 +13,7 @@ export const SeriesMarks = memo(function SeriesMarks({
   height,
   renderer,
   pixelRatio = 1,
+  selection,
 }: {
   data: ChartData;
   geometry: ReturnType<typeof chartGeometry>;
@@ -39,10 +21,33 @@ export const SeriesMarks = memo(function SeriesMarks({
   height: number;
   renderer: "svg" | "canvas";
   pixelRatio?: number;
+  selection?: ChartSelection | null;
 }) {
   const id = useId(),
     canvas = useRef<HTMLCanvasElement>(null);
   const bars = useMemo(() => barRectangles(data, geometry), [data, geometry]);
+  const selected = useMemo(() => {
+    const series = selection?.series;
+    if (!series || !selection) return null;
+    if (series.kind === "bar") {
+      const keys = new Set(series.keys.map((key) => JSON.stringify(key)));
+      return new Set(data.marks.filter((m) => keys.has(JSON.stringify([m.xValue, m.group]))));
+    }
+    const categories =
+      series.xKind === "category"
+        ? new Map(series.categories.map((key, i) => [key, selection.x.domain[0] + 0.5 + i]))
+        : null;
+    return new Set(
+      data.marks.filter((mark) => {
+        const value = geometry.unproject(geometry.fromAnalytical(mark));
+        const xValue = categories ? categories.get(mark.xValue ?? null) : value.x;
+        if (xValue === undefined) return false;
+        const x = normalize(xValue, selection.x);
+        const y = normalize(value.y, selection.y);
+        return x >= 0 && x <= 1 && y >= 0 && y <= 1 && containsPoint({ x, y }, selection.polygon);
+      })
+    );
+  }, [data, geometry, selection]);
   const runs = useMemo(() => {
     const groups = new Map<string, Mark[]>();
     for (const mark of data.marks) {
@@ -78,7 +83,7 @@ export const SeriesMarks = memo(function SeriesMarks({
     ctx.clip();
     if (data.kind === "bar") {
       for (const bar of bars) {
-        ctx.fillStyle = bar.color;
+        ctx.fillStyle = selected?.has(bar.mark) ? "#fde047" : bar.color;
         ctx.fillRect(bar.x, bar.y, bar.width, bar.height);
       }
       return;
@@ -95,19 +100,20 @@ export const SeriesMarks = memo(function SeriesMarks({
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       ctx.stroke(new Path2D(run.line));
-      if (symbols || run.marks.length === 1)
-        for (const mark of run.marks) {
-          const p = geometry.fromAnalytical(mark);
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, 3.5, 0, 2 * Math.PI);
-          ctx.fillStyle = run.color;
-          ctx.fill();
-          ctx.strokeStyle = "#000";
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        }
+      if (!symbols && run.marks.length > 1 && !selected?.size) continue;
+      for (const mark of run.marks) {
+        if (!symbols && run.marks.length > 1 && !selected?.has(mark)) continue;
+        const p = geometry.fromAnalytical(mark);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3.5, 0, 2 * Math.PI);
+        ctx.fillStyle = selected?.has(mark) ? "#fde047" : run.color;
+        ctx.fill();
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
     }
-  }, [renderer, width, height, pixelRatio, geometry, data, bars, runs, symbols]);
+  }, [renderer, width, height, pixelRatio, geometry, data, bars, runs, symbols, selected]);
   if (renderer === "canvas")
     return <canvas ref={canvas} style={{ position: "absolute", inset: 0, width, height, pointerEvents: "none" }} />;
   return (
@@ -125,7 +131,14 @@ export const SeriesMarks = memo(function SeriesMarks({
       <g clipPath={`url(#${id})`}>
         {data.kind === "bar"
           ? bars.map((bar, i) => (
-              <rect key={i} x={bar.x} y={bar.y} width={bar.width} height={bar.height} fill={bar.color} />
+              <rect
+                key={i}
+                x={bar.x}
+                y={bar.y}
+                width={bar.width}
+                height={bar.height}
+                fill={selected?.has(bar.mark) ? "#fde047" : bar.color}
+              />
             ))
           : runs.map((run, i) => (
               <g key={i}>
@@ -138,11 +151,20 @@ export const SeriesMarks = memo(function SeriesMarks({
                   strokeLinejoin="round"
                   strokeLinecap="round"
                 />
-                {(symbols || run.marks.length === 1) &&
+                {(symbols || run.marks.length === 1 || Boolean(selected?.size)) &&
                   run.marks.map((mark, j) => {
+                    if (!symbols && run.marks.length > 1 && !selected?.has(mark)) return null;
                     const p = geometry.fromAnalytical(mark);
                     return (
-                      <circle key={j} cx={p.x} cy={p.y} r={3.5} fill={run.color} stroke="#000" strokeWidth={1.5} />
+                      <circle
+                        key={j}
+                        cx={p.x}
+                        cy={p.y}
+                        r={3.5}
+                        fill={selected?.has(mark) ? "#fde047" : run.color}
+                        stroke="#000"
+                        strokeWidth={1.5}
+                      />
                     );
                   })}
               </g>

@@ -1,8 +1,8 @@
 import { atom, type Editor, type TLShapeId } from "tldraw";
-import { readSelection, type ScatterSelection } from "../Chart/native/selection";
+import { readSelection, type ChartSelection } from "../Chart/native/selection";
 
 const previews = new WeakMap<Editor, ReturnType<typeof createPreview>>();
-const createPreview = () => atom<ScatterSelection | null>("selected area preview", null);
+const createPreview = () => atom<ChartSelection | null>("selected area preview", null);
 
 export function selectedAreaPreview(editor: Editor) {
   let preview = previews.get(editor);

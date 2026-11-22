@@ -2,12 +2,11 @@ import { quadtree } from "d3";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useValue, type Editor, type TLShapeId } from "tldraw";
 import { pointStyle, groupColor } from "./appearance";
-import type { chartGeometry } from "./geometry";
+import { barRectangles, type chartGeometry } from "./geometry";
 import type { ScatterPlan } from "./planner";
 import type { Mark } from "./ScatterMarks";
 import type { Point } from "./selection";
 import type { ChartData } from "./chart-data";
-import { barRectangles } from "./SeriesMarks";
 
 const formatRange = (value: number) =>
   Number(value.toPrecision(12)).toLocaleString(undefined, { maximumSignificantDigits: 12 });
@@ -198,7 +197,9 @@ export const ScatterTooltip = memo(function ScatterTooltip({
                           .map((c) => c.label)
                           .join(", ") || "Category bin"
                       : `${formatRange(low.x)} – ${formatRange(high.x)}`
-                  : (mark.xValue ?? formatRange(value!.x))}
+                  : mark.xValue === null
+                    ? "(null)"
+                    : (mark.xValue ?? formatRange(value!.x))}
               </dd>
               <dt title={yLabel}>{yLabel}</dt>
               <dd>

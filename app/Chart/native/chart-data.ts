@@ -1,6 +1,6 @@
 import type { ChartShape } from "../chart-shape-types";
 import { domain, pointBudget, type ScatterPlan } from "./planner.ts";
-import { coordinateSQL, identifier, normalize, type Axis } from "./selection.ts";
+import { chartValueSQL, coordinateSQL, identifier, normalize, type Axis } from "./selection.ts";
 import type { Mark } from "./ScatterMarks";
 import { Query, bin2d, column, count, cte, m4, max, min, verbatim } from "@uwdata/mosaic-sql";
 
@@ -16,7 +16,7 @@ export type ChartData = {
   excluded: number;
   kind: ChartKind;
   xKind: XKind;
-  categories: { value: number; label: string }[];
+  categories: { value: number; label: string; key: string | null }[];
   groups: (string | null)[];
   stacked: boolean;
   reduced: boolean;
@@ -56,7 +56,7 @@ export async function loadChartData(
     throw new Error("The saved row limit must be a finite number.");
   const rawX = `s.${identifier(props.x)}`,
     rawY = `s.${identifier(props.y)}`;
-  const valueX = xKind === "time" ? `epoch_ms(TRY_CAST(${rawX} AS TIMESTAMP))` : `TRY_CAST(${rawX} AS DOUBLE)`;
+  const valueX = chartValueSQL(rawX, xKind === "time" ? "time" : "number");
   const group = props.color ? `CAST(s.${identifier(props.color)} AS VARCHAR)` : "NULL::VARCHAR";
   const input = Query.from(verbatim(`(${source.sql}) AS s`)).select("*");
   if (props.limit !== null) input.limit(Math.max(1, Math.floor(props.limit)));
@@ -127,7 +127,11 @@ export async function loadChartData(
           )
         )
           .toArray()
-          .map((r) => ({ value: Number(r.cid), label: r.label_x === null ? "(null)" : String(r.label_x) }))
+          .map((r) => ({
+            value: Number(r.cid),
+            label: r.label_x === null ? "(null)" : String(r.label_x),
+            key: r.label_x === null ? null : String(r.label_x),
+          }))
       : [];
   const x: Axis = {
     field: props.x,
@@ -237,7 +241,7 @@ export async function loadChartData(
             x: Number(r.nx),
             y: Number(r.ny),
             count: 1,
-            xValue: r.label_x === null ? "(null)" : String(r.label_x),
+            xValue: r.label_x === null ? null : String(r.label_x),
             yValue: r.label_y === null ? "(null)" : String(r.label_y),
             group: r.g === null ? null : String(r.g),
             run: Number(r.run),

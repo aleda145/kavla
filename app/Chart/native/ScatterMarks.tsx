@@ -6,7 +6,7 @@ import { densityScale, densityOpacity, pointStyle, groupColor } from "./appearan
 
 export type Mark = Point & {
   count: number;
-  xValue?: string;
+  xValue?: string | null;
   yValue?: string;
   group?: string | null;
   run?: number;

@@ -34,7 +34,7 @@ import { getUniqueName } from "../../util/getUniqueName";
 import { getColumnTypeColor } from "../../util/column-colors";
 import { connectShapes } from "../../util/shapeConnections";
 import { registerChartLasso } from "./chart-lasso";
-import { chartGeometry, drawingToPlotPoints, firstPlotEntry } from "./geometry";
+import { chartGeometry, drawingToPlotPoints, firstPlotEntry, hitBarKeys } from "./geometry";
 import {
   loadChartData,
   isNumericColumn,
@@ -46,7 +46,7 @@ import {
 import { SeriesMarks } from "./SeriesMarks";
 import { restoreRemoteQueryView } from "../../SQLTextArea/restoreRemoteQueryView";
 import { exportNativeChart } from "./export-chart";
-import { readSelection, selectionSQL, validatePolygon, type ScatterSelection } from "./selection";
+import { readSelection, selectionSQL, validatePolygon, type ChartSelection, type SeriesSelection } from "./selection";
 import { selectedAreaPreview } from "../../SQLTextArea/selected-area-navigation";
 import { scatterSource } from "./source";
 import { ScatterMarks } from "./ScatterMarks";
@@ -89,7 +89,8 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     kind
   );
   const stacked = Boolean(shape.props.color && shape.props.isStacked && (kind === "bar" || kind === "area"));
-  const canSelect = kind === "scatter" && xKind === "number" && Boolean(source?.canSelect);
+  const canSelect =
+    Boolean(source?.canSelect) && (kind === "line" || kind === "bar" || (kind === "scatter" && xKind === "number"));
   const saved = useMemo(() => {
     try {
       return { selection: readSelection(shape.meta.nativeSelection), error: null };
@@ -245,36 +246,43 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     () => (currentPlot ? chartGeometry(width, height, currentPlot.x, currentPlot.y) : null),
     [width, height, currentPlot]
   );
+  function matchesPlot(area: ChartSelection) {
+    if (
+      !currentPlot ||
+      area.sourceId !== source?.id ||
+      area.x.field !== currentPlot.x.field ||
+      area.y.field !== currentPlot.y.field
+    )
+      return false;
+    const series = area.series;
+    if (!series) return kind === "scatter" && xKind === "number";
+    if (series.kind === "bar")
+      return kind === "bar" && series.color === shape.props.color && series.stacked === stacked;
+    return kind === "line" && series.xKind === xKind;
+  }
   const selectionCurrent = Boolean(
     canSelect &&
     selection &&
-    source &&
-    currentPlot &&
-    selection.sourceId === source.id &&
-    selection.sourceRevision === source.revision &&
-    selection.x.field === currentPlot.x.field &&
-    selection.y.field === currentPlot.y.field &&
-    selection.x.type === currentPlot.x.type &&
-    selection.y.type === currentPlot.y.type
+    matchesPlot(selection) &&
+    selection.sourceRevision === source?.revision &&
+    selection.x.type === currentPlot?.x.type &&
+    selection.y.type === currentPlot?.y.type
   );
-  // Selection is defined in its original domain. Project it into refreshed
-  // domains for feedback; do not reinterpret it after a move/resize/refresh.
+  const displayed = preview ? (matchesPlot(preview) ? preview : null) : selectionCurrent ? selection : null;
+  // Category indices are stable within a source revision. A linked bar preview
+  // can still highlight its saved keys after a refresh, even if they moved.
   const visiblePolygon = useMemo(() => {
+    if (!displayed || !geometry || !currentPlot) return null;
     if (
-      preview &&
-      geometry &&
-      currentPlot &&
-      preview.x.field === currentPlot.x.field &&
-      preview.y.field === currentPlot.y.field &&
-      currentPlot.xKind === "number"
-    ) {
-      const original = chartGeometry(width, height, preview.x, preview.y);
-      return preview.polygon.map((p) => geometry.normalize(original.unproject(original.fromAnalytical(p))));
-    }
-    if (!selectionCurrent || !selection || !geometry) return null;
-    const original = chartGeometry(width, height, selection.x, selection.y);
-    return selection.polygon.map((p) => geometry.normalize(original.unproject(original.fromAnalytical(p))));
-  }, [selectionCurrent, selection, geometry, width, height, preview, currentPlot]);
+      currentPlot.page &&
+      (displayed.sourceRevision !== source?.revision ||
+        displayed.x.domain[1] <= currentPlot.x.domain[0] ||
+        displayed.x.domain[0] >= currentPlot.x.domain[1])
+    )
+      return null;
+    const original = chartGeometry(width, height, displayed.x, displayed.y);
+    return displayed.polygon.map((p) => geometry.normalize(original.unproject(original.fromAnalytical(p))));
+  }, [displayed, geometry, currentPlot, source?.revision, width, height]);
 
   function getLassoTarget(drawing: TLDrawShape, explicit = false) {
     if (!canSelect || !geometry || !source || !currentPlot) {
@@ -296,7 +304,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     const end = points[points.length - 1];
     const closed = drawing.props.isClosed || Math.hypot(end.x - start.x, end.y - start.y) <= 12;
     const entry = firstPlotEntry(polygon, closed);
-    const legacy = selection?.drawingId === drawing.id && !selection.outline;
+    const legacy = selection?.drawingId === drawing.id && !selection.outline && matchesPlot(selection);
     if (entry === null && !(explicit && legacy)) {
       if (explicit) setSelectionError("Draw an outline that overlaps the plot.");
       return null;
@@ -321,10 +329,24 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
           opacity: drawing.opacity,
           dash: drawing.props.dash,
         };
-        const next: ScatterSelection = legacy
+        let series: SeriesSelection | undefined;
+        if (currentPlot.kind === "bar") {
+          series = {
+            kind: "bar",
+            color: shape.props.color,
+            stacked,
+            keys: hitBarKeys(currentPlot, geometry, validatedPolygon),
+          };
+        } else if (currentPlot.kind === "line") {
+          series =
+            currentPlot.xKind === "category"
+              ? { kind: "line", xKind: "category", categories: currentPlot.categories.map((category) => category.key) }
+              : { kind: "line", xKind: currentPlot.xKind };
+        }
+        const next: ChartSelection = legacy
           ? { ...selection, chartId: shape.id, outline }
           : {
-              version: 1,
+              ...(series ? { version: 2 as const, series } : { version: 1 as const }),
               semantics: "observations",
               policy: "live",
               sourceId: source.id,
@@ -474,15 +496,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     if (!currentPlot) return;
     setExporting(true);
     try {
-      await exportNativeChart(
-        currentPlot,
-        width,
-        height,
-        visiblePolygon,
-        source?.name ?? "chart",
-        format,
-        (preview ?? selection)?.outline
-      );
+      await exportNativeChart(currentPlot, width, height, visiblePolygon, source?.name ?? "chart", format, displayed);
     } catch (error) {
       setSelectionError(message(error));
     } finally {
@@ -538,6 +552,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 ) : (
                   <SeriesMarks
                     data={currentPlot}
+                    selection={displayed}
                     geometry={geometry}
                     width={width}
                     height={height}
@@ -552,7 +567,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                   xLabel={currentPlot.x.field + (xLog ? " · log" : "")}
                   yLabel={currentPlot.y.field + (yLog ? " · log" : "")}
                   polygon={visiblePolygon}
-                  outline={(preview ?? selection)?.outline}
+                  outline={displayed?.outline}
                   xKind={currentPlot.xKind}
                   categories={currentPlot.categories}
                 />
@@ -683,9 +698,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
               {preview ? (
                 <div className="kavla-scatter__actions">
                   <span className="kavla-scatter__hint kavla-scatter__selection" role="status">
-                    {preview.x.field === currentPlot?.x.field && preview.y.field === currentPlot?.y.field
-                      ? "selected_area"
-                      : `Area uses ${preview.x.field} / ${preview.y.field}`}
+                    {displayed ? "selected_area" : `Area uses ${preview.x.field} / ${preview.y.field}`}
                   </span>
                   <button className="kavla-scatter__button" onClick={() => selectedAreaPreview(editor).set(null)}>
                     Back to current selection
@@ -698,7 +711,11 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                     <span
                       className="kavla-scatter__hint kavla-scatter__selection"
                       role="status"
-                      title="Exact count from the original rows, including duplicate coordinates. Density highlights are a preview."
+                      title={
+                        kind === "bar"
+                          ? "One plotted row per selected category and series."
+                          : "Exact count from the original observations inside the outline."
+                      }
                     >
                       {selectionCurrent
                         ? count === null

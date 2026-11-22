@@ -15,7 +15,7 @@ import { VisualizationContext } from "./VisualizationProvider";
 import { createVisualizationSession } from "./coordinator";
 import { chartGeometry } from "./geometry";
 import { planScatter, statisticsSQL } from "./planner";
-import { selectionSQL, type Axis, type ScatterSelection } from "./selection";
+import { selectionSQL, type Axis, type ChartSelection } from "./selection";
 import type { ChartShape } from "../chart-shape-types";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { connectShapes } from "../../util/shapeConnections";
@@ -184,7 +184,7 @@ async function programmaticLasso() {
 }
 async function transformsAndPersistence() {
   const initial = editor.getShape<ChartShape>(chartId)!;
-  const selection = JSON.parse(initial.meta.nativeSelection as string) as ScatterSelection;
+  const selection = JSON.parse(initial.meta.nativeSelection as string) as ChartSelection;
   const results = [];
   const queriesBefore = transport.length;
   editor.updateShape({ id: chartId, type: "chart-shape", x: 120, y: 100 });
