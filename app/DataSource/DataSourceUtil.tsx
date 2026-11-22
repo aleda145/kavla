@@ -25,7 +25,8 @@ import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { clearRestoredRemoteQueryMetadata } from "../SQLTextArea/restoreRemoteQueryView";
 
-import { SpreadsheetEntryDialog, ENTRY_MIME } from "./SpreadsheetEntryDialog";
+import { SpreadsheetEntrySheet } from "./SpreadsheetEntrySheet";
+import { ENTRY_MIME, entrySize, saveSpreadsheetEntry } from "./spreadsheet-entry";
 import { isExcelFile, type ExcelImportConfig } from "./excel-import";
 import { getActiveLocalSession } from "../client/local/localSession";
 
@@ -99,7 +100,6 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
     this.updateSourceName = updateSourceName;
 
     const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
-    const [entry, setEntry] = useState<{ blobId: string | null } | null>(null);
     const entryBlob =
       shape.props.remoteTableRef &&
       getActiveLocalSession()?.blobs.find(
@@ -162,6 +162,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
           ...(name ? { name } : {}),
           filename,
           excelImport,
+          entryDraft: null,
           fileSize,
           rowCount: null,
           metadata: null,
@@ -313,7 +314,7 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
         this.editor.updateShape<DataSourceShape>({
           id: shape.id,
           type: "data-source",
-          props,
+          props: { ...props, entryDraft: null },
         });
 
         return;
@@ -482,8 +483,46 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
             onColumnClick={handleColumnClick}
             onLocalFilePickerOpen={openLocalFilePicker}
             onEditExcel={() => void handleEditExcel()}
-            onNewEntry={() => setEntry({ blobId: null })}
-            onEditEntry={entryBlob ? () => setEntry({ blobId: entryBlob.id }) : undefined}
+            onNewEntry={() => {
+              setSelectedColumns(new Set());
+              this.editor.updateShape<DataSourceShape>({
+                id: shape.id,
+                type: "data-source",
+                props: {
+                  ...entrySize,
+                  entryDraft: [],
+                  name: shape.props.remoteTableRef ? shape.props.name : getUniqueName(this.editor, "entry", shape.id),
+                  filename: null,
+                  remoteTableRef: null,
+                  sourceName: null,
+                  sourceType: null,
+                  excelImport: null,
+                  rowCount: null,
+                  metadata: null,
+                  columnStats: null,
+                  fileSize: null,
+                  error: null,
+                  isRunning: false,
+                },
+              });
+            }}
+            entrySheet={
+              (shape.props.entryDraft != null || entryBlob) && (
+                <SpreadsheetEntrySheet
+                  blobId={entryBlob ? entryBlob.id : null}
+                  draft={shape.props.entryDraft ?? null}
+                  readonly={shape.isLocked || this.editor.getIsReadonly() || shape.props.isRunning}
+                  onChange={(entryDraft) =>
+                    this.editor.updateShape<DataSourceShape>({
+                      id: shape.id,
+                      type: "data-source",
+                      props: { entryDraft, error: null },
+                    })
+                  }
+                  onSave={(rows) => saveSpreadsheetEntry(this.editor, shape.id, rows)}
+                />
+              )
+            }
             onDemoFileSelect={handleDemoFileSelect}
             onRemoteTableSelect={handleRemoteTableSelect}
             remoteSourceInfo={remoteSourceInfo}
@@ -493,24 +532,6 @@ export class DataSourceUtil extends ShapeUtil<DataSourceShape> {
             selectedColumns={selectedColumns}
             shape={shape}
           />
-
-          {entry && (
-            <SpreadsheetEntryDialog
-              blobId={entry.blobId}
-              onClose={() => setEntry(null)}
-              onSave={async (file) => {
-                const props = await ingestLocalDataSourceFile(this.editor, shape.id, file);
-                const current = this.editor.getShape<DataSourceShape>(shape.id);
-                if (!props || !current) return;
-                setSelectedColumns(new Set());
-                this.editor.updateShape<DataSourceShape>({
-                  id: shape.id,
-                  type: "data-source",
-                  props: { ...props, name: entry.blobId ? current.props.name : props.name },
-                });
-              }}
-            />
-          )}
 
           {shape.props.error && (
             <div

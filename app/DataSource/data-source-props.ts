@@ -10,6 +10,7 @@ export const DataSourceProps = {
   isRunning: T.boolean,
   name: T.string,
   filename: T.string.nullable(),
+  entryDraft: T.arrayOf(T.arrayOf(T.string)).nullable().optional(),
   excelImport: T.object({
     workbookId: T.string,
     sheet: T.string,

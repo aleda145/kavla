@@ -33,7 +33,7 @@ interface LocalDataSourceBodyProps {
   onLocalFilePickerOpen: () => void;
   onEditExcel: () => void;
   onNewEntry: () => void;
-  onEditEntry?: () => void;
+  entrySheet?: React.ReactNode;
   onDemoFileSelect: (file: DemoFileRecord) => Promise<void>;
   onRemoteTableSelect: (sourceName: string, table: string) => void;
   remoteSourceInfo: RemoteSourceMetadata | null;
@@ -53,7 +53,7 @@ export function LocalDataSourceBody({
   onLocalFilePickerOpen,
   onEditExcel,
   onNewEntry,
-  onEditEntry,
+  entrySheet,
   onDemoFileSelect,
   onRemoteTableSelect,
   remoteSourceInfo,
@@ -70,7 +70,7 @@ export function LocalDataSourceBody({
   const [loadingTables, setLoadingTables] = useState(false);
   const [isSelectingSource, setIsSelectingSource] = useState(false);
   const { getSourceTables } = useData();
-  const hasSource = Boolean(shape.props.filename);
+  const hasSource = Boolean(shape.props.filename || entrySheet);
   const showSourcePicker = isSelectingSource || !hasSource;
 
   const resetPicker = () => {
@@ -131,12 +131,18 @@ export function LocalDataSourceBody({
               <DataSourcePicker
                 sources={cliSources}
                 onFileClick={onLocalFilePickerOpen}
-                onEntryClick={onNewEntry}
+                onEntryClick={() => {
+                  setIsSelectingSource(false);
+                  resetPicker();
+                  onNewEntry();
+                }}
                 onDemoClick={() => setShowDemoData(true)}
                 onSourceClick={(sourceName) => void openSource(sourceName)}
               />
             )}
           </div>
+        ) : entrySheet ? (
+          entrySheet
         ) : (
           <>
             <div style={{ flexShrink: 0, padding: "12px 12px 0", marginBottom: 12 }}>
@@ -224,7 +230,6 @@ export function LocalDataSourceBody({
           isSelectingSource={isSelectingSource}
           onClearSelectedColumns={onClearSelectedColumns}
           onEditExcel={onEditExcel}
-          onEditEntry={onEditEntry}
           onKeepCurrentSource={() => {
             setIsSelectingSource(false);
             resetPicker();

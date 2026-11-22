@@ -1,32 +1,44 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { createPortal } from "react-dom";
-import { csvFormatRows, csvParseRows, tsvParseRows } from "d3";
-import { FileSpreadsheet } from "lucide-react";
+import { useEffect, useState, type KeyboardEvent } from "react";
+import { csvParseRows, tsvParseRows } from "d3";
 import { cellLabel, columnLabel } from "./excel-import";
 import { downloadSessionBlob } from "../client/local/localSession";
+import { clipboardTable } from "./spreadsheet-entry";
 import { useSpreadsheetViewport, CELL_HEIGHT, CELL_WIDTH, ROW_HEADER_WIDTH } from "./useSpreadsheetViewport";
 import "./excel-import.css";
 
-export const ENTRY_MIME = "application/vnd.kavla.entry+csv";
-
 type Props = {
   blobId: string | null;
-  onSave: (file: File) => Promise<void>;
-  onClose: () => void;
+  draft: string[][] | null;
+  readonly: boolean;
+  onChange: (rows: string[][]) => void;
+  onSave: (rows: string[][]) => Promise<void>;
 };
 
-export function SpreadsheetEntryDialog({ blobId, onSave, onClose }: Props) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const [rows, setRows] = useState<string[][]>([]);
-  const [width, setWidth] = useState(6);
-  const [height, setHeight] = useState(16);
-  const [ready, setReady] = useState(!blobId);
+export function SpreadsheetEntrySheet({ blobId, draft, readonly, onChange, onSave }: Props) {
+  const [loaded, setLoaded] = useState<{ id: string; rows: string[][] } | null>(null);
+  const rows = draft ?? (loaded?.id === blobId ? loaded?.rows : null) ?? [];
+  const [minWidth, setWidth] = useState(6);
+  const [minHeight, setHeight] = useState(16);
+  const width = Math.max(
+    minWidth,
+    rows.reduce((max, row) => Math.max(max, row.length + 1), 0)
+  );
+  const height = Math.max(minHeight, rows.length + 1);
+  const ready = !!draft || loaded?.id === blobId;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const { viewport, visibleRows, visibleColumns, onScroll } = useSpreadsheetViewport(height, width);
 
   useEffect(() => {
-    dialog.current?.showModal();
+    const grid = viewport.current!;
+    const scrollCells = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) event.stopPropagation();
+    };
+    grid.addEventListener("wheel", scrollCells, { passive: true });
+    return () => grid.removeEventListener("wheel", scrollCells);
+  }, [viewport]);
+
+  useEffect(() => {
     if (!blobId) return;
     let active = true;
     void downloadSessionBlob(blobId)
@@ -34,10 +46,7 @@ export function SpreadsheetEntryDialog({ blobId, onSave, onClose }: Props) {
       .then((csv) => {
         if (!active) return;
         const data = csvParseRows(csv);
-        setRows(data);
-        setHeight(Math.max(16, data.length + 1));
-        setWidth(Math.max(6, (data[0]?.length ?? 0) + 1));
-        setReady(true);
+        setLoaded({ id: blobId, rows: data });
       })
       .catch((reason: unknown) => {
         if (active) setError(String(reason));
@@ -48,17 +57,17 @@ export function SpreadsheetEntryDialog({ blobId, onSave, onClose }: Props) {
   }, [blobId]);
 
   function write(row: number, col: number, block: string[][]) {
-    setRows((old) => {
-      const next = old.slice();
-      block.forEach((values, offset) => {
-        const line = (next[row + offset] ?? []).slice();
-        values.forEach((value, index) => {
-          line[col + index] = value;
-        });
-        next[row + offset] = line;
+    const next = rows.slice();
+    while (next.length < row + block.length) next.push([]);
+    block.forEach((values, offset) => {
+      const line = next[row + offset].slice();
+      while (line.length < col) line.push("");
+      values.forEach((value, index) => {
+        line[col + index] = value;
       });
-      return next;
+      next[row + offset] = line;
     });
+    onChange(next);
     setHeight((old) => Math.max(old, row + block.length + 1));
     setWidth((old) => Math.max(old, col + block.reduce((max, values) => Math.max(max, values.length), 0) + 1));
     setError("");
@@ -92,55 +101,26 @@ export function SpreadsheetEntryDialog({ blobId, onSave, onClose }: Props) {
   }
 
   async function save() {
-    if (!ready || saving) return;
+    if (!ready || saving || readonly) return;
     setError("");
-    const data = rows.slice(1).filter((row) => row?.some((value) => value.trim() !== ""));
-    if (!data.length) {
-      setError("Enter at least one data row below the column names.");
-      return;
-    }
-    let columns = 0;
-    rows.forEach((row) =>
-      row.forEach((value, col) => {
-        if (value !== "") columns = Math.max(columns, col + 1);
-      })
-    );
-    const headers = Array.from({ length: columns }, (_, col) => rows[0]?.[col]?.trim() || `column_${columnLabel(col)}`);
-    if (new Set(headers.map((value) => value.toLowerCase())).size !== columns) {
-      setError("Give each column a unique name.");
-      return;
-    }
     setSaving(true);
     try {
-      const csv = csvFormatRows([headers, ...data.map((row) => headers.map((_, col) => row[col] ?? ""))]);
-      await onSave(new File([csv], "entry.kavla-entry.csv", { type: ENTRY_MIME }));
-      onClose();
+      await onSave(rows);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
       setSaving(false);
     }
   }
 
-  return createPortal(
-    <dialog
-      ref={dialog}
-      className="excel-dialog"
-      aria-labelledby="entry-title"
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!saving) onClose();
-      }}
-      onKeyDown={(event) => event.stopPropagation()}
+  return (
+    <div
+      className="entry-sheet"
       onPointerDown={(event) => event.stopPropagation()}
-      onPointerUp={(event) => event.stopPropagation()}
-      onWheel={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+      onPaste={(event) => event.stopPropagation()}
     >
-      <header className="excel-titlebar">
-        <div>
-          <FileSpreadsheet size={20} />
-          <strong id="entry-title">Spreadsheet entry</strong>
-        </div>
-      </header>
       <div ref={viewport} className="excel-grid entry-grid" onScroll={onScroll} aria-label="Spreadsheet cells">
         <div
           style={{
@@ -177,15 +157,16 @@ export function SpreadsheetEntryDialog({ blobId, onSave, onClose }: Props) {
                   className={row === 0 ? "excel-cell excel-header-cell" : "excel-cell"}
                   style={{ left: ROW_HEADER_WIDTH + col * CELL_WIDTH, width: CELL_WIDTH }}
                   value={rows[row]?.[col] ?? ""}
-                  disabled={!ready || saving}
+                  disabled={!ready || saving || readonly}
                   placeholder={row === 0 ? "Column name" : ""}
                   onChange={(event) => write(row, col, [[event.target.value]])}
                   onKeyDown={(event) => navigate(event, row, col)}
                   onPaste={(event) => {
                     const value = event.clipboardData.getData("text/plain");
-                    if (/[\t\r\n]/.test(value)) {
+                    const block = clipboardTable(value, event.clipboardData.getData("text/html"));
+                    if (block || /[\r\n]/.test(value)) {
                       event.preventDefault();
-                      write(row, col, tsvParseRows(value));
+                      write(row, col, block ?? tsvParseRows(value));
                     }
                   }}
                 />
@@ -200,15 +181,13 @@ export function SpreadsheetEntryDialog({ blobId, onSave, onClose }: Props) {
         </div>
       )}
       <footer className="excel-footer">
-        <span>{ready ? "Row 1 names the columns. Type or paste your data below." : error ? "" : "Loading cells…"}</span>
-        <button disabled={saving} onClick={onClose}>
-          Cancel
-        </button>
-        <button className="excel-import-button" disabled={!ready || saving} onClick={() => void save()}>
+        <span>
+          {!ready ? "Loading cells…" : draft ? "Row 1 names the columns. Save to query your edits." : "Saved"}
+        </span>
+        <button type="button" disabled={!draft || !ready || saving || readonly} onClick={() => void save()}>
           {saving ? "Saving…" : "Save"}
         </button>
       </footer>
-    </dialog>,
-    document.body
+    </div>
   );
 }

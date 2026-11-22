@@ -287,3 +287,29 @@
 .entry-grid .excel-column-letter {
   cursor: default;
 }
+
+.entry-sheet {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.entry-sheet .entry-grid {
+  min-height: 0;
+}
+.entry-sheet .excel-footer {
+  justify-content: space-between;
+  gap: 8px;
+}
+.entry-sheet .excel-footer button {
+  border: 2px solid #000;
+  border-radius: 4px;
+  padding: 4px 10px;
+  background: #fde047;
+  font-weight: 700;
+  cursor: pointer;
+}
+.entry-sheet .excel-footer button:disabled {
+  opacity: 0.45;
+}

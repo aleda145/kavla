@@ -51,6 +51,7 @@ import { SourceTextAreaTool } from "../../DataSource/DataSourceTool";
 import { KavlaArrowBindingUtil, KavlaArrowShapeUtil } from "../KavlaArrowShapeUtil";
 import { getBookmarkAsset } from "../getBookmarkAsset";
 import { enableRightClickDragPan } from "../canvas/enableRightClickDragPan";
+import { registerSpreadsheetPaste } from "../canvas/spreadsheetPaste";
 import { useCanvasFileDrop } from "../canvas/useCanvasFileDrop";
 import { LocalServerProvider, useData } from "../useLocalServer";
 import { localUiOverrides, useLocalComponents } from "./localUi";
@@ -621,6 +622,7 @@ function SessionLifecycle({ session }: { session: KavlaLocalSession | null }) {
       rightDragCleanupRef.current?.();
       rightDragCleanupRef.current = enableRightClickDragPan(editor);
       editor.registerExternalAssetHandler("url", getBookmarkAsset);
+      registerSpreadsheetPaste(editor);
 
       if (session && loadedStoreRef.current !== editor.store) {
         loadedRef.current = false;

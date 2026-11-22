@@ -120,7 +120,7 @@ function excelDataSourceProps(editor: Editor, shapeId: TLShapeId, result: ExcelI
     fileSize: result.fileSize,
     filename: result.fileName,
     excelImport: result.excelImport,
-    h: calculateDataSourceHeight(result.schema, result.rowCount),
+    h: calculateDataSourceHeight(result.schema, true),
     w: calculateDataSourceWidth(result.schema, result.fileName),
     isRunning: false,
     metadata: result.schema,
