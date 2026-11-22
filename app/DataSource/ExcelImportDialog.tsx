@@ -1,3 +1,4 @@
+import { useSpreadsheetViewport, CELL_HEIGHT, CELL_WIDTH, ROW_HEADER_WIDTH } from "./useSpreadsheetViewport";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { Check, ChevronDown, FileSpreadsheet, Loader2, MousePointer2, X } from "lucide-react";
@@ -375,10 +376,6 @@ function ExcelImportDialog({ file, config: initialConfig, preparedWorkbook, impo
   );
 }
 
-const CELL_WIDTH = 128;
-const CELL_HEIGHT = 28;
-const ROW_HEADER_WIDTH = 52;
-
 type GridProps = {
   sheet: ExcelSheet;
   config: ExcelImportConfig;
@@ -390,24 +387,16 @@ type GridProps = {
 type DragSelection = { row: number; col: number; mode: "cell" | "row" | "column"; x: number; y: number };
 
 function SpreadsheetGrid({ sheet, config, disabled, pickHeader, onHeader, onRange }: GridProps) {
-  const viewport = useRef<HTMLDivElement>(null);
+  const { viewport, visibleRows, visibleColumns, onScroll } = useSpreadsheetViewport(
+    sheet.rows.length,
+    sheet.columnCount
+  );
   const drag = useRef<DragSelection | null>(null);
-  const [windowSize, setWindowSize] = useState({ top: 0, left: 0, width: 1000, height: 300 });
   const callbacks = useRef({ onRange, sheet });
   callbacks.current = { onRange, sheet };
 
   useEffect(() => {
     const element = viewport.current!;
-    const resize = () =>
-      setWindowSize({
-        top: element.scrollTop,
-        left: element.scrollLeft,
-        width: element.clientWidth,
-        height: element.clientHeight,
-      });
-    const observer = new ResizeObserver(resize);
-    observer.observe(element);
-    resize();
     let frame = 0;
     const tick = () => {
       const selection = drag.current;
@@ -443,7 +432,6 @@ function SpreadsheetGrid({ sheet, config, disabled, pickHeader, onHeader, onRang
     };
     frame = requestAnimationFrame(tick);
     return () => {
-      observer.disconnect();
       cancelAnimationFrame(frame);
     };
   }, []);
@@ -464,14 +452,6 @@ function SpreadsheetGrid({ sheet, config, disabled, pickHeader, onHeader, onRang
       mode === "row" ? sheet.columnCount - 1 : col
     );
   };
-  const visibleRows = excelColumns(
-    Math.max(0, Math.floor(windowSize.top / CELL_HEIGHT) - 2),
-    Math.min(sheet.rows.length - 1, Math.ceil((windowSize.top + windowSize.height) / CELL_HEIGHT))
-  );
-  const visibleColumns = excelColumns(
-    Math.max(0, Math.floor(windowSize.left / CELL_WIDTH) - 1),
-    Math.min(sheet.columnCount - 1, Math.ceil((windowSize.left + windowSize.width) / CELL_WIDTH))
-  );
   const included = new Set(config.columns);
 
   return (
@@ -481,10 +461,7 @@ function SpreadsheetGrid({ sheet, config, disabled, pickHeader, onHeader, onRang
       role="region"
       aria-label="Worksheet selection grid"
       tabIndex={0}
-      onScroll={(event) => {
-        const { scrollTop, scrollLeft } = event.currentTarget;
-        setWindowSize((previous) => ({ ...previous, top: scrollTop, left: scrollLeft }));
-      }}
+      onScroll={onScroll}
       onPointerMove={(event) => {
         if (drag.current) {
           drag.current.x = event.clientX;

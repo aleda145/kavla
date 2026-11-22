@@ -271,3 +271,19 @@
     font-size: 10px;
   }
 }
+
+.entry-grid {
+  touch-action: auto;
+}
+.entry-grid textarea.excel-cell {
+  resize: none;
+  cursor: text;
+  user-select: text;
+}
+.entry-grid textarea.excel-cell:focus {
+  outline-offset: -2px;
+}
+.entry-grid .excel-row-number,
+.entry-grid .excel-column-letter {
+  cursor: default;
+}

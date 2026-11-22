@@ -32,6 +32,8 @@ interface LocalDataSourceBodyProps {
   onColumnClick: (columnName: string, shiftKey: boolean) => void;
   onLocalFilePickerOpen: () => void;
   onEditExcel: () => void;
+  onNewEntry: () => void;
+  onEditEntry?: () => void;
   onDemoFileSelect: (file: DemoFileRecord) => Promise<void>;
   onRemoteTableSelect: (sourceName: string, table: string) => void;
   remoteSourceInfo: RemoteSourceMetadata | null;
@@ -50,6 +52,8 @@ export function LocalDataSourceBody({
   onColumnClick,
   onLocalFilePickerOpen,
   onEditExcel,
+  onNewEntry,
+  onEditEntry,
   onDemoFileSelect,
   onRemoteTableSelect,
   remoteSourceInfo,
@@ -127,6 +131,7 @@ export function LocalDataSourceBody({
               <DataSourcePicker
                 sources={cliSources}
                 onFileClick={onLocalFilePickerOpen}
+                onEntryClick={onNewEntry}
                 onDemoClick={() => setShowDemoData(true)}
                 onSourceClick={(sourceName) => void openSource(sourceName)}
               />
@@ -219,6 +224,7 @@ export function LocalDataSourceBody({
           isSelectingSource={isSelectingSource}
           onClearSelectedColumns={onClearSelectedColumns}
           onEditExcel={onEditExcel}
+          onEditEntry={onEditEntry}
           onKeepCurrentSource={() => {
             setIsSelectingSource(false);
             resetPicker();

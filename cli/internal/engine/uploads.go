@@ -57,7 +57,7 @@ func (e *Engine) ImportUploadedFile(ctx context.Context, tableName, fileName, pa
 		return err
 	}
 	arguments := sqlStringLiteral(path)
-	if strings.HasSuffix(fileName, ".kavla-excel.csv") {
+	if strings.HasSuffix(fileName, ".kavla-excel.csv") || strings.HasSuffix(fileName, ".kavla-entry.csv") {
 		arguments += ", header = true, delim = ',', quote = '\"', escape = '\"', sample_size = -1"
 	}
 	_, err = e.db.ExecContext(ctx, fmt.Sprintf("CREATE OR REPLACE VIEW uploaded_files.main.%s AS SELECT * FROM %s(%s)", quoteIdentifier(tableName), reader, arguments))

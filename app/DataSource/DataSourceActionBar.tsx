@@ -14,6 +14,7 @@ interface DataSourceActionBarProps {
   isSelectingSource: boolean;
   onClearSelectedColumns: () => void;
   onEditExcel: () => void;
+  onEditEntry?: () => void;
   onKeepCurrentSource: () => void;
   onOpenSourcePicker: () => void;
   selectedColumns: Set<string>;
@@ -26,6 +27,7 @@ export function DataSourceActionBar({
   isSelectingSource,
   onClearSelectedColumns,
   onEditExcel,
+  onEditEntry,
   onKeepCurrentSource,
   onOpenSourcePicker,
   selectedColumns,
@@ -138,17 +140,17 @@ export function DataSourceActionBar({
     >
       {shape.props.filename && <TableDownloadButtons buttonClassName={buttonClassName} onDownload={handleDownload} />}
 
-      {shape.props.excelImport && (
+      {(shape.props.excelImport || onEditEntry) && (
         <button
           type="button"
-          onClick={onEditExcel}
+          onClick={onEditEntry ?? onEditExcel}
           onPointerDown={(event) => event.stopPropagation()}
           disabled={shape.props.isRunning}
-          title="Edit Excel selection"
+          title={onEditEntry ? "Edit spreadsheet data" : "Edit Excel selection"}
           className={buttonClassName}
           style={{ width: "100%", justifyContent: "center", backgroundColor: "#fff" }}
         >
-          <FileSpreadsheet size={16} /> <span className="kavla-control-label">Excel</span>
+          <FileSpreadsheet size={16} /> <span className="kavla-control-label">{onEditEntry ? "Entry" : "Excel"}</span>
         </button>
       )}
 

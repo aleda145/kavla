@@ -1,5 +1,5 @@
 import React from "react";
-import { Database, File, Folder, Loader2, Search, Upload, X } from "lucide-react";
+import { Database, File, FileSpreadsheet, Folder, Loader2, Search, Upload, X } from "lucide-react";
 import { siDuckdb, siGooglebigquery, siPostgresql } from "simple-icons";
 import type { CliSource } from "../client/useLocalServer";
 import { TldrawScrollAreaIndicator } from "./TldrawScrollAreaIndicator";
@@ -17,7 +17,7 @@ export const DATA_SOURCE_PICKER_WIDTH = 380;
 export function calculateDataSourcePickerHeight(sources: readonly CliSource[]): number {
   const sourceCount = sources.filter((source) => source.name !== "uploaded_files").length;
   const sourceRowCount = Math.ceil((sourceCount + 1) / SOURCE_PICKER_COLUMNS);
-  const fileRowCount = sources.some((source) => source.name === "uploaded_files") ? 2 : 1;
+  const fileRowCount = 2;
   const cardsHeight = (fileRowCount + sourceRowCount) * SOURCE_CARD_HEIGHT;
   const gapsHeight = (fileRowCount - 1 + sourceRowCount - 1) * SOURCE_ROW_GAP;
   const dividerHeight = 34;
@@ -28,6 +28,7 @@ type DataSourcePickerProps = {
   sources: CliSource[];
   onFileClick: () => void;
   onDemoClick: () => void;
+  onEntryClick: () => void;
   onSourceClick: (sourceName: string) => void;
 };
 
@@ -106,6 +107,7 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
   sources,
   onFileClick,
   onDemoClick,
+  onEntryClick,
   onSourceClick,
 }) => {
   const scrollArea = useTldrawScrollArea();
@@ -271,6 +273,20 @@ export const DataSourcePicker: React.FC<DataSourcePickerProps> = ({
             >
               <Search aria-hidden="true" size={18} />
               <span className="kavla-control-label">Demo data</span>
+            </button>
+            <button
+              type="button"
+              className={`${buttonBaseClass} bg-white hover:bg-blue-50`}
+              style={{ flex: "1 1 132px", maxWidth: 160, height: 46, touchAction: "none" }}
+              title="Enter spreadsheet data"
+              onClick={onEntryClick}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                if (event.pointerType === "touch") onEntryClick();
+              }}
+            >
+              <FileSpreadsheet size={18} />
+              <span className="kavla-control-label">Entry</span>
             </button>
           </div>
           <div
