@@ -70,11 +70,13 @@ export function validatePolygon(input: Point[]): Point[] {
   });
   // Self intersections have a deliberate even-odd meaning. Reject only fully
   // collinear outlines (signed area alone would reject valid figure eights).
-  const a = polygon[0],
-    b = polygon[1];
-  if (!polygon.some((p) => Math.abs((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)) > boundaryEpsilon))
-    throw new Error("The outline has no selectable area.");
+  if (!hasSelectableArea(polygon)) throw new Error("The outline has no selectable area.");
   return polygon;
+}
+
+export function hasSelectableArea(polygon: Point[]): boolean {
+  const [a, b] = polygon;
+  return polygon.some((p) => Math.abs((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)) > boundaryEpsilon);
 }
 
 export function containsPoint(point: Point, polygon: Point[]): boolean {

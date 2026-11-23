@@ -1,7 +1,13 @@
 import { useEffect, useState, type PointerEvent, type SVGProps } from "react";
 import type { Editor } from "tldraw";
 import type { ChartData } from "./chart-data";
-import { selectionRegion, translateSelection, type chartGeometry } from "./geometry";
+import {
+  resizeSelection,
+  selectionRegion,
+  translateSelection,
+  type chartGeometry,
+  type ResizeHandle,
+} from "./geometry";
 import { containsPoint, type ChartSelection, type Point } from "./selection";
 
 type Geometry = ReturnType<typeof chartGeometry>;
@@ -30,10 +36,11 @@ export function useSelectionDrag(
     start: Point;
     screen: Point;
     clickId: string;
+    handle?: ResizeHandle;
     selection: ChartSelection;
     geometry: Geometry;
   } | null>(null);
-  const [draft, setDraft] = useState<ChartSelection | null>(null);
+  const [draft, setDraft] = useState<{ selection: ChartSelection; handle?: ResizeHandle } | null>(null);
   const active = gesture && selections.includes(gesture.selection) && gesture.geometry === geometry ? gesture : null;
 
   function cancel() {
@@ -62,23 +69,65 @@ export function useSelectionDrag(
     };
   }, [gesture, active]);
 
-  function movedSelection(event: PolygonEvent): ChartSelection | null {
+  function editedSelection(event: PolygonEvent) {
     if (!active || !geometry || !data) return null;
     if (Math.hypot(event.clientX - active.screen.x, event.clientY - active.screen.y) < 3) return null;
     const selection = active.selection;
-    const moved = translateSelection(selection.polygon, active.start, plotPoint(event, geometry), geometry.plot);
-    return moved && { ...selection, ...selectionRegion(data, geometry, moved, color) };
+    const end = plotPoint(event, geometry);
+    const resize = active.handle
+      ? resizeSelection(
+          selection.polygon,
+          active.handle,
+          { x: end.x - active.start.x, y: end.y - active.start.y },
+          geometry.plot
+        )
+      : null;
+    const polygon = active.handle
+      ? resize?.polygon
+      : translateSelection(selection.polygon, active.start, end, geometry.plot);
+    if (!polygon) return null;
+    return { selection: { ...selection, ...selectionRegion(data, geometry, polygon, color) }, handle: resize?.handle };
   }
 
-  function handlersFor(selection: ChartSelection, index: number): SVGProps<SVGPolygonElement> {
+  function handlersFor(selection: ChartSelection, index: number, handle?: ResizeHandle): SVGProps<SVGPolygonElement> {
+    const cursorHandle = active?.handle === handle ? (draft?.handle ?? handle) : handle;
     return {
       tabIndex: 0,
       role: "button",
-      "aria-label": `Select drawing ${index + 1}`,
-      style: { pointerEvents: "all", touchAction: "none", cursor: active ? "grabbing" : "grab" },
+      "aria-label": handle ? `Resize drawing ${index + 1} (${handle.toUpperCase()})` : `Select drawing ${index + 1}`,
+      style: {
+        pointerEvents: "all",
+        touchAction: "none",
+        cursor: cursorHandle ? `${cursorHandle}-resize` : active ? "grabbing" : "grab",
+      },
       onFocus: () => onFocus(selection.drawingId),
       onKeyDown(event) {
-        if (event.key === "Delete" || event.key === "Backspace") {
+        if (handle && geometry && data && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (active) return;
+          const step = event.shiftKey ? 10 : 1;
+          const x = event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0;
+          const y = event.key === "ArrowUp" ? step : event.key === "ArrowDown" ? -step : 0;
+          const resize = resizeSelection(
+            selection.polygon,
+            handle,
+            {
+              x: x / geometry.plot.width,
+              y: y / geometry.plot.height,
+            },
+            geometry.plot
+          );
+          if (resize) {
+            onCommit({ ...selection, ...selectionRegion(data, geometry, resize.polygon, color) });
+            if (resize.handle !== handle) {
+              event.currentTarget
+                .closest("[data-chart-drawing]")
+                ?.querySelector<SVGPolygonElement>(`[data-resize-handle="${resize.handle}"]`)
+                ?.focus();
+            }
+          }
+        } else if (event.key === "Delete" || event.key === "Backspace") {
           event.preventDefault();
           event.stopPropagation();
           onDelete(selection.drawingId);
@@ -94,10 +143,14 @@ export function useSelectionDrag(
         event.preventDefault();
         const start = plotPoint(event, geometry);
         // Repeated clicks cycle through overlapping drawings. Drag the one already in focus.
-        const hits = selections.filter((r) => r === selection || containsPoint(start, r.polygon)).reverse();
-        const index = hits.findIndex((r) => r.drawingId === focusedId);
-        const grabbed = hits[index] ?? selection;
-        const clicked = index < 0 ? selection : hits[(index + 1) % hits.length];
+        let grabbed = selection;
+        let clicked = selection;
+        if (!handle) {
+          const hits = selections.filter((r) => r === selection || containsPoint(start, r.polygon)).reverse();
+          const index = hits.findIndex((r) => r.drawingId === focusedId);
+          grabbed = hits[index] ?? selection;
+          clicked = index < 0 ? selection : hits[(index + 1) % hits.length];
+        }
         onFocus(grabbed.drawingId);
         event.currentTarget.setPointerCapture(event.pointerId);
         setGesture({
@@ -105,6 +158,7 @@ export function useSelectionDrag(
           pointerId: event.pointerId,
           start,
           clickId: clicked.drawingId,
+          handle,
           screen: { x: event.clientX, y: event.clientY },
           selection: grabbed,
           geometry,
@@ -113,14 +167,14 @@ export function useSelectionDrag(
       onPointerMove(event) {
         if (event.pointerId !== active?.pointerId) return;
         event.stopPropagation();
-        setDraft(movedSelection(event));
+        setDraft(editedSelection(event));
       },
       onPointerUp(event) {
         if (event.pointerId !== active?.pointerId) return;
         event.stopPropagation();
-        const next = movedSelection(event);
+        const next = editedSelection(event);
         cancel();
-        if (next) onCommit(next);
+        if (next) onCommit(next.selection);
         else onFocus(active.clickId);
       },
       onLostPointerCapture(event) {
@@ -134,5 +188,5 @@ export function useSelectionDrag(
       },
     };
   }
-  return { draft: active ? draft : null, handlersFor };
+  return { draft: active ? draft?.selection : null, resizing: Boolean(active?.handle), handlersFor };
 }

@@ -42,7 +42,7 @@ import { getColumnTypeColor } from "../../util/column-colors";
 import { connectShapes } from "../../util/shapeConnections";
 import { chartSlice, type SliceSide } from "./chart-slice";
 import { registerChartLasso } from "./chart-lasso";
-import { chartGeometry, drawingToPlotPoints, firstPlotEntry, selectionRegion } from "./geometry";
+import { chartGeometry, drawingToPlotPoints, firstPlotEntry, selectionBounds, selectionRegion } from "./geometry";
 import { useSelectionDrag } from "./useSelectionDrag";
 import {
   loadChartData,
@@ -453,13 +453,13 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         chartAreaValue(editor, shape) !== areaValue
       )
         return;
-      editor.markHistoryStoppingPoint("move chart selection");
+      editor.markHistoryStoppingPoint("edit chart drawing");
       setCount(null);
       setSelectionError(null);
-      const moved = regions.map((r) => (r.drawingId === next.drawingId ? { ...next, chartId: shape.id } : r));
-      setGlobalArea(editor, shape.id, moved);
+      const updated = regions.map((r) => (r.drawingId === next.drawingId ? { ...next, chartId: shape.id } : r));
+      setGlobalArea(editor, shape.id, updated);
       setMeta({ nativeLassoError: null, nativeLassoDrawing: null });
-      editor.markHistoryStoppingPoint("chart selection moved");
+      editor.markHistoryStoppingPoint("chart drawing edited");
     }
   );
   const displayed = useMemo(() => {
@@ -772,13 +772,13 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     setMeta({ nativeLassoError: null, nativeLassoDrawing: null });
     editor.markHistoryStoppingPoint("chart drawing deleted");
   }
-  const deletePosition =
-    focused &&
-    geometry &&
-    geometry.fromAnalytical({
-      x: Math.min(1, Math.max(0, Math.max(...focused.polygon.map((p) => p.x)))),
-      y: Math.min(1, Math.max(0, Math.max(...focused.polygon.map((p) => p.y)))),
-    });
+  const bounds = focused && selectionBounds(focused.polygon);
+  let deletePosition;
+  if (bounds && geometry) {
+    const corner = geometry.fromAnalytical({ x: bounds.right, y: bounds.top });
+    const left = geometry.fromAnalytical({ x: bounds.left, y: bounds.top }).x;
+    deletePosition = { x: corner.x + 40 <= width ? corner.x + 26 : left - 26, y: corner.y };
+  }
   const axes = geometry && currentPlot && (
     <ScatterAxes
       geometry={geometry}
@@ -1055,7 +1055,9 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                       }
                     >
                       {drag.draft
-                        ? "Moving selection…"
+                        ? drag.resizing
+                          ? "Resizing selection…"
+                          : "Moving selection…"
                         : !firstRegion
                           ? "0 selected"
                           : !selectionCurrent

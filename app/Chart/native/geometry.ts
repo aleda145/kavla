@@ -1,5 +1,13 @@
 import { scaleLinear, scaleLog, line, scaleBand } from "d3";
-import { containsPoint, normalize, type Axis, type BarKey, type Point, type SeriesSelection } from "./selection.ts";
+import {
+  containsPoint,
+  hasSelectableArea,
+  normalize,
+  type Axis,
+  type BarKey,
+  type Point,
+  type SeriesSelection,
+} from "./selection.ts";
 import type { Mark } from "./ScatterMarks";
 import type { ChartData } from "./chart-data";
 import { groupColor } from "./appearance.ts";
@@ -82,6 +90,65 @@ export function translateSelection(
   const dx = delta(start.x, end.x, plot.width);
   const dy = delta(start.y, end.y, plot.height);
   return dx || dy ? polygon.map(({ x, y }) => ({ x: x + dx, y: y + dy })) : null;
+}
+
+export const resizeHandles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
+export type ResizeHandle = (typeof resizeHandles)[number];
+
+export function selectionBounds(polygon: Point[]) {
+  // Keep the handles reachable for outlines that extend beyond the plot.
+  const xs = polygon.map((p) => p.x);
+  const ys = polygon.map((p) => p.y);
+  return {
+    left: Math.max(0, Math.min(...xs)),
+    right: Math.min(1, Math.max(...xs)),
+    bottom: Math.max(0, Math.min(...ys)),
+    top: Math.min(1, Math.max(...ys)),
+  };
+}
+
+export function resizeSelection(
+  polygon: Point[],
+  handle: ResizeHandle,
+  delta: Point,
+  plot: { width: number; height: number }
+) {
+  const { left, right, bottom, top } = selectionBounds(polygon);
+  function scale(anchor: number, edge: number, offset: number, pixels: number) {
+    const span = edge - anchor;
+    if (!span || !offset) return 1;
+    const next = Math.min(1, Math.max(0, edge + offset));
+    // Cross the fixed anchor without ever saving a zero-width or zero-height polygon.
+    // At the plot boundary only the inward side is available.
+    let direction = Math.sign(next - anchor);
+    if (Math.abs(next - anchor) * pixels < 1e-8) {
+      direction = anchor === 0 ? 1 : anchor === 1 ? -1 : -Math.sign(span);
+    }
+    const room = direction > 0 ? 1 - anchor : anchor;
+    const minimum = Math.min(1 / pixels, Math.abs(span), room);
+    return (direction * Math.max(minimum, Math.abs(next - anchor))) / span;
+  }
+  const anchorX = handle.includes("w") ? right : left;
+  const anchorY = handle.includes("s") ? top : bottom;
+  const sx = handle.includes("w")
+    ? scale(anchorX, left, delta.x, plot.width)
+    : handle.includes("e")
+      ? scale(anchorX, right, delta.x, plot.width)
+      : 1;
+  const sy = handle.includes("s")
+    ? scale(anchorY, bottom, delta.y, plot.height)
+    : handle.includes("n")
+      ? scale(anchorY, top, delta.y, plot.height)
+      : 1;
+  if (sx === 1 && sy === 1) return null;
+  const resized = polygon.map(({ x, y }) => ({
+    x: sx === 1 ? x : anchorX + (x - anchorX) * sx,
+    y: sy === 1 ? y : anchorY + (y - anchorY) * sy,
+  }));
+  if (!hasSelectableArea(resized)) return null;
+  const vertical = handle.includes("n") ? (sy < 0 ? "s" : "n") : handle.includes("s") ? (sy < 0 ? "n" : "s") : "";
+  const horizontal = handle.includes("e") ? (sx < 0 ? "w" : "e") : handle.includes("w") ? (sx < 0 ? "e" : "w") : "";
+  return { polygon: resized, handle: (vertical + horizontal) as ResizeHandle };
 }
 
 export type BarRect = { mark: Mark; x: number; y: number; width: number; height: number; color: string };

@@ -1,4 +1,4 @@
-import type { chartGeometry } from "./geometry";
+import { resizeHandles, selectionBounds, type chartGeometry, type ResizeHandle } from "./geometry";
 import type { ChartSelection } from "./selection";
 import { memo, useId, type SVGProps } from "react";
 import { scaleUtc } from "d3";
@@ -23,7 +23,7 @@ export const ScatterAxes = memo(function ScatterAxes({
   xLabel: string;
   yLabel: string;
   selections: ChartSelection[];
-  handlersFor?: (selection: ChartSelection, index: number) => SVGProps<SVGPolygonElement>;
+  handlersFor?: (selection: ChartSelection, index: number, handle?: ResizeHandle) => SVGProps<SVGPolygonElement>;
   focusedId?: string | null;
   previewId?: string;
   xKind?: XKind;
@@ -31,6 +31,11 @@ export const ScatterAxes = memo(function ScatterAxes({
 }) {
   const clipId = useId();
   const { plot, xScale, yScale } = geometry;
+  const focusedIndex = selections.findIndex((selection) => selection.drawingId === focusedId);
+  const focused = selections[focusedIndex];
+  const bounds = focused && selectionBounds(focused.polygon);
+  const nw = bounds && geometry.fromAnalytical({ x: bounds.left, y: bounds.top });
+  const se = bounds && geometry.fromAnalytical({ x: bounds.right, y: bounds.bottom });
   const bottom = plot.top + plot.height;
   const xTicks = Math.max(2, Math.floor(plot.width / 90));
   const timeScale = scaleUtc().domain(xScale.domain().map((value) => new Date(value)));
@@ -150,6 +155,43 @@ export const ScatterAxes = memo(function ScatterAxes({
         <title>{yLabel}</title>
         {shorten(yLabel, plot.height)}
       </text>
+      {focused && handlersFor && nw && se && (
+        <g data-chart-drawing={focused.drawingId}>
+          <rect
+            x={nw.x}
+            y={nw.y}
+            width={se.x - nw.x}
+            height={se.y - nw.y}
+            fill="none"
+            stroke="#475569"
+            strokeWidth={1}
+            strokeDasharray="3 3"
+          />
+          {resizeHandles.map((handle) => {
+            const west = handle.includes("w"),
+              east = handle.includes("e");
+            const north = handle.includes("n"),
+              south = handle.includes("s");
+            // Keep small drawings grabbable between their corner handles.
+            if ((!west && !east && se.x - nw.x < 28) || (!north && !south && se.y - nw.y < 28)) return null;
+            const cx = west ? nw.x - 3 : east ? se.x + 3 : (nw.x + se.x) / 2;
+            const cy = north ? nw.y - 3 : south ? se.y + 3 : (nw.y + se.y) / 2;
+            return (
+              <g key={handle}>
+                <rect x={cx - 4} y={cy - 4} width={8} height={8} fill="white" stroke="black" strokeWidth={1.5} />
+                <polygon
+                  {...handlersFor(focused, focusedIndex, handle)}
+                  data-resize-handle={handle}
+                  points={`${cx - 7},${cy - 7} ${cx + 7},${cy - 7} ${cx + 7},${cy + 7} ${cx - 7},${cy + 7}`}
+                  fill="transparent"
+                >
+                  <title>Drag to resize, or use the arrow keys</title>
+                </polygon>
+              </g>
+            );
+          })}
+        </g>
+      )}
     </svg>
   );
 });
