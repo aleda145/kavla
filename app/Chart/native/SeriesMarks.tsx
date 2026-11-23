@@ -2,7 +2,7 @@ import { area, line } from "d3";
 import { memo, useEffect, useId, useMemo, useRef } from "react";
 import { groupColor } from "./appearance";
 import { barRectangles, type chartGeometry } from "./geometry";
-import { containsPoint, type ChartSelection } from "./selection";
+import { selectsPoint, type ChartSelection } from "./selection";
 import type { ChartData } from "./chart-data";
 import type { Mark } from "./ScatterMarks";
 
@@ -35,7 +35,7 @@ export const SeriesMarks = memo(function SeriesMarks({
       }
       return new Set(data.marks.filter((m) => keys.has(JSON.stringify([m.xValue, m.group]))));
     }
-    return new Set(data.marks.filter((m) => selections.some(({ polygon }) => containsPoint(m, polygon))));
+    return new Set(data.marks.filter((m) => selections.some((r) => selectsPoint(m, r))));
   }, [data, selections]);
   const runs = useMemo(() => {
     const groups = new Map<string, Mark[]>();

@@ -24,7 +24,7 @@ export function areaOnPlot(
 ): ChartSelection {
   return {
     ...area,
-    ...selectionRegion(data, geometry, area.polygon, chart.props.color),
+    ...selectionRegion(data, geometry, area.polygon, chart.props.color, area.inverted),
     chartId: chart.id,
     sourceId: source.id,
     sourceRevision: source.revision,

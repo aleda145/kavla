@@ -19,6 +19,7 @@ import {
   ArrowDownRight,
   ArrowDownLeft,
   CircleAlert,
+  Contrast,
   Lasso,
   RefreshCw,
   ScatterChart,
@@ -58,7 +59,7 @@ import { SeriesMarks } from "./SeriesMarks";
 import { restoreRemoteQueryView } from "../../SQLTextArea/restoreRemoteQueryView";
 import { exportNativeChart } from "./export-chart";
 import {
-  containsPoint,
+  selectsPoint,
   hasSelectableArea,
   readSelections,
   serializeSelections,
@@ -574,7 +575,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       first.y <= 1 &&
       points.every((p) => Math.hypot(p.x - start.x, p.y - start.y) * editor.getZoomLevel() < 3)
     ) {
-      const hit = [...placed].reverse().find((r) => containsPoint(first, r.polygon));
+      const hit = [...placed].reverse().find((r) => selectsPoint(first, r));
       if (hit) {
         return {
           entry: 0,
@@ -831,6 +832,30 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   };
   const updateProps = (props: Partial<ChartShape["props"]>) =>
     editor.updateShape<ChartShape>({ id: shape.id, type: "chart-shape", props });
+  function invertDrawing() {
+    if (
+      !focused ||
+      !currentPlot ||
+      !geometry ||
+      !source ||
+      !canSelect ||
+      editor.getIsReadonly() ||
+      editor.isShapeOrAncestorLocked(shape.id) ||
+      chartAreaValue(editor, shape) !== areaValue
+    )
+      return;
+    const inverted = areaOnPlot({ ...focused, inverted: !focused.inverted }, shape, currentPlot, geometry, source);
+    editor.markHistoryStoppingPoint("invert chart drawing");
+    setGlobalArea(
+      editor,
+      shape.id,
+      regions.map((r) => (r.drawingId === focused.drawingId ? inverted : r))
+    );
+    setCount(null);
+    setSelectionError(null);
+    editor.markHistoryStoppingPoint("chart drawing inverted");
+  }
+
   function deleteDrawing(id: string | null) {
     if (
       editor.getIsReadonly() ||
@@ -847,11 +872,14 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     editor.markHistoryStoppingPoint("chart drawing deleted");
   }
   const bounds = focused && selectionBounds(focused.polygon);
-  let deletePosition;
+  let drawingActionsPosition;
   if (bounds && geometry) {
     const corner = geometry.fromAnalytical({ x: bounds.right, y: bounds.top });
     const left = geometry.fromAnalytical({ x: bounds.left, y: bounds.top }).x;
-    deletePosition = { x: corner.x + 40 <= width ? corner.x + 26 : left - 26, y: corner.y };
+    drawingActionsPosition = {
+      x: corner.x + 44 <= width ? corner.x + 12 : Math.max(2, left - 40),
+      y: Math.max(14, Math.min(corner.y, height - 48)),
+    };
   }
   const axes = geometry && currentPlot && (
     <ScatterAxes
@@ -987,32 +1015,40 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 )}
               </>
             )}
-            {focused && deletePosition && (
-              <button
-                type="button"
-                className="kavla-scatter__button kavla-scatter__button--icon"
-                style={{
-                  position: "absolute",
-                  left: deletePosition.x,
-                  top: deletePosition.y,
-                  transform: "translate(-50%, -50%)",
-                  zIndex: 2,
-                }}
+            {focused && drawingActionsPosition && (
+              <div
+                role="group"
+                aria-label="Drawing actions"
+                className="kavla-chart__drawing-actions"
+                style={{ left: drawingActionsPosition.x, top: drawingActionsPosition.y }}
                 data-chart-drawing={focused.drawingId}
-                aria-label="Delete selected drawing"
-                title="Delete selected drawing"
                 onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  deleteDrawing(focused.drawingId);
-                }}
+                onClick={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
                   event.stopPropagation();
                   if (event.key === "Escape") setFocusedId(null);
                 }}
               >
-                <X size={14} />
-              </button>
+                <button
+                  type="button"
+                  className="kavla-scatter__button kavla-scatter__button--icon"
+                  aria-label="Delete selected drawing"
+                  title="Delete selected drawing"
+                  onClick={() => deleteDrawing(focused.drawingId)}
+                >
+                  <X size={14} aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className="kavla-scatter__button kavla-scatter__button--icon"
+                  aria-label="Invert selection"
+                  aria-pressed={Boolean(focused.inverted)}
+                  title="Invert selection"
+                  onClick={invertDrawing}
+                >
+                  <Contrast size={14} aria-hidden />
+                </button>
+              </div>
             )}
             {(!currentPlot || !currentPlot.valid) && (
               <div role="status" className="kavla-scatter__message">

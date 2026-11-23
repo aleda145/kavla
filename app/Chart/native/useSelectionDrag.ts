@@ -1,4 +1,4 @@
-import { useEffect, useState, type PointerEvent, type SVGProps } from "react";
+import { useEffect, useState, type PointerEvent, type SVGAttributes } from "react";
 import type { Editor } from "tldraw";
 import type { ChartData } from "./chart-data";
 import {
@@ -8,12 +8,12 @@ import {
   type chartGeometry,
   type ResizeHandle,
 } from "./geometry";
-import { containsPoint, type ChartSelection, type Point } from "./selection";
+import { selectsPoint, type ChartSelection, type Point } from "./selection";
 
 type Geometry = ReturnType<typeof chartGeometry>;
-type PolygonEvent = PointerEvent<SVGPolygonElement>;
+type DrawingEvent = PointerEvent<SVGGraphicsElement>;
 
-function plotPoint(event: PolygonEvent, geometry: Geometry): Point {
+function plotPoint(event: DrawingEvent, geometry: Geometry): Point {
   const transform = event.currentTarget.getScreenCTM()!;
   const local = new DOMPoint(event.clientX, event.clientY).matrixTransform(transform.inverse());
   return geometry.toAnalytical(local);
@@ -31,7 +31,7 @@ export function useSelectionDrag(
   onCommit: (next: ChartSelection) => void
 ) {
   const [gesture, setGesture] = useState<{
-    target: SVGPolygonElement;
+    target: SVGGraphicsElement;
     pointerId: number;
     start: Point;
     screen: Point;
@@ -69,7 +69,7 @@ export function useSelectionDrag(
     };
   }, [gesture, active]);
 
-  function editedSelection(event: PolygonEvent) {
+  function editedSelection(event: DrawingEvent) {
     if (!active || !geometry || !data) return null;
     if (Math.hypot(event.clientX - active.screen.x, event.clientY - active.screen.y) < 3) return null;
     const selection = active.selection;
@@ -84,12 +84,19 @@ export function useSelectionDrag(
       : null;
     const polygon = active.handle
       ? resize?.polygon
-      : translateSelection(selection.polygon, active.start, end, geometry.plot);
+      : translateSelection(selection.polygon, active.start, end, geometry.plot, selection.inverted);
     if (!polygon) return null;
-    return { selection: { ...selection, ...selectionRegion(data, geometry, polygon, color) }, handle: resize?.handle };
+    return {
+      selection: { ...selection, ...selectionRegion(data, geometry, polygon, color, selection.inverted) },
+      handle: resize?.handle,
+    };
   }
 
-  function handlersFor(selection: ChartSelection, index: number, handle?: ResizeHandle): SVGProps<SVGPolygonElement> {
+  function handlersFor(
+    selection: ChartSelection,
+    index: number,
+    handle?: ResizeHandle
+  ): SVGAttributes<SVGGraphicsElement> {
     const cursorHandle = active?.handle === handle ? (draft?.handle ?? handle) : handle;
     return {
       tabIndex: 0,
@@ -119,11 +126,11 @@ export function useSelectionDrag(
             geometry.plot
           );
           if (resize) {
-            onCommit({ ...selection, ...selectionRegion(data, geometry, resize.polygon, color) });
+            onCommit({ ...selection, ...selectionRegion(data, geometry, resize.polygon, color, selection.inverted) });
             if (resize.handle !== handle) {
               event.currentTarget
                 .closest("[data-chart-drawing]")
-                ?.querySelector<SVGPolygonElement>(`[data-resize-handle="${resize.handle}"]`)
+                ?.querySelector<SVGGraphicsElement>(`[data-resize-handle="${resize.handle}"]`)
                 ?.focus();
             }
           }
@@ -146,7 +153,7 @@ export function useSelectionDrag(
         let grabbed = selection;
         let clicked = selection;
         if (!handle) {
-          const hits = selections.filter((r) => r === selection || containsPoint(start, r.polygon)).reverse();
+          const hits = selections.filter((r) => r === selection || selectsPoint(start, r)).reverse();
           const index = hits.findIndex((r) => r.drawingId === focusedId);
           grabbed = hits[index] ?? selection;
           clicked = index < 0 ? selection : hits[(index + 1) % hits.length];

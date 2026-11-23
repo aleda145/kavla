@@ -27,6 +27,7 @@ export type ChartSelection = ({ version: 1; series?: undefined } | { version: 2;
   x: Axis;
   y: Axis;
   polygon: Point[];
+  inverted?: boolean;
   // Present when the chart owns the stroke. drawingId is provenance only;
   // older saved selections may still refer to a standalone canvas drawing.
   outline?: OutlineStyle;
@@ -113,7 +114,17 @@ export function containsPoint(point: Point, polygon: Point[]): boolean {
   return inside;
 }
 
-type SelectionGeometry = Pick<ChartSelection, "x" | "y" | "polygon">;
+export function selectsPoint(point: Point, region: Pick<ChartSelection, "polygon" | "inverted">): boolean {
+  return (
+    point.x >= 0 &&
+    point.x <= 1 &&
+    point.y >= 0 &&
+    point.y <= 1 &&
+    containsPoint(point, region.polygon) !== Boolean(region.inverted)
+  );
+}
+
+type SelectionGeometry = Pick<ChartSelection, "x" | "y" | "polygon" | "inverted">;
 const sqlKey = (key: string | null) => (key === null ? "NULL::VARCHAR" : quoteSqlString(key));
 
 export function chartValueSQL(field: string, kind: "number" | "time"): string {
@@ -196,11 +207,12 @@ export function selectionPredicate(
   FROM (SELECT ${xCoordinate} AS px,
                ${yCoordinate} AS py) AS point
   WHERE isfinite(px) AND isfinite(py)
-    AND px BETWEEN ${literal(Math.min(...xs) - boundaryEpsilon)} AND ${literal(Math.max(...xs) + boundaryEpsilon)}
-    AND py BETWEEN ${literal(Math.min(...ys) - boundaryEpsilon)} AND ${literal(Math.max(...ys) + boundaryEpsilon)}
     -- Only observations visible in the selected analytical domain qualify.
     AND px BETWEEN 0 AND 1 AND py BETWEEN 0 AND 1
-    AND (
+    AND ${selection.inverted ? "NOT " : ""}(
+      px BETWEEN ${literal(Math.min(...xs) - boundaryEpsilon)} AND ${literal(Math.max(...xs) + boundaryEpsilon)}
+      AND py BETWEEN ${literal(Math.min(...ys) - boundaryEpsilon)} AND ${literal(Math.max(...ys) + boundaryEpsilon)}
+      AND (
       SELECT
         bool_or(
           abs((px-edge_x1)*(edge_y2-edge_y1) - (py-edge_y1)*(edge_x2-edge_x1)) <= ${boundaryEpsilon} * sqrt(pow(edge_x2-edge_x1, 2) + pow(edge_y2-edge_y1, 2))
@@ -212,6 +224,7 @@ export function selectionPredicate(
       FROM (VALUES
         ${edges}
       ) AS edges(edge_x1, edge_y1, edge_x2, edge_y2)
+      )
     )
 )`;
 }
@@ -245,6 +258,7 @@ function validateSelection(s: ChartSelection): ChartSelection {
     typeof s.sourceId !== "string" ||
     typeof s.drawingId !== "string" ||
     typeof s.chartId !== "string" ||
+    (s.inverted !== undefined && typeof s.inverted !== "boolean") ||
     ![s.x, s.y].every(
       (axis) =>
         axis &&

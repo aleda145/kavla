@@ -1,6 +1,6 @@
 import { resizeHandles, selectionBounds, type chartGeometry, type ResizeHandle } from "./geometry";
 import type { ChartSelection } from "./selection";
-import { memo, useId, type SVGProps } from "react";
+import { memo, useId, type SVGAttributes } from "react";
 import { scaleUtc } from "d3";
 import type { XKind } from "./chart-data";
 
@@ -23,7 +23,7 @@ export const ScatterAxes = memo(function ScatterAxes({
   xLabel: string;
   yLabel: string;
   selections: ChartSelection[];
-  handlersFor?: (selection: ChartSelection, index: number, handle?: ResizeHandle) => SVGProps<SVGPolygonElement>;
+  handlersFor?: (selection: ChartSelection, index: number, handle?: ResizeHandle) => SVGAttributes<SVGGraphicsElement>;
   focusedId?: string | null;
   previewId?: string;
   xKind?: XKind;
@@ -65,18 +65,23 @@ export const ScatterAxes = memo(function ScatterAxes({
       {selections.map((selection, index) => {
         const { drawingId, polygon, outline } = selection;
         const dragHandlers = handlersFor?.(selection, index);
+        const outlinePath =
+          polygon
+            .map((p, i) => {
+              const { x, y } = geometry.fromAnalytical(p);
+              return `${i ? "L" : "M"}${x},${y}`;
+            })
+            .join(" ") + "Z";
+        const frame = selection.inverted
+          ? `M${plot.left},${plot.top}h${plot.width}v${plot.height}h${-plot.width}Z`
+          : "";
         return (
-          <polygon
+          <path
             key={drawingId}
             data-chart-drawing={drawingId}
             {...dragHandlers}
             clipPath={`url(#${clipId})`}
-            points={polygon
-              .map((p) => {
-                const q = geometry.fromAnalytical(p);
-                return `${q.x},${q.y}`;
-              })
-              .join(" ")}
+            d={frame + outlinePath}
             fill="#fde047"
             fillOpacity={previewId === drawingId || focusedId === drawingId ? 0.28 : 0.08}
             fillRule="evenodd"
@@ -96,7 +101,7 @@ export const ScatterAxes = memo(function ScatterAxes({
             strokeLinejoin="round"
           >
             {dragHandlers && <title>Click to select this drawing or drag to move it</title>}
-          </polygon>
+          </path>
         );
       })}
       <path

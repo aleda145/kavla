@@ -137,6 +137,14 @@
   outline: 3px solid #2563eb;
   outline-offset: 3px;
 }
+.kavla-chart__drawing-actions {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transform: translateY(-14px);
+  z-index: 2;
+}
 .kavla-scatter__button--icon {
   width: 28px;
   padding: 0;

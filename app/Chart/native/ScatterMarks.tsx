@@ -1,5 +1,5 @@
 import { memo, useEffect, useId, useMemo, useRef } from "react";
-import { containsPoint, type Point } from "./selection";
+import { selectsPoint, type ChartSelection, type Point } from "./selection";
 import type { chartGeometry } from "./geometry";
 import type { ScatterPlan } from "./planner";
 import { densityScale, densityOpacity, pointStyle, groupColor } from "./appearance";
@@ -27,7 +27,7 @@ export const ScatterMarks = memo(function ScatterMarks({
   marks: Mark[];
   geometry: ReturnType<typeof chartGeometry>;
   plan: ScatterPlan;
-  selections: { polygon: Point[] }[];
+  selections: Pick<ChartSelection, "polygon" | "inverted">[];
   width: number;
   height: number;
   renderer: "svg" | "canvas";
@@ -61,7 +61,7 @@ export const ScatterMarks = memo(function ScatterMarks({
     ctx.clip();
     for (const mark of marks) {
       const p = geometry.fromAnalytical(mark);
-      const selected = selections.some(({ polygon }) => containsPoint(mark, polygon));
+      const selected = selections.some((r) => selectsPoint(mark, r));
       if (plan.mode === "density") {
         ctx.fillStyle = (selected ? selectedColor : color)(mark.count);
         const cellWidth = plot.width / plan.columns,
@@ -124,7 +124,7 @@ export const ScatterMarks = memo(function ScatterMarks({
       <g clipPath={`url(#${clipId})`}>
         {marks.map((mark, i) => {
           const p = geometry.fromAnalytical(mark);
-          const selected = selections.some(({ polygon }) => containsPoint(mark, polygon));
+          const selected = selections.some((r) => selectsPoint(mark, r));
           if (plan.mode === "density" && colorBy && mark.groups) {
             let start = p.x - geometry.plot.width / plan.columns / 2;
             return (
