@@ -12,8 +12,8 @@ export type OutlineStyle = {
 };
 export type BarKey = [category: string | null, group: string | null];
 export type SeriesSelection =
-  | { kind: "line"; xKind: "number" | "time" }
-  | { kind: "line"; xKind: "category"; categories: (string | null)[] }
+  | { kind: "line" | "scatter"; xKind: "number" | "time" }
+  | { kind: "line" | "scatter"; xKind: "category"; categories: (string | null)[] }
   | { kind: "bar"; color: string | null; stacked: boolean; keys: BarKey[] };
 
 export type ChartSelection = ({ version: 1; series?: undefined } | { version: 2; series: SeriesSelection }) & {
@@ -246,7 +246,7 @@ function validSeries(series: SeriesSelection | undefined): boolean {
     );
   }
   return (
-    series?.kind === "line" &&
+    (series?.kind === "line" || series?.kind === "scatter") &&
     (series.xKind === "time" ||
       series.xKind === "number" ||
       (series.xKind === "category" && Array.isArray(series.categories) && series.categories.every(isKey)))

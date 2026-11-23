@@ -29,7 +29,7 @@ export function xKindFor(field: string, type: string, kind: ChartKind): XKind {
   if (kind === "bar") return "category";
   if (/^(DATE|TIMESTAMP|DATETIME)/i.test(type)) return "time";
   if (isNumericColumn(type)) return "number";
-  if (/(date|timestamp|created_at|updated_at)/i.test(field)) return "time";
+  if (!type && /(date|timestamp|created_at|updated_at)/i.test(field)) return "time";
   return "category";
 }
 

@@ -126,8 +126,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     kind
   );
   const stacked = Boolean(shape.props.color && shape.props.isStacked && (kind === "bar" || kind === "area"));
-  const canSelect =
-    Boolean(source?.canSelect) && (kind === "line" || kind === "bar" || (kind === "scatter" && xKind === "number"));
+  const canSelect = Boolean(source?.canSelect) && (kind === "line" || kind === "bar" || kind === "scatter");
   const saved = useMemo(() => {
     try {
       return { selection: readSelection(shape.meta.nativeSelection), error: null };
@@ -316,7 +315,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     if (!series) return kind === "scatter" && xKind === "number";
     if (series.kind === "bar")
       return kind === "bar" && series.color === shape.props.color && series.stacked === stacked;
-    return kind === "line" && series.xKind === xKind;
+    return kind === series.kind && series.xKind === xKind;
   }
   const selectionCurrent = Boolean(
     canSelect &&
@@ -437,15 +436,18 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
               stacked,
               keys: hitBarKeys(currentPlot, geometry, validatedPolygon),
             };
-          } else if (currentPlot.kind === "line") {
+          } else if (
+            currentPlot.kind === "line" ||
+            (currentPlot.kind === "scatter" && currentPlot.xKind !== "number")
+          ) {
             series =
               currentPlot.xKind === "category"
                 ? {
-                    kind: "line",
+                    kind: currentPlot.kind,
                     xKind: "category",
                     categories: currentPlot.categories.map((category) => category.key),
                   }
-                : { kind: "line", xKind: currentPlot.xKind };
+                : { kind: currentPlot.kind, xKind: currentPlot.xKind };
           }
           return legacy
             ? { ...selection, chartId: shape.id, outline }
