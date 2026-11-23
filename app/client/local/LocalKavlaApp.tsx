@@ -77,6 +77,7 @@ import { handleLocalShapeDeleted } from "./handleLocalShapeDeleted";
 import { getUniqueName } from "../../util/getUniqueName";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { VisualizationProvider } from "../../Chart/native/VisualizationProvider";
+import { ChartDrawingUtil } from "../../Chart/native/ChartDrawingUtil";
 
 const customShapeUtils = [
   KnobUtil,
@@ -90,9 +91,13 @@ const customShapeUtils = [
   AgentChatUtil,
   AgentBlobUtil,
   KavlaArrowShapeUtil,
+  ChartDrawingUtil,
 ];
 
-const localShapeUtils = [...customShapeUtils, ...defaultShapeUtils.filter((util) => util.type !== "arrow")];
+const localShapeUtils = [
+  ...customShapeUtils,
+  ...defaultShapeUtils.filter((util) => util.type !== "arrow" && util.type !== "draw"),
+];
 const customTools = [SQLTextAreaTool, SourceTextAreaTool];
 const bundledTldrawAssetUrls = getAssetUrlsByImport();
 const customAssetUrls: TLUiAssetUrlOverrides = {

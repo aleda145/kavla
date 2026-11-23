@@ -14,6 +14,7 @@ import type { LocalServerContextType } from "../../client/localServer/types";
 import { VisualizationContext } from "./VisualizationProvider";
 import { createVisualizationSession } from "./coordinator";
 import { chartAreaValue } from "./global-selection";
+import { ChartDrawingUtil } from "./ChartDrawingUtil";
 import { chartGeometry } from "./geometry";
 import { planScatter, statisticsSQL } from "./planner";
 import { readSelections, selectionSQL, type Axis } from "./selection";
@@ -387,7 +388,7 @@ createRoot(document.getElementById("root")!).render(
       <VisualizationContext.Provider value={session}>
         <div style={{ position: "fixed", inset: 0 }}>
           <Tldraw
-            shapeUtils={[ChartUtil, SQLTextAreaUtil, SQLResultTableUtil]}
+            shapeUtils={[ChartUtil, ChartDrawingUtil, SQLTextAreaUtil, SQLResultTableUtil]}
             bindingUtils={[KavlaArrowBindingUtil]}
             assetUrls={getAssetUrlsByImport()}
             onMount={(value) => {

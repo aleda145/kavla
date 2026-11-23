@@ -75,7 +75,19 @@ export function validatePolygon(input: Point[]): Point[] {
 }
 
 export function hasSelectableArea(polygon: Point[]): boolean {
-  const [a, b] = polygon;
+  if (polygon.length < 3) return false;
+  const a = polygon[0];
+  // A trimmed crossing can land almost exactly on the next sampled vertex.
+  // Use a long baseline so two nearby samples don't make a full loop look collinear.
+  let b = a;
+  let longest = 0;
+  for (const p of polygon) {
+    const squared = (p.x - a.x) ** 2 + (p.y - a.y) ** 2;
+    if (squared > longest) {
+      longest = squared;
+      b = p;
+    }
+  }
   return polygon.some((p) => Math.abs((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)) > boundaryEpsilon);
 }
 

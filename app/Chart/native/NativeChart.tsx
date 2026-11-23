@@ -42,6 +42,7 @@ import { getColumnTypeColor } from "../../util/column-colors";
 import { connectShapes } from "../../util/shapeConnections";
 import { chartSlice, type SliceSide } from "./chart-slice";
 import { registerChartLasso } from "./chart-lasso";
+import { lassoLoop } from "./lasso-loop";
 import { chartGeometry, drawingToPlotPoints, firstPlotEntry, selectionBounds, selectionRegion } from "./geometry";
 import { useSelectionDrag } from "./useSelectionDrag";
 import {
@@ -231,6 +232,22 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     },
     [editor, shape.id]
   );
+  // Older documents kept the last failed drawing's message on the chart.
+  useEffect(() => {
+    const { nativeLassoError, nativeLassoDrawing } = shape.meta;
+    if (typeof nativeLassoError !== "string" || typeof nativeLassoDrawing !== "string" || editor.getIsReadonly())
+      return;
+    const drawing = editor.getShape<TLDrawShape>(nativeLassoDrawing as TLShapeId);
+    editor.run(
+      () => {
+        if (drawing?.type === "draw" && !drawing.meta.nativeLassoError) {
+          editor.updateShape({ id: drawing.id, type: drawing.type, meta: { ...drawing.meta, nativeLassoError } });
+        }
+        setMeta({ nativeLassoError: null });
+      },
+      { history: "ignore" }
+    );
+  }, [editor, shape.meta.nativeLassoError, shape.meta.nativeLassoDrawing, setMeta]);
   const requestKey = JSON.stringify([
     source?.revision,
     shape.props.x,
@@ -515,9 +532,15 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     editor.markHistoryStoppingPoint("chart outline attached");
   }
 
+  function markDrawingError(drawing: TLDrawShape, reason: string) {
+    if (editor.getIsReadonly()) return;
+    editor.updateShape({ id: drawing.id, type: drawing.type, meta: { ...drawing.meta, nativeLassoError: reason } });
+    setMeta({ nativeLassoDrawing: drawing.id, nativeLassoError: null });
+  }
+
   function getLassoTarget(drawing: TLDrawShape, explicit = false) {
     if (!canSelect || !geometry || !source || !currentPlot) {
-      if (explicit) setSelectionError("Wait for a current plot before selecting.");
+      if (explicit) markDrawingError(drawing, "Wait for a current plot before selecting.");
       return null;
     }
     const transform = editor.getShapePageTransform(drawing);
@@ -532,7 +555,6 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     );
     const polygon = points.map(geometry.toAnalytical);
     const start = points[0];
-    const end = points[points.length - 1];
     // A tap can pick an outline while the pen is active. Longer strokes can start inside any outline.
     const first = polygon[0];
     if (
@@ -555,11 +577,13 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         };
       }
     }
-    const closed = drawing.props.isClosed || Math.hypot(end.x - start.x, end.y - start.y) <= 12;
-    const entry = firstPlotEntry(polygon, closed);
+    const loop = lassoLoop(points, drawing.props.isClosed)?.map(geometry.toAnalytical);
+    // A loose tail alone must not give its chart ownership of a loop drawn on another chart.
+    const loopEntry = loop ? firstPlotEntry(loop, true) : null;
+    const entry = loop && loopEntry === null ? null : (firstPlotEntry(polygon, false) ?? loopEntry);
     const legacy = regions.find((r) => r.drawingId === drawing.id && !r.outline && matchesPlot(r));
     if (entry === null && !(explicit && legacy)) {
-      if (explicit) setSelectionError("Draw an outline that overlaps the plot.");
+      if (explicit) markDrawingError(drawing, "Draw an outline that overlaps the plot.");
       return null;
     }
 
@@ -572,9 +596,9 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         )
           throw new Error("Unlock the chart and drawing before attaching an outline.");
         if (!drawing.props.isComplete) throw new Error("Finish the drawing before selecting.");
-        const sides = closed ? null : chartSlice(polygon, geometry.plot.width, geometry.plot.height);
+        const sides = loop ? null : chartSlice(polygon, geometry.plot.width, geometry.plot.height);
         const crossesEdge = polygon.some(({ x, y }) => x <= 0 || x >= 1 || y <= 0 || y >= 1);
-        if (!closed && !sides && !crossesEdge)
+        if (!loop && !sides && !crossesEdge && !legacy)
           throw new Error("Close the outline or draw a slice from one edge of the plot to another.");
         const outline = {
           color: getDefaultColorTheme({ isDarkMode: false })[drawing.props.color].solid,
@@ -600,12 +624,19 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         };
         if (sides && !legacy) {
           const choices = sides.map(({ label, polygon }) => ({ label, selection: makeSelection(polygon) }));
+          if (drawing.meta.nativeLassoError) {
+            editor.updateShape({
+              id: drawing.id,
+              type: drawing.type,
+              meta: { ...drawing.meta, nativeLassoError: null },
+            });
+          }
           setSelectionError(null);
           setHoveredSide(null);
           setSlices((pending) => [
             ...pending.filter((s) => s.drawing.id !== drawing.id),
             {
-              drawing,
+              drawing: editor.getShape<TLDrawShape>(drawing.id)!,
               requestKey,
               choices,
               width: shape.props.w,
@@ -615,12 +646,10 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
             },
           ]);
         } else {
-          commitSelection(makeSelection(polygon), drawing, explicit);
+          commitSelection(makeSelection(loop ?? polygon), drawing, explicit);
         }
       } catch (error) {
-        setCount(null);
-        setSelectionError(message(error));
-        setMeta({ nativeLassoDrawing: drawing.id, nativeLassoError: message(error) });
+        markDrawingError(drawing, message(error));
       }
     };
     return { entry: entry ?? 0, attach };
@@ -707,12 +736,8 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     }
   };
 
-  const errorText =
-    sourceInfo.error ||
-    error ||
-    saved.error ||
-    selectionError ||
-    (!slice && typeof shape.meta.nativeLassoError === "string" ? shape.meta.nativeLassoError : null);
+  const errorText = sourceInfo.error || error;
+  const chartNotice = selectionError || saved.error || (currentPlot?.valid ? errorText : null);
   const renderer =
     shape.meta.nativeRenderer === "svg"
       ? "svg"
@@ -858,6 +883,11 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         <strong className="kavla-scatter__title" title={source?.name ?? "Chart"}>
           {source?.name ?? "CHART"}
         </strong>
+        {chartNotice && (
+          <span role="status" aria-label={chartNotice} title={chartNotice}>
+            <CircleAlert size={16} />
+          </span>
+        )}
       </div>
       <div className="kavla-chart__body" style={{ height: height + controlsHeight }}>
         <div className="kavla-chart__content" style={{ width }}>
@@ -887,7 +917,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                     pixelRatio={pixelRatio}
                   />
                 )}
-                {!errorText && !settingsOpen && !slice ? (
+                {!settingsOpen && !slice ? (
                   <ScatterTooltip
                     editor={editor}
                     shapeId={shape.id}
@@ -935,7 +965,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 <X size={14} />
               </button>
             )}
-            {(!currentPlot || !currentPlot.valid || errorText) && (
+            {(!currentPlot || !currentPlot.valid) && (
               <div role="status" className="kavla-scatter__message">
                 <strong>
                   {errorText ? <CircleAlert size={17} /> : <ScatterChart size={17} />}

@@ -28,6 +28,22 @@
   font-size: 14px;
   font-weight: 800;
 }
+.kavla-chart__drawing-warning {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 5px;
+  border: 1px solid #000;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #111;
+  font:
+    600 11px/1.2 Inter,
+    sans-serif;
+  white-space: nowrap;
+  pointer-events: auto;
+}
 .kavla-chart__body {
   display: flex;
   min-height: 0;
