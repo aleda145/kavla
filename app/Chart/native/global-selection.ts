@@ -1,6 +1,6 @@
 import type { Editor, TLShapeId } from "tldraw";
 import type { ChartShape } from "../chart-shape-types";
-import type { ChartSelection } from "./selection";
+import { serializeSelections, type ChartSelection } from "./selection.ts";
 import type { ChartData } from "./chart-data";
 import { selectionRegion, type chartGeometry } from "./geometry.ts";
 
@@ -32,10 +32,10 @@ export function areaOnPlot(
   };
 }
 
-export function setGlobalArea(editor: Editor, chartId: TLShapeId, area: ChartSelection | null) {
+export function setGlobalArea(editor: Editor, chartId: TLShapeId, regions: ChartSelection[]) {
   const page = editor.getCurrentPage();
   editor.updatePage({
     id: page.id,
-    meta: { ...page.meta, selectedAreaChartId: chartId, nativeSelection: area && JSON.stringify(area) },
+    meta: { ...page.meta, selectedAreaChartId: chartId, nativeSelection: serializeSelections(regions) },
   });
 }

@@ -1,6 +1,6 @@
 import type { Editor, TLShapeId } from "tldraw";
 import { tokenizeSQL } from "../Knob/knobSQL";
-import { identifier, readSelection, selectionSQL } from "../Chart/native/selection";
+import { identifier, readSelection, readSelections, selectionSQL } from "../Chart/native/selection";
 import { stripTrailingSemicolons } from "../src/duckdb/sql";
 import type { ChartShape } from "../Chart/chart-shape-types";
 import { activeAreaChart, chartAreaValue } from "../Chart/native/global-selection";
@@ -101,12 +101,10 @@ export function resolveSelectedAreaSQL(editor: Editor, sql: string, shapeId?: TL
   if (!area.chartId) throw new Error("Choose a source chart for selected_area in this query.");
   if (!area.chart) throw new Error("The chart for selected_area no longer exists.");
   if (!area.source) throw new Error("Connect the selected_area chart to a source query.");
-  const selection = readSelection(chartAreaValue(editor, area.chart));
+  const sourceId = area.source.id;
+  const regions = readSelections(chartAreaValue(editor, area.chart)).filter((r) => r.sourceId === sourceId);
   const limit = area.chart.props.limit;
   const input = `SELECT * FROM ${identifier(area.source.props.name)}${limit == null ? "" : ` LIMIT ${Math.max(1, Math.floor(limit))}`}`;
-  const rows =
-    selection && selection.sourceId === area.source.id
-      ? selectionSQL(input, selection)
-      : `SELECT * FROM (${input}) AS chart_input WHERE FALSE`;
+  const rows = selectionSQL(input, regions);
   return `WITH selected_area AS (${rows})\nSELECT * FROM (${stripTrailingSemicolons(sql)}) AS kavla_area_query`;
 }

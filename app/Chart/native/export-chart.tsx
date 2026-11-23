@@ -1,6 +1,6 @@
 import type { ChartData } from "./chart-data";
 import { chartGeometry } from "./geometry";
-import type { ChartSelection, Point } from "./selection";
+import type { ChartSelection } from "./selection";
 import { ScatterMarks } from "./ScatterMarks";
 import { ScatterAxes } from "./ScatterAxes";
 import { SeriesMarks } from "./SeriesMarks";
@@ -10,10 +10,9 @@ export async function exportNativeChart(
   data: ChartData,
   width: number,
   height: number,
-  polygon: Point[] | null,
+  selections: ChartSelection[],
   name: string,
-  format: "svg" | "png",
-  selection?: ChartSelection | null
+  format: "svg" | "png"
 ) {
   const { renderToStaticMarkup } = await import("react-dom/server");
   const geometry = chartGeometry(width, height, data.x, data.y);
@@ -53,7 +52,7 @@ export async function exportNativeChart(
               marks={data.marks}
               geometry={geometry}
               plan={data.plan}
-              polygon={polygon}
+              selections={selections}
               width={width}
               height={height}
               renderer="svg"
@@ -66,7 +65,7 @@ export async function exportNativeChart(
               width={width}
               height={height}
               renderer="svg"
-              selection={selection}
+              selections={selections}
             />
           )}
           <ScatterAxes
@@ -75,8 +74,7 @@ export async function exportNativeChart(
             height={height}
             xLabel={data.x.field + (data.x.type === "log" ? " · log" : "")}
             yLabel={data.y.field + (data.y.type === "log" ? " · log" : "")}
-            polygon={polygon}
-            outline={selection?.outline}
+            selections={selections}
             xKind={data.xKind}
             categories={data.categories}
           />

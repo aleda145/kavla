@@ -17,7 +17,7 @@ export const ScatterMarks = memo(function ScatterMarks({
   marks,
   geometry,
   plan,
-  polygon,
+  selections,
   width,
   height,
   renderer,
@@ -27,7 +27,7 @@ export const ScatterMarks = memo(function ScatterMarks({
   marks: Mark[];
   geometry: ReturnType<typeof chartGeometry>;
   plan: ScatterPlan;
-  polygon: Point[] | null;
+  selections: { polygon: Point[] }[];
   width: number;
   height: number;
   renderer: "svg" | "canvas";
@@ -61,7 +61,7 @@ export const ScatterMarks = memo(function ScatterMarks({
     ctx.clip();
     for (const mark of marks) {
       const p = geometry.fromAnalytical(mark);
-      const selected = polygon && containsPoint(mark, polygon);
+      const selected = selections.some(({ polygon }) => containsPoint(mark, polygon));
       if (plan.mode === "density") {
         ctx.fillStyle = (selected ? selectedColor : color)(mark.count);
         const cellWidth = plot.width / plan.columns,
@@ -82,7 +82,7 @@ export const ScatterMarks = memo(function ScatterMarks({
         } else ctx.fillRect(left, top, right - left, bottom - top);
       } else {
         ctx.fillStyle = selected ? "#fde047" : colorBy ? groupColor(mark.group) : "#3b82f6";
-        ctx.globalAlpha = polygon && !selected ? 0.3 : 1;
+        ctx.globalAlpha = selections.length && !selected ? 0.3 : 1;
         ctx.strokeStyle = "#000";
         ctx.lineWidth = point.stroke;
         ctx.beginPath();
@@ -95,7 +95,7 @@ export const ScatterMarks = memo(function ScatterMarks({
     marks,
     geometry,
     plan,
-    polygon,
+    selections,
     width,
     height,
     renderer,
@@ -124,7 +124,7 @@ export const ScatterMarks = memo(function ScatterMarks({
       <g clipPath={`url(#${clipId})`}>
         {marks.map((mark, i) => {
           const p = geometry.fromAnalytical(mark);
-          const selected = polygon && containsPoint(mark, polygon);
+          const selected = selections.some(({ polygon }) => containsPoint(mark, polygon));
           if (plan.mode === "density" && colorBy && mark.groups) {
             let start = p.x - geometry.plot.width / plan.columns / 2;
             return (
@@ -166,7 +166,7 @@ export const ScatterMarks = memo(function ScatterMarks({
               fill={selected ? "#fde047" : colorBy ? groupColor(mark.group) : "#3b82f6"}
               stroke="#000"
               strokeWidth={point.stroke}
-              opacity={polygon && !selected ? 0.3 : 1}
+              opacity={selections.length && !selected ? 0.3 : 1}
             />
           );
         })}

@@ -2,7 +2,7 @@ import { area, line } from "d3";
 import { memo, useEffect, useId, useMemo, useRef } from "react";
 import { groupColor } from "./appearance";
 import { barRectangles, type chartGeometry } from "./geometry";
-import { containsPoint, normalize, type ChartSelection } from "./selection";
+import { containsPoint, type ChartSelection } from "./selection";
 import type { ChartData } from "./chart-data";
 import type { Mark } from "./ScatterMarks";
 
@@ -13,7 +13,7 @@ export const SeriesMarks = memo(function SeriesMarks({
   height,
   renderer,
   pixelRatio = 1,
-  selection,
+  selections,
 }: {
   data: ChartData;
   geometry: ReturnType<typeof chartGeometry>;
@@ -21,33 +21,22 @@ export const SeriesMarks = memo(function SeriesMarks({
   height: number;
   renderer: "svg" | "canvas";
   pixelRatio?: number;
-  selection?: ChartSelection | null;
+  selections: ChartSelection[];
 }) {
   const id = useId(),
     canvas = useRef<HTMLCanvasElement>(null);
   const bars = useMemo(() => barRectangles(data, geometry), [data, geometry]);
   const selected = useMemo(() => {
-    const series = selection?.series;
-    if (!series || !selection) return null;
-    if (series.kind === "bar") {
-      const keys = new Set(series.keys.map((key) => JSON.stringify(key)));
+    if (!selections.length) return null;
+    if (data.kind === "bar") {
+      const keys = new Set<string>();
+      for (const { series } of selections) {
+        if (series?.kind === "bar") for (const key of series.keys) keys.add(JSON.stringify(key));
+      }
       return new Set(data.marks.filter((m) => keys.has(JSON.stringify([m.xValue, m.group]))));
     }
-    const categories =
-      series.xKind === "category"
-        ? new Map(series.categories.map((key, i) => [key, selection.x.domain[0] + 0.5 + i]))
-        : null;
-    return new Set(
-      data.marks.filter((mark) => {
-        const value = geometry.unproject(geometry.fromAnalytical(mark));
-        const xValue = categories ? categories.get(mark.xValue ?? null) : value.x;
-        if (xValue === undefined) return false;
-        const x = normalize(xValue, selection.x);
-        const y = normalize(value.y, selection.y);
-        return x >= 0 && x <= 1 && y >= 0 && y <= 1 && containsPoint({ x, y }, selection.polygon);
-      })
-    );
-  }, [data, geometry, selection]);
+    return new Set(data.marks.filter((m) => selections.some(({ polygon }) => containsPoint(m, polygon))));
+  }, [data, selections]);
   const runs = useMemo(() => {
     const groups = new Map<string, Mark[]>();
     for (const mark of data.marks) {

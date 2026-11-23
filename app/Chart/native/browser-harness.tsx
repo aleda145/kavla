@@ -16,7 +16,7 @@ import { createVisualizationSession } from "./coordinator";
 import { chartAreaValue } from "./global-selection";
 import { chartGeometry } from "./geometry";
 import { planScatter, statisticsSQL } from "./planner";
-import { selectionSQL, type Axis, type ChartSelection } from "./selection";
+import { readSelections, selectionSQL, type Axis } from "./selection";
 import type { ChartShape } from "../chart-shape-types";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { connectShapes } from "../../util/shapeConnections";
@@ -186,7 +186,7 @@ async function programmaticLasso() {
 async function transformsAndPersistence() {
   const initial = editor.getShape<ChartShape>(chartId)!;
   const savedArea = chartAreaValue(editor, initial);
-  const selection = JSON.parse(savedArea as string) as ChartSelection;
+  const selections = readSelections(savedArea);
   const results = [];
   const queriesBefore = transport.length;
   editor.updateShape({ id: chartId, type: "chart-shape", x: 120, y: 100 });
@@ -210,7 +210,7 @@ async function transformsAndPersistence() {
   const after = editor.getShape<ChartShape>(chartId)!;
   if (chartAreaValue(editor, after) !== savedArea) throw new Error("Selection did not survive snapshot roundtrip.");
   const result = await session.coordinator.query(
-    `SELECT count(*) AS n FROM (${selectionSQL(selection.sourceSQL, selection)})`,
+    `SELECT count(*) AS n FROM (${selectionSQL(selections[0].sourceSQL, selections)})`,
     { cache: false }
   );
   if (Number(result.toArray()[0].n) !== 128010) throw new Error("Restored selection changed.");

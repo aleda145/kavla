@@ -106,15 +106,25 @@ export function chartValueSQL(field: string, kind: "number" | "time"): string {
   return kind === "time" ? `epoch_ms(TRY_CAST(${field} AS TIMESTAMP))` : `TRY_CAST(${field} AS DOUBLE)`;
 }
 
-export function selectionSQL(sourceSQL: string, selection: SelectionGeometry & { series?: SeriesSelection }): string {
+type SQLRegion = SelectionGeometry & { series?: SeriesSelection };
+
+export function selectionSQL(sourceSQL: string, area: SQLRegion | SQLRegion[]): string {
+  const regions = Array.isArray(area) ? area : [area];
   const input = `(${sourceSQL.trim().replace(/;+\s*$/, "")})`;
-  const { series, x, y } = selection;
   const from = `SELECT observation.* FROM ${input} AS observation`;
-  if (!series) return `${from} WHERE ${selectionPredicate(selection)}`;
+  if (!regions.length) return `${from} WHERE FALSE`;
+  // Every outline is bound to the same plot and visible category page.
+  const { series, x, y } = regions[0];
+  if (!series) return `${from} WHERE ${regions.map((r) => selectionPredicate(r)).join(" OR ")}`;
   const field = identifier(x.field);
   if (series.kind === "bar") {
-    if (!series.keys.length) return `${from} WHERE FALSE`;
-    const keys = series.keys.map(([category, group]) => `(${sqlKey(category)}, ${sqlKey(group)})`).join(", ");
+    const hits = new Set<string>();
+    for (const region of regions) {
+      if (region.series?.kind !== "bar") throw new Error("Expected a bar selection.");
+      for (const [category, group] of region.series.keys) hits.add(`(${sqlKey(category)}, ${sqlKey(group)})`);
+    }
+    if (!hits.size) return `${from} WHERE FALSE`;
+    const keys = [...hits].join(", ");
     const category = `CAST(numbered.original_row.${field} AS VARCHAR)`;
     const group =
       series.color === null ? "NULL::VARCHAR" : `CAST(numbered.original_row.${identifier(series.color)} AS VARCHAR)`;
@@ -143,7 +153,9 @@ export function selectionSQL(sourceSQL: string, selection: SelectionGeometry & {
     xValue = chartValueSQL(`observation.${field}`, series.xKind);
   }
   const yValue = chartValueSQL(`observation.${identifier(y.field)}`, "number");
-  const predicate = selectionPredicate(selection, normalizedSQL(x, xValue), normalizedSQL(y, yValue));
+  const predicate = regions
+    .map((r) => selectionPredicate(r, normalizedSQL(x, xValue), normalizedSQL(y, yValue)))
+    .join(" OR ");
   return `${relation} WHERE ${predicate}`;
 }
 
@@ -192,7 +204,21 @@ export function selectionPredicate(
 
 export function readSelection(value: unknown): ChartSelection | null {
   if (typeof value !== "string") return null;
-  const s = JSON.parse(value) as ChartSelection;
+  return validateSelection(JSON.parse(value));
+}
+
+export function readSelections(value: unknown): ChartSelection[] {
+  if (typeof value !== "string") return [];
+  const parsed = JSON.parse(value);
+  return Array.isArray(parsed) ? parsed.map(validateSelection) : [validateSelection(parsed)];
+}
+
+export function serializeSelections(regions: ChartSelection[]) {
+  if (!regions.length) return null;
+  return JSON.stringify(regions.length === 1 ? regions[0] : regions);
+}
+
+function validateSelection(s: ChartSelection): ChartSelection {
   if (
     !s ||
     (s.version !== 1 && s.version !== 2) ||

@@ -79,12 +79,12 @@ try {
               marks={marks}
               geometry={geometry}
               plan={plan}
-              polygon={null}
+              selections={[]}
               width={592}
               height={268}
               renderer="svg"
             />
-            <ScatterAxes geometry={geometry} width={592} height={268} xLabel="x" yLabel="y" polygon={null} />
+            <ScatterAxes geometry={geometry} width={592} height={268} xLabel="x" yLabel="y" selections={[]} />
           </>
         ).length;
       const nativeSvgMs = performance.now() - t;

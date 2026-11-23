@@ -1,5 +1,5 @@
 import type { chartGeometry } from "./geometry";
-import type { OutlineStyle, Point } from "./selection";
+import type { ChartSelection } from "./selection";
 import { memo, useId, type SVGProps } from "react";
 import { scaleUtc } from "d3";
 import type { XKind } from "./chart-data";
@@ -10,10 +10,10 @@ export const ScatterAxes = memo(function ScatterAxes({
   height,
   xLabel,
   yLabel,
-  polygon,
-  outline,
-  dragHandlers,
-  previewSide = false,
+  selections,
+  handlersFor,
+  focusedId,
+  previewId,
   xKind = "number",
   categories = [],
 }: {
@@ -22,10 +22,10 @@ export const ScatterAxes = memo(function ScatterAxes({
   height: number;
   xLabel: string;
   yLabel: string;
-  polygon: Point[] | null;
-  outline?: OutlineStyle;
-  dragHandlers?: SVGProps<SVGPolygonElement>;
-  previewSide?: boolean;
+  selections: ChartSelection[];
+  handlersFor?: (selection: ChartSelection, index: number) => SVGProps<SVGPolygonElement>;
+  focusedId?: string | null;
+  previewId?: string;
   xKind?: XKind;
   categories?: { value: number; label: string }[];
 }) {
@@ -57,37 +57,43 @@ export const ScatterAxes = memo(function ScatterAxes({
           <rect x={plot.left} y={plot.top} width={plot.width} height={plot.height} />
         </clipPath>
       </defs>
-      {polygon && (
-        <polygon
-          {...dragHandlers}
-          clipPath={`url(#${clipId})`}
-          points={polygon
-            .map((p) => {
-              const q = geometry.fromAnalytical(p);
-              return `${q.x},${q.y}`;
-            })
-            .join(" ")}
-          fill="#fde047"
-          fillOpacity={previewSide ? 0.28 : 0.08}
-          fillRule="evenodd"
-          stroke={outline?.color ?? "#000"}
-          strokeWidth={outline?.width ?? 2}
-          strokeOpacity={outline?.opacity ?? 1}
-          strokeDasharray={
-            outline
-              ? outline.dash === "dashed"
-                ? `${outline.width * 3} ${outline.width * 2}`
-                : outline.dash === "dotted"
-                  ? `0 ${outline.width * 2}`
-                  : undefined
-              : "5 4"
-          }
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          {dragHandlers && <title>Drag to move selection</title>}
-        </polygon>
-      )}
+      {selections.map((selection, index) => {
+        const { drawingId, polygon, outline } = selection;
+        const dragHandlers = handlersFor?.(selection, index);
+        return (
+          <polygon
+            key={drawingId}
+            data-chart-drawing={drawingId}
+            {...dragHandlers}
+            clipPath={`url(#${clipId})`}
+            points={polygon
+              .map((p) => {
+                const q = geometry.fromAnalytical(p);
+                return `${q.x},${q.y}`;
+              })
+              .join(" ")}
+            fill="#fde047"
+            fillOpacity={previewId === drawingId || focusedId === drawingId ? 0.28 : 0.08}
+            fillRule="evenodd"
+            stroke={outline?.color ?? "#000"}
+            strokeWidth={outline?.width ?? 2}
+            strokeOpacity={outline?.opacity ?? 1}
+            strokeDasharray={
+              outline
+                ? outline.dash === "dashed"
+                  ? `${outline.width * 3} ${outline.width * 2}`
+                  : outline.dash === "dotted"
+                    ? `0 ${outline.width * 2}`
+                    : undefined
+                : "5 4"
+            }
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            {dragHandlers && <title>Click to select this drawing or drag to move it</title>}
+          </polygon>
+        );
+      })}
       <path
         d={`M${plot.left},${plot.top}V${bottom}H${plot.left + plot.width}`}
         fill="none"

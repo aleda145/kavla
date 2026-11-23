@@ -55,7 +55,15 @@ import {
 import { SeriesMarks } from "./SeriesMarks";
 import { restoreRemoteQueryView } from "../../SQLTextArea/restoreRemoteQueryView";
 import { exportNativeChart } from "./export-chart";
-import { readSelection, selectionSQL, validatePolygon, type ChartSelection, type Point } from "./selection";
+import {
+  containsPoint,
+  readSelections,
+  serializeSelections,
+  selectionSQL,
+  validatePolygon,
+  type ChartSelection,
+  type Point,
+} from "./selection";
 import { getSelectedAreaReferences, queriesForSelectedArea } from "../../SQLTextArea/selected-area";
 import { scatterSource } from "./source";
 import { activeAreaChart, areaOnPlot, chartAreaValue, setGlobalArea } from "./global-selection";
@@ -88,7 +96,6 @@ type PendingSlice = {
   requestKey: string;
   width: number;
   height: number;
-  previousSelection: ChartSelection | null;
   choices: { label: SliceSide; selection: ChartSelection }[];
 };
 
@@ -125,19 +132,26 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   const areaValue = useValue("placed chart area", () => chartAreaValue(editor, shape), [editor, shape]);
   const saved = useMemo(() => {
     try {
-      return { selection: readSelection(areaValue), error: null };
+      return { regions: readSelections(areaValue), error: null };
     } catch (error) {
-      return { selection: null, error: message(error) };
+      return { regions: [], error: message(error) };
     }
   }, [areaValue]);
-  const selection = saved.selection;
+  const { regions } = saved;
+  const firstRegion = regions[0];
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const exploredId = useValue(
     "chart selection query",
     () =>
       queriesForSelectedArea(editor, shape.id).find((query) => getSelectedAreaReferences(query.props.text).length)?.id,
     [editor, shape.id]
   );
-  const [pendingSlice, setPendingSlice] = useState<PendingSlice | null>(null);
+  const [slices, setSlices] = useState<PendingSlice[]>([]);
+  const pendingSlice = slices[0];
+  const dismissSlice = () => {
+    setSlices((pending) => pending.filter((s) => s.drawing.id !== pendingSlice?.drawing.id));
+    setHoveredSide(null);
+  };
   const [hoveredSide, setHoveredSide] = useState<SliceSide | null>(null);
   const sliceDrawingCurrent = useValue(
     "chart slice drawing",
@@ -162,7 +176,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   const capturing = currentTool === "draw" && canSelect;
   const controlsHeight = compact
     ? 0
-    : 28 + (shape.props.color ? 24 : 0) + ((selection || exploredId) && canSelect ? 34 : 0);
+    : 28 + (shape.props.color ? 24 : 0) + ((firstRegion || exploredId) && canSelect ? 34 : 0);
   const [exporting, setExporting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsId = useId();
@@ -301,6 +315,15 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   const previouslyPicked = useRef(picked);
   const waitingForPlot = useRef(false);
 
+  function regionsToCarry() {
+    if (activeAreaChart(editor)) return readSelections(editor.getCurrentPage().meta.nativeSelection);
+    // A legacy page may have separate outlines per chart. Picking one adopts its outline.
+    const oldCharts = editor.getCurrentPageShapes().filter((s) => s.type === "chart-shape" && s.meta.nativeSelection);
+    const value = shape.meta.nativeSelection ?? (oldCharts.length === 1 ? oldCharts[0].meta.nativeSelection : null);
+    if (!value && oldCharts.length > 1) return null;
+    return readSelections(value);
+  }
+
   function switchToChart() {
     if (editor.getIsReadonly() || editor.isShapeOrAncestorLocked(shape.id) || !canSelect || !source) return;
     if (!currentPlot || !geometry) {
@@ -310,17 +333,15 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     waitingForPlot.current = false;
     const active = activeAreaChart(editor);
     if (active === shape.id) return;
-    let value = editor.getCurrentPage().meta.nativeSelection;
-    if (!active) {
-      // Old documents can have several independent outlines. Picking one promotes it to the global area.
-      const oldCharts = editor.getCurrentPageShapes().filter((s) => s.type === "chart-shape" && s.meta.nativeSelection);
-      value = shape.meta.nativeSelection ?? (oldCharts.length === 1 ? oldCharts[0].meta.nativeSelection : null);
-      if (!value && oldCharts.length > 1) return;
-    }
     try {
-      const area = readSelection(value);
+      const areas = regionsToCarry();
+      if (!areas) return;
       editor.markHistoryStoppingPoint("switch selected area to chart");
-      setGlobalArea(editor, shape.id, area ? areaOnPlot(area, shape, currentPlot, geometry, source) : null);
+      setGlobalArea(
+        editor,
+        shape.id,
+        areas.map((area) => areaOnPlot(area, shape, currentPlot, geometry, source))
+      );
       editor.markHistoryStoppingPoint("selected area switched");
     } catch (error) {
       setSelectionError(message(error));
@@ -339,7 +360,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   const refreshArea = useEffectEvent(() => {
     if (
       !canSelect ||
-      !selection ||
+      !regions.length ||
       !currentPlot ||
       !geometry ||
       !source ||
@@ -349,8 +370,8 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       editor.getCurrentPage().meta.nativeSelection !== areaValue
     )
       return;
-    const next = areaOnPlot(selection, shape, currentPlot, geometry, source);
-    if (JSON.stringify(next) !== areaValue) {
+    const next = regions.map((area) => areaOnPlot(area, shape, currentPlot, geometry, source));
+    if (serializeSelections(next) !== areaValue) {
       editor.run(() => setGlobalArea(editor, shape.id, next), { history: "ignore" });
     }
   });
@@ -373,43 +394,44 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   }
   const selectionCurrent = Boolean(
     canSelect &&
-    selection &&
-    matchesPlot(selection) &&
-    selection.sourceRevision === source?.revision &&
-    selection.x.type === currentPlot?.x.type &&
-    selection.y.type === currentPlot?.y.type
+    regions.length &&
+    regions.every(
+      (area) =>
+        matchesPlot(area) &&
+        area.sourceRevision === source?.revision &&
+        area.x.type === currentPlot?.x.type &&
+        area.y.type === currentPlot?.y.type
+    )
   );
   const slice =
     pendingSlice &&
     sliceDrawingCurrent &&
     currentPlot &&
     pendingSlice.requestKey === requestKey &&
-    pendingSlice.previousSelection === selection &&
     pendingSlice.width === shape.props.w &&
     pendingSlice.height === shape.props.h &&
     pendingSlice.choices[0].selection.sourceId === source?.id
       ? pendingSlice
       : null;
   useEffect(() => {
-    if (pendingSlice && !slice) setPendingSlice(null);
+    if (pendingSlice && !slice) dismissSlice();
   }, [pendingSlice, slice]);
   const hoveredSelection = slice?.choices.find((choice) => choice.label === hoveredSide)?.selection;
-  const savedDisplay = selectionCurrent ? selection : null;
-  const placed = slice ? (hoveredSelection ?? null) : savedDisplay;
-  // Category indices are stable within a source revision.
-  const placedPolygon = useMemo(() => {
-    if (!placed || !geometry || !currentPlot) return null;
-    if (activeAreaChart(editor) === shape.id) return placed.polygon;
-    if (
-      currentPlot.page &&
-      (placed.sourceRevision !== source?.revision ||
-        placed.x.domain[1] <= currentPlot.x.domain[0] ||
-        placed.x.domain[0] >= currentPlot.x.domain[1])
-    )
-      return null;
-    const original = chartGeometry(width, height, placed.x, placed.y);
-    return placed.polygon.map((p) => geometry.normalize(original.unproject(original.fromAnalytical(p))));
-  }, [placed, geometry, currentPlot, source?.revision, width, height, editor, shape.id]);
+  // Older per-chart outlines used the axis domains at the time of drawing.
+  const placed = useMemo(() => {
+    if (!selectionCurrent || !geometry || !currentPlot) return [];
+    if (activeAreaChart(editor) === shape.id) return regions;
+    return regions.flatMap((area) => {
+      if (
+        currentPlot.page &&
+        (area.x.domain[1] <= currentPlot.x.domain[0] || area.x.domain[0] >= currentPlot.x.domain[1])
+      )
+        return [];
+      const original = chartGeometry(width, height, area.x, area.y);
+      const polygon = area.polygon.map((p) => geometry.normalize(original.unproject(original.fromAnalytical(p))));
+      return [{ ...area, polygon }];
+    });
+  }, [regions, selectionCurrent, geometry, currentPlot, width, height, editor, shape.id]);
   const canMove = useValue(
     "move chart selection",
     () => editor.isIn("select.idle") && !editor.getIsReadonly() && !editor.isShapeOrAncestorLocked(shape.id),
@@ -417,11 +439,13 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   );
   const drag = useSelectionDrag(
     editor,
-    canMove && !slice && !settingsOpen && selectionCurrent ? selection : null,
-    placedPolygon,
+    canMove && !slice && !settingsOpen ? placed : [],
     geometry,
     currentPlot,
     shape.props.color,
+    focusedId,
+    setFocusedId,
+    deleteDrawing,
     (next) => {
       if (
         editor.getIsReadonly() ||
@@ -432,16 +456,41 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       editor.markHistoryStoppingPoint("move chart selection");
       setCount(null);
       setSelectionError(null);
-      setGlobalArea(editor, shape.id, { ...next, chartId: shape.id });
+      const moved = regions.map((r) => (r.drawingId === next.drawingId ? { ...next, chartId: shape.id } : r));
+      setGlobalArea(editor, shape.id, moved);
       setMeta({ nativeLassoError: null, nativeLassoDrawing: null });
       editor.markHistoryStoppingPoint("chart selection moved");
     }
   );
-  const displayed = drag.draft ?? placed;
-  const visiblePolygon = drag.draft?.polygon ?? placedPolygon;
+  const displayed = useMemo(() => {
+    if (hoveredSelection) return [...placed, hoveredSelection];
+    const draft = drag.draft;
+    if (draft) return placed.map((r) => (r.drawingId === draft.drawingId ? draft : r));
+    return placed;
+  }, [placed, hoveredSelection, drag.draft]);
+  const focused = canMove && !slice && !settingsOpen ? displayed.find((r) => r.drawingId === focusedId) : undefined;
+
+  useEffect(() => {
+    if (!focusedId) return;
+    const dismiss = (event: globalThis.PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest(".kavla-scatter")?.id === shape.id &&
+        target.closest("[data-chart-drawing]")
+      )
+        return;
+      setFocusedId(null);
+    };
+    document.addEventListener("pointerdown", dismiss, true);
+    return () => document.removeEventListener("pointerdown", dismiss, true);
+  }, [focusedId, shape.id]);
 
   function commitSelection(next: ChartSelection, drawing: TLDrawShape, separateHistory: boolean) {
     if (
+      !currentPlot ||
+      !geometry ||
+      !source ||
       editor.getShape(drawing.id) !== drawing ||
       editor.getIsReadonly() ||
       editor.isShapeOrAncestorLocked(shape.id) ||
@@ -450,13 +499,16 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       return;
     setCount(null);
     setSelectionError(null);
-    setPendingSlice(null);
+    setSlices((pending) => pending.filter((s) => s.drawing.id !== drawing.id));
+    setFocusedId(null);
     setHoveredSide(null);
+    const previous = (regionsToCarry() ?? []).filter((r) => r.drawingId !== next.drawingId);
+    const areas = [...previous, next].map((r) => areaOnPlot(r, shape, currentPlot, geometry, source));
     // Automatic lasso capture joins the drawing gesture. A later side choice or
     // explicit attachment has its own undo boundary and restores the original pen stroke.
     if (separateHistory) editor.markHistoryStoppingPoint("attach chart outline");
     editor.run(() => {
-      setGlobalArea(editor, shape.id, next);
+      setGlobalArea(editor, shape.id, areas);
       setMeta({ nativeLassoError: null, nativeLassoDrawing: null });
       editor.deleteShapes([drawing.id]);
     });
@@ -481,9 +533,31 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     const polygon = points.map(geometry.toAnalytical);
     const start = points[0];
     const end = points[points.length - 1];
+    // A tap can pick an outline while the pen is active. Longer strokes can start inside any outline.
+    const first = polygon[0];
+    if (
+      !explicit &&
+      first.x >= 0 &&
+      first.x <= 1 &&
+      first.y >= 0 &&
+      first.y <= 1 &&
+      points.every((p) => Math.hypot(p.x - start.x, p.y - start.y) * editor.getZoomLevel() < 3)
+    ) {
+      const hit = [...placed].reverse().find((r) => containsPoint(first, r.polygon));
+      if (hit) {
+        return {
+          entry: 0,
+          attach: () => {
+            editor.deleteShapes([drawing.id]);
+            editor.setCurrentTool("select");
+            setFocusedId(hit.drawingId);
+          },
+        };
+      }
+    }
     const closed = drawing.props.isClosed || Math.hypot(end.x - start.x, end.y - start.y) <= 12;
     const entry = firstPlotEntry(polygon, closed);
-    const legacy = selection?.drawingId === drawing.id && !selection.outline && matchesPlot(selection);
+    const legacy = regions.find((r) => r.drawingId === drawing.id && !r.outline && matchesPlot(r));
     if (entry === null && !(explicit && legacy)) {
       if (explicit) setSelectionError("Draw an outline that overlaps the plot.");
       return null;
@@ -498,9 +572,9 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         )
           throw new Error("Unlock the chart and drawing before attaching an outline.");
         if (!drawing.props.isComplete) throw new Error("Finish the drawing before selecting.");
-        const regions = closed ? null : chartSlice(polygon, geometry.plot.width, geometry.plot.height);
+        const sides = closed ? null : chartSlice(polygon, geometry.plot.width, geometry.plot.height);
         const crossesEdge = polygon.some(({ x, y }) => x <= 0 || x >= 1 || y <= 0 || y >= 1);
-        if (!closed && !regions && !crossesEdge)
+        if (!closed && !sides && !crossesEdge)
           throw new Error("Close the outline or draw a slice from one edge of the plot to another.");
         const outline = {
           color: getDefaultColorTheme({ isDarkMode: false })[drawing.props.color].solid,
@@ -511,7 +585,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         const makeSelection = (region: Point[]): ChartSelection => {
           const validatedPolygon = validatePolygon(region);
           return legacy
-            ? { ...selection, chartId: shape.id, outline }
+            ? { ...legacy, chartId: shape.id, outline }
             : {
                 ...selectionRegion(currentPlot, geometry, validatedPolygon, shape.props.color),
                 semantics: "observations",
@@ -524,24 +598,25 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 outline,
               };
         };
-        if (regions && !legacy) {
-          const choices = regions.map(({ label, polygon }) => ({ label, selection: makeSelection(polygon) }));
+        if (sides && !legacy) {
+          const choices = sides.map(({ label, polygon }) => ({ label, selection: makeSelection(polygon) }));
           setSelectionError(null);
           setHoveredSide(null);
-          setPendingSlice({
-            drawing,
-            requestKey,
-            choices,
-            width: shape.props.w,
-            height: shape.props.h,
-            previousSelection: selection,
-            drawingTransform: transform.toCssString(),
-            chartTransform: editor.getShapePageTransform(shape.id).toCssString(),
-          });
+          setSlices((pending) => [
+            ...pending.filter((s) => s.drawing.id !== drawing.id),
+            {
+              drawing,
+              requestKey,
+              choices,
+              width: shape.props.w,
+              height: shape.props.h,
+              drawingTransform: transform.toCssString(),
+              chartTransform: editor.getShapePageTransform(shape.id).toCssString(),
+            },
+          ]);
         } else {
           commitSelection(makeSelection(polygon), drawing, explicit);
         }
-        if (!explicit) editor.setCurrentTool("select");
       } catch (error) {
         setCount(null);
         setSelectionError(message(error));
@@ -556,12 +631,12 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
 
   useEffect(() => {
     setCount(null);
-    if (!selectionCurrent || !selection || !visible) return;
+    if (!selectionCurrent || !firstRegion || !visible) return;
     const controller = new AbortController();
     let current = true;
     // Authoritative counts are always live and never use the result cache.
     const request = coordinator.query(
-      `SELECT count(*) AS count FROM (${selectionSQL(selection.sourceSQL, selection)})`,
+      `SELECT count(*) AS count FROM (${selectionSQL(firstRegion.sourceSQL, regions)})`,
       { cache: false, priority: Priority.High, signal: controller.signal }
     );
     void request.then(
@@ -580,7 +655,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       controller.abort();
       coordinator.cancel([request]);
     };
-  }, [coordinator, selection, selectionCurrent, currentPlot, refresh, visible]);
+  }, [coordinator, regions, firstRegion, selectionCurrent, currentPlot, refresh, visible]);
 
   const branchController = useRef<AbortController | null>(null);
   useEffect(() => () => branchController.current?.abort(), []);
@@ -591,11 +666,11 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       if (bounds) editor.zoomToBounds(bounds, { targetZoom: editor.getZoomLevel(), animation: { duration: 200 } });
       return;
     }
-    if (!selection || !source || count === null || !selectionCurrent) return;
+    if (!firstRegion || !source || count === null || !selectionCurrent) return;
     setExploring(true);
     try {
       const latest = scatterSource(editor, shape);
-      if (latest.revision !== selection.sourceRevision)
+      if (latest.revision !== firstRegion.sourceRevision)
         throw new Error("The upstream query changed. Draw a new selection.");
       const text = "SELECT * FROM selected_area";
       const id = createShapeId();
@@ -614,7 +689,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       const result = await executeSQLShape(editor, data, id, text, controller.signal, { createMissingKnobs: false });
       if (!result.success) throw new Error(result.error ?? "The selected query failed. Retry from the new SQL shape.");
       try {
-        if (scatterSource(editor, shape).revision !== selection.sourceRevision)
+        if (scatterSource(editor, shape).revision !== firstRegion.sourceRevision)
           throw new Error("The upstream query changed while the branch ran. Run this SQL shape again.");
       } catch (error) {
         editor.updateShape<SQLTextAreaShape>({
@@ -662,7 +737,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     source?.schema.filter((column) => isNumericColumn(column.type) || column.name === shape.props.y) ?? [];
   const excluded = currentPlot?.excluded ?? 0;
   const retryDrawing = () => {
-    const drawingId = shape.meta.nativeLassoDrawing ?? (!selection?.outline ? selection?.drawingId : null);
+    const drawingId = shape.meta.nativeLassoDrawing ?? regions.find((r) => !r.outline)?.drawingId;
     const drawing =
       editor.getSelectedShapes().find((s) => s.type === "draw") ??
       (typeof drawingId === "string" ? editor.getShape(drawingId as TLShapeId) : undefined);
@@ -673,7 +748,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     if (!currentPlot) return;
     setExporting(true);
     try {
-      await exportNativeChart(currentPlot, width, height, visiblePolygon, source?.name ?? "chart", format, displayed);
+      await exportNativeChart(currentPlot, width, height, displayed, source?.name ?? "chart", format);
     } catch (error) {
       setSelectionError(message(error));
     } finally {
@@ -682,15 +757,28 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   };
   const updateProps = (props: Partial<ChartShape["props"]>) =>
     editor.updateShape<ChartShape>({ id: shape.id, type: "chart-shape", props });
-  const clearSelection = () => {
-    setPendingSlice(null);
-    setSelectionError(null);
+  function deleteDrawing(id: string | null) {
+    if (
+      editor.getIsReadonly() ||
+      editor.isShapeOrAncestorLocked(shape.id) ||
+      chartAreaValue(editor, shape) !== areaValue
+    )
+      return;
+    editor.markHistoryStoppingPoint("delete chart drawing");
+    setGlobalArea(editor, shape.id, id === null ? [] : regions.filter((r) => r.drawingId !== id));
     setCount(null);
-    editor.markHistoryStoppingPoint("clear chart outline");
-    setGlobalArea(editor, shape.id, null);
+    setFocusedId(null);
+    setSelectionError(null);
     setMeta({ nativeLassoError: null, nativeLassoDrawing: null });
-    editor.markHistoryStoppingPoint("chart outline cleared");
-  };
+    editor.markHistoryStoppingPoint("chart drawing deleted");
+  }
+  const deletePosition =
+    focused &&
+    geometry &&
+    geometry.fromAnalytical({
+      x: Math.min(1, Math.max(0, Math.max(...focused.polygon.map((p) => p.x)))),
+      y: Math.min(1, Math.max(0, Math.max(...focused.polygon.map((p) => p.y)))),
+    });
   const axes = geometry && currentPlot && (
     <ScatterAxes
       geometry={geometry}
@@ -698,12 +786,12 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       height={height}
       xLabel={currentPlot.x.field + (xLog ? " · log" : "")}
       yLabel={currentPlot.y.field + (yLog ? " · log" : "")}
-      polygon={visiblePolygon}
-      outline={displayed?.outline}
-      previewSide={Boolean(hoveredSelection)}
+      selections={displayed}
+      previewId={hoveredSelection?.drawingId}
+      focusedId={focused?.drawingId}
       xKind={currentPlot.xKind}
       categories={currentPlot.categories}
-      dragHandlers={drag.handlers}
+      handlersFor={canMove && !slice && !settingsOpen ? drag.handlersFor : undefined}
     />
   );
   const slicePrompt = slice && (
@@ -713,7 +801,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       aria-label="Choose a side of the slice"
       onPointerDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
-        if (event.key === "Escape") setPendingSlice(null);
+        if (event.key === "Escape") dismissSlice();
         event.stopPropagation();
       }}
     >
@@ -743,7 +831,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         className="kavla-scatter__button kavla-scatter__button--icon"
         aria-label="Cancel slice"
         title="Cancel slice"
-        onClick={() => setPendingSlice(null)}
+        onClick={() => dismissSlice()}
       >
         <X size={14} />
       </button>
@@ -781,7 +869,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                     marks={currentPlot.marks}
                     geometry={geometry}
                     plan={currentPlot.plan}
-                    polygon={visiblePolygon}
+                    selections={displayed}
                     width={width}
                     height={height}
                     renderer={renderer}
@@ -791,7 +879,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 ) : (
                   <SeriesMarks
                     data={currentPlot}
-                    selection={displayed}
+                    selections={displayed}
                     geometry={geometry}
                     width={width}
                     height={height}
@@ -820,6 +908,33 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 )}
               </>
             )}
+            {focused && deletePosition && (
+              <button
+                type="button"
+                className="kavla-scatter__button kavla-scatter__button--icon"
+                style={{
+                  position: "absolute",
+                  left: deletePosition.x,
+                  top: deletePosition.y,
+                  transform: "translate(-50%, -50%)",
+                  zIndex: 2,
+                }}
+                data-chart-drawing={focused.drawingId}
+                aria-label="Delete selected drawing"
+                title="Delete selected drawing"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  deleteDrawing(focused.drawingId);
+                }}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Escape") setFocusedId(null);
+                }}
+              >
+                <X size={14} />
+              </button>
+            )}
             {(!currentPlot || !currentPlot.valid || errorText) && (
               <div role="status" className="kavla-scatter__message">
                 <strong>
@@ -843,7 +958,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
               </div>
             )}
           </div>
-          {(!compact || slice || ((selection || exploredId) && canSelect)) && (
+          {(!compact || slice || ((firstRegion || exploredId) && canSelect)) && (
             <div
               className={`kavla-scatter__footer${slice || compact ? " kavla-chart__choice-footer" : ""}${compact ? " kavla-chart__compact-footer" : ""}`}
               style={{ height: compact ? undefined : controlsHeight }}
@@ -928,7 +1043,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 </div>
               )}
               {slicePrompt ??
-                ((selection || exploredId) && canSelect && (
+                ((firstRegion || exploredId) && canSelect && (
                   <div className="kavla-scatter__actions">
                     <span
                       className="kavla-scatter__hint kavla-scatter__selection"
@@ -936,12 +1051,12 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                       title={
                         kind === "bar"
                           ? "One plotted row per selected category and series."
-                          : "Exact count from the original observations inside the outline."
+                          : "Exact count from the original observations inside any drawing."
                       }
                     >
                       {drag.draft
                         ? "Moving selection…"
-                        : !selection
+                        : !firstRegion
                           ? "0 selected"
                           : !selectionCurrent
                             ? "Selection out of date"
@@ -961,17 +1076,6 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                       >
                         {exploring ? "Running…" : exploredId ? "Open query" : "Explore"}
                         <ArrowUpRight size={14} />
-                      </button>
-                    )}
-                    {selection && (
-                      <button
-                        type="button"
-                        className="kavla-scatter__button kavla-scatter__button--icon"
-                        title="Clear selection"
-                        aria-label="Clear selection"
-                        onClick={clearSelection}
-                      >
-                        <X size={14} />
                       </button>
                     )}
                   </div>
@@ -1014,8 +1118,8 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 type="button"
                 className="kavla-scatter__button kavla-scatter__button--icon"
                 disabled={!currentPlot}
-                title={capturing ? "Cancel drawing" : "Draw around rows or slice across the plot"}
-                aria-label={selection ? "Redraw selection" : "Select rows"}
+                title={capturing ? "Finish drawing" : "Draw around rows or slice across the plot"}
+                aria-label={capturing ? "Finish drawing" : firstRegion ? "Add selection drawing" : "Select rows"}
                 aria-pressed={capturing}
                 onClick={() => {
                   setSelectionError(null);
@@ -1200,14 +1304,9 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
               </button>
             </div>
           )}
-          {saved.error && (
-            <button className="kavla-scatter__button" onClick={clearSelection}>
-              Clear unsupported selection
-            </button>
-          )}
-          {selection && (compact || !canSelect) && (
-            <button className="kavla-scatter__button" onClick={clearSelection}>
-              Clear outline
+          {(saved.error || firstRegion) && (
+            <button className="kavla-scatter__button" onClick={() => deleteDrawing(null)}>
+              {saved.error ? "Clear unsupported selection" : "Clear all drawings"}
             </button>
           )}
           <p className="kavla-scatter__settings-note">
