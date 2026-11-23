@@ -520,7 +520,12 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
                 aria-label="Source chart for selected_area"
                 value=""
                 className="min-w-0 flex-1 rounded border-2 border-black bg-white"
-                onChange={(event) => connectShapes(this.editor, event.target.value as TLShapeId, shape.id)}
+                onChange={(event) => {
+                  const chartId = event.target.value as TLShapeId;
+                  connectShapes(this.editor, chartId, shape.id);
+                  this.editor.select(chartId);
+                  this.editor.zoomToSelection({ animation: { duration: 200 } });
+                }}
               >
                 <option value="" disabled>
                   Choose source chart

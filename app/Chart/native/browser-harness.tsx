@@ -13,6 +13,7 @@ import { LocalServerContext } from "../../client/localServer/LocalServerProvider
 import type { LocalServerContextType } from "../../client/localServer/types";
 import { VisualizationContext } from "./VisualizationProvider";
 import { createVisualizationSession } from "./coordinator";
+import { chartAreaValue } from "./global-selection";
 import { chartGeometry } from "./geometry";
 import { planScatter, statisticsSQL } from "./planner";
 import { selectionSQL, type Axis, type ChartSelection } from "./selection";
@@ -127,7 +128,7 @@ function lassoPagePoints() {
   const shape = editor.getShape<ChartShape>(chartId)!;
   const geometry = chartGeometry(
     shape.props.w - 56,
-    shape.props.h - 142 - (shape.props.color ? 24 : 0) - (shape.meta.nativeSelection ? 34 : 0),
+    shape.props.h - 142 - (shape.props.color ? 24 : 0) - (chartAreaValue(editor, shape) ? 34 : 0),
     { field: "x", type: "linear", domain: [0, 0.999] },
     { field: "y", type: "linear", domain: [0, 0.99] }
   );
@@ -177,14 +178,15 @@ async function programmaticLasso() {
     throw new Error("The chart must own the outline and preserve the source shapes.");
   return {
     rowCount: branch.props.lastRunStats?.rowCount,
-    linked: branch.props.upstreamShapeIds?.includes(sourceId),
+    linked: branch.props.upstreamShapeIds?.includes(chartId),
     tailRows: tail.rows.length,
     sqlLength: branch.props.text.length,
   };
 }
 async function transformsAndPersistence() {
   const initial = editor.getShape<ChartShape>(chartId)!;
-  const selection = JSON.parse(initial.meta.nativeSelection as string) as ChartSelection;
+  const savedArea = chartAreaValue(editor, initial);
+  const selection = JSON.parse(savedArea as string) as ChartSelection;
   const results = [];
   const queriesBefore = transport.length;
   editor.updateShape({ id: chartId, type: "chart-shape", x: 120, y: 100 });
@@ -200,14 +202,13 @@ async function transformsAndPersistence() {
     editor.updateShape({ id: chartId, type: "chart-shape", props: { w, h } });
     await frame();
     const after = editor.getShape<ChartShape>(chartId)!;
-    if (after.meta.nativeSelection !== initial.meta.nativeSelection) throw new Error("Resize changed selection.");
+    if (chartAreaValue(editor, after) !== savedArea) throw new Error("Resize changed selection.");
     results.push({ action: `${w}x${h}`, frameMs: performance.now() - start });
   }
   const before = JSON.stringify(getSnapshot(editor.store));
   loadSnapshot(editor.store, JSON.parse(before));
   const after = editor.getShape<ChartShape>(chartId)!;
-  if (after.meta.nativeSelection !== initial.meta.nativeSelection)
-    throw new Error("Selection did not survive snapshot roundtrip.");
+  if (chartAreaValue(editor, after) !== savedArea) throw new Error("Selection did not survive snapshot roundtrip.");
   const result = await session.coordinator.query(
     `SELECT count(*) AS n FROM (${selectionSQL(selection.sourceSQL, selection)})`,
     { cache: false }

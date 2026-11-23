@@ -3,6 +3,7 @@ import type { DataSourceShape } from "../DataSource/data-source-types";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import type { KnobShape } from "../Knob/knob-types";
 import createArrowBetweenShapes from "./CreateArrowBetweenShapes";
+import { activeAreaChart } from "../Chart/native/global-selection";
 
 type ConnectionShape = DataSourceShape | SQLTextAreaShape | KnobShape;
 type ConnectionProps = Pick<ConnectionShape["props"], "downstreamShapeIds" | "upstreamShapeIds">;
@@ -103,7 +104,10 @@ export function connectShapes(editor: Editor, upstreamShapeId: TLShapeId, downst
       if (downstreamShapeIds !== upstreamShape.props.downstreamShapeIds) {
         updateConnectionProps(editor, upstreamShape, { downstreamShapeIds });
       }
-    } else if (downstreamShape.meta.selectedAreaChartId !== upstreamShapeId) {
+    } else if (
+      downstreamShape.meta.selectedAreaChartId !== upstreamShapeId &&
+      !(activeAreaChart(editor) && typeof downstreamShape.meta.selectedAreaChartId === "string")
+    ) {
       editor.updateShape({
         id: downstreamShape.id,
         type: downstreamShape.type,

@@ -4,6 +4,7 @@ import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { buildRemoteSQLFromDag, walkSQLDag } from "../../SQLTextArea/walkSQLDag";
 import { identifier } from "./selection";
 import { getRemoteSourceMetadata } from "../../DataSource/remote-source-metadata";
+import { getSelectedAreaSource } from "../../SQLTextArea/selected-area";
 
 export function scatterSource(editor: Editor, chart: ChartShape) {
   const source = chart.props.sourceShapeId ? editor.getShape(chart.props.sourceShapeId as TLShapeId) : undefined;
@@ -38,7 +39,10 @@ export function scatterSource(editor: Editor, chart: ChartShape) {
     id: query.id,
     name: query.props.name,
     sql,
-    canSelect: canSelect && !/\b(?:bigquery_query|postgres_query)\s*\(/i.test(expanded),
+    canSelect:
+      canSelect &&
+      !/\b(?:bigquery_query|postgres_query)\s*\(/i.test(expanded) &&
+      !orderedDependencies.some((d) => d.type === "sql-text-area" && getSelectedAreaSource(editor, d.props.text, d)),
     revision: JSON.stringify([
       expanded,
       orderedDependencies.map((d) => (d.type === "sql-text-area" ? d.props.lastRunStats : getRemoteSourceMetadata(d))),

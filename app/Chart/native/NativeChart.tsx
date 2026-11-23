@@ -58,6 +58,7 @@ import { exportNativeChart } from "./export-chart";
 import { readSelection, selectionSQL, validatePolygon, type ChartSelection, type Point } from "./selection";
 import { getSelectedAreaReferences, queriesForSelectedArea } from "../../SQLTextArea/selected-area";
 import { scatterSource } from "./source";
+import { activeAreaChart, areaOnPlot, chartAreaValue, setGlobalArea } from "./global-selection";
 import { ScatterMarks } from "./ScatterMarks";
 import { ScatterAxes } from "./ScatterAxes";
 import { ScatterTooltip } from "./ScatterTooltip";
@@ -121,13 +122,14 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   );
   const stacked = Boolean(shape.props.color && shape.props.isStacked && (kind === "bar" || kind === "area"));
   const canSelect = Boolean(source?.canSelect) && (kind === "line" || kind === "bar" || kind === "scatter");
+  const areaValue = useValue("placed chart area", () => chartAreaValue(editor, shape), [editor, shape]);
   const saved = useMemo(() => {
     try {
-      return { selection: readSelection(shape.meta.nativeSelection), error: null };
+      return { selection: readSelection(areaValue), error: null };
     } catch (error) {
       return { selection: null, error: message(error) };
     }
-  }, [shape.meta.nativeSelection]);
+  }, [areaValue]);
   const selection = saved.selection;
   const exploredId = useValue(
     "chart selection query",
@@ -295,6 +297,66 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     () => (currentPlot ? chartGeometry(width, height, currentPlot.x, currentPlot.y) : null),
     [width, height, currentPlot]
   );
+  const picked = useValue("selected chart", () => editor.getOnlySelectedShapeId() === shape.id, [editor, shape.id]);
+  const previouslyPicked = useRef(picked);
+  const waitingForPlot = useRef(false);
+
+  function switchToChart() {
+    if (editor.getIsReadonly() || editor.isShapeOrAncestorLocked(shape.id) || !canSelect || !source) return;
+    if (!currentPlot || !geometry) {
+      waitingForPlot.current = true;
+      return;
+    }
+    waitingForPlot.current = false;
+    const active = activeAreaChart(editor);
+    if (active === shape.id) return;
+    let value = editor.getCurrentPage().meta.nativeSelection;
+    if (!active) {
+      // Old documents can have several independent outlines. Picking one promotes it to the global area.
+      const oldCharts = editor.getCurrentPageShapes().filter((s) => s.type === "chart-shape" && s.meta.nativeSelection);
+      value = shape.meta.nativeSelection ?? (oldCharts.length === 1 ? oldCharts[0].meta.nativeSelection : null);
+      if (!value && oldCharts.length > 1) return;
+    }
+    try {
+      const area = readSelection(value);
+      editor.markHistoryStoppingPoint("switch selected area to chart");
+      setGlobalArea(editor, shape.id, area ? areaOnPlot(area, shape, currentPlot, geometry, source) : null);
+      editor.markHistoryStoppingPoint("selected area switched");
+    } catch (error) {
+      setSelectionError(message(error));
+    }
+  }
+  const switchWhenReady = useEffectEvent(switchToChart);
+  useEffect(() => {
+    const justPicked = picked && !previouslyPicked.current;
+    previouslyPicked.current = picked;
+    if (justPicked) waitingForPlot.current = true;
+    if (!picked) waitingForPlot.current = false;
+    else if (waitingForPlot.current) switchWhenReady();
+  }, [picked, currentPlot, canSelect]);
+
+  // Rebind to the active page of categories and current scales when the plot changes.
+  const refreshArea = useEffectEvent(() => {
+    if (
+      !canSelect ||
+      !selection ||
+      !currentPlot ||
+      !geometry ||
+      !source ||
+      editor.getIsReadonly() ||
+      editor.isShapeOrAncestorLocked(shape.id) ||
+      activeAreaChart(editor) !== shape.id ||
+      editor.getCurrentPage().meta.nativeSelection !== areaValue
+    )
+      return;
+    const next = areaOnPlot(selection, shape, currentPlot, geometry, source);
+    if (JSON.stringify(next) !== areaValue) {
+      editor.run(() => setGlobalArea(editor, shape.id, next), { history: "ignore" });
+    }
+  });
+  useEffect(() => {
+    refreshArea();
+  }, [currentPlot, geometry, canSelect, areaValue]);
   function matchesPlot(area: ChartSelection) {
     if (
       !currentPlot ||
@@ -337,6 +399,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   // Category indices are stable within a source revision.
   const placedPolygon = useMemo(() => {
     if (!placed || !geometry || !currentPlot) return null;
+    if (activeAreaChart(editor) === shape.id) return placed.polygon;
     if (
       currentPlot.page &&
       (placed.sourceRevision !== source?.revision ||
@@ -346,7 +409,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       return null;
     const original = chartGeometry(width, height, placed.x, placed.y);
     return placed.polygon.map((p) => geometry.normalize(original.unproject(original.fromAnalytical(p))));
-  }, [placed, geometry, currentPlot, source?.revision, width, height]);
+  }, [placed, geometry, currentPlot, source?.revision, width, height, editor, shape.id]);
   const canMove = useValue(
     "move chart selection",
     () => editor.isIn("select.idle") && !editor.getIsReadonly() && !editor.isShapeOrAncestorLocked(shape.id),
@@ -363,14 +426,14 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       if (
         editor.getIsReadonly() ||
         editor.isShapeOrAncestorLocked(shape.id) ||
-        editor.getShape(shape.id)?.meta.nativeSelection !== shape.meta.nativeSelection
+        chartAreaValue(editor, shape) !== areaValue
       )
         return;
       editor.markHistoryStoppingPoint("move chart selection");
       setCount(null);
       setSelectionError(null);
-      const nativeSelection = JSON.stringify({ ...next, chartId: shape.id });
-      setMeta({ nativeSelection, nativeLassoError: null, nativeLassoDrawing: null });
+      setGlobalArea(editor, shape.id, { ...next, chartId: shape.id });
+      setMeta({ nativeLassoError: null, nativeLassoDrawing: null });
       editor.markHistoryStoppingPoint("chart selection moved");
     }
   );
@@ -393,7 +456,8 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     // explicit attachment has its own undo boundary and restores the original pen stroke.
     if (separateHistory) editor.markHistoryStoppingPoint("attach chart outline");
     editor.run(() => {
-      setMeta({ nativeSelection: JSON.stringify(next), nativeLassoError: null, nativeLassoDrawing: null });
+      setGlobalArea(editor, shape.id, next);
+      setMeta({ nativeLassoError: null, nativeLassoDrawing: null });
       editor.deleteShapes([drawing.id]);
     });
     editor.markHistoryStoppingPoint("chart outline attached");
@@ -623,7 +687,8 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     setSelectionError(null);
     setCount(null);
     editor.markHistoryStoppingPoint("clear chart outline");
-    setMeta({ nativeSelection: null, nativeLassoError: null, nativeLassoDrawing: null });
+    setGlobalArea(editor, shape.id, null);
+    setMeta({ nativeLassoError: null, nativeLassoDrawing: null });
     editor.markHistoryStoppingPoint("chart outline cleared");
   };
   const axes = geometry && currentPlot && (
@@ -688,6 +753,9 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     <HTMLContainer
       id={shape.id}
       className="kavla-scatter"
+      onPointerDownCapture={(event) => {
+        if (picked && currentTool === "select" && event.button === 0 && !editor.inputs.isPanning) switchToChart();
+      }}
       style={{
         width: shape.props.w,
         height: shape.props.h,

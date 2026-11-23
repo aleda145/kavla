@@ -3,6 +3,7 @@ import { tokenizeSQL } from "../Knob/knobSQL";
 import { identifier, readSelection, selectionSQL } from "../Chart/native/selection";
 import { stripTrailingSemicolons } from "../src/duckdb/sql";
 import type { ChartShape } from "../Chart/chart-shape-types";
+import { activeAreaChart, chartAreaValue } from "../Chart/native/global-selection";
 import { extractTableNames } from "../util/parseSql";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
 
@@ -30,17 +31,20 @@ export function selectedAreaChartId(query?: SQLTextAreaShape): TLShapeId | undef
 }
 
 export function queriesForSelectedArea(editor: Editor, chartId: TLShapeId) {
-  return editor
-    .getCurrentPageShapes()
-    .filter(
-      (shape): shape is SQLTextAreaShape =>
-        shape.type === "sql-text-area" && selectedAreaChartId(shape as SQLTextAreaShape) === chartId
-    );
+  const active = activeAreaChart(editor);
+  if (active && active !== chartId) return [];
+  return editor.getCurrentPageShapes().filter((shape): shape is SQLTextAreaShape => {
+    if (shape.type !== "sql-text-area") return false;
+    const bound = selectedAreaChartId(shape as SQLTextAreaShape);
+    return active ? Boolean(bound) : bound === chartId;
+  });
 }
 
 export function getSelectedAreaSource(editor: Editor, sql: string, query?: SQLTextAreaShape) {
   if (!query || !/\bselected_area\b/i.test(sql) || !getSelectedAreaReferences(sql).length) return null;
   let chartId = selectedAreaChartId(query);
+  const active = activeAreaChart(editor);
+  if (chartId && active) chartId = active;
   if (!chartId) {
     // A standalone query can use the sole chart. Preserve explicitly named tables and local CTEs.
     const shapes = editor.getCurrentPageShapes();
@@ -63,11 +67,14 @@ export function getSelectedAreaSource(editor: Editor, sql: string, query?: SQLTe
       )
     )
       return null;
-    const charts = shapes.filter((shape): shape is ChartShape => shape.type === "chart-shape");
-    const connected = charts.filter((chart) => query.props.upstreamShapeIds?.includes(chart.id));
-    const candidates = connected.length ? connected : charts;
-    if (!candidates.length) return null;
-    if (candidates.length === 1) chartId = candidates[0].id;
+    if (active) chartId = active;
+    else {
+      const charts = shapes.filter((shape): shape is ChartShape => shape.type === "chart-shape");
+      const connected = charts.filter((chart) => query.props.upstreamShapeIds?.includes(chart.id));
+      const candidates = connected.length ? connected : charts;
+      if (candidates.length === 1) chartId = candidates[0].id;
+      else if (!candidates.length) return null;
+    }
   }
   const chart = chartId ? editor.getShape<ChartShape>(chartId) : undefined;
   const source =
@@ -94,7 +101,7 @@ export function resolveSelectedAreaSQL(editor: Editor, sql: string, shapeId?: TL
   if (!area.chartId) throw new Error("Choose a source chart for selected_area in this query.");
   if (!area.chart) throw new Error("The chart for selected_area no longer exists.");
   if (!area.source) throw new Error("Connect the selected_area chart to a source query.");
-  const selection = readSelection(area.chart.meta.nativeSelection);
+  const selection = readSelection(chartAreaValue(editor, area.chart));
   const limit = area.chart.props.limit;
   const input = `SELECT * FROM ${identifier(area.source.props.name)}${limit == null ? "" : ` LIMIT ${Math.max(1, Math.floor(limit))}`}`;
   const rows =
