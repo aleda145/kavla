@@ -1,5 +1,5 @@
 import { scaleLinear, scaleLog, line, scaleBand } from "d3";
-import { containsPoint, normalize, type Axis, type BarKey, type Point } from "./selection.ts";
+import { containsPoint, normalize, type Axis, type BarKey, type Point, type SeriesSelection } from "./selection.ts";
 import type { Mark } from "./ScatterMarks";
 import type { ChartData } from "./chart-data";
 import { groupColor } from "./appearance.ts";
@@ -68,6 +68,22 @@ export function chartGeometry(width: number, height: number, x: Axis, y: Axis) {
   };
 }
 
+export function translateSelection(
+  polygon: Point[],
+  start: Point,
+  end: Point,
+  plot: { width: number; height: number }
+): Point[] | null {
+  // Leave enough of the grabbed region inside the plot to pick it up again.
+  function delta(from: number, to: number, size: number) {
+    const inset = Math.min(0.5, 4 / size);
+    return Math.max(Math.min(from, inset), Math.min(Math.max(from, 1 - inset), to)) - from;
+  }
+  const dx = delta(start.x, end.x, plot.width);
+  const dy = delta(start.y, end.y, plot.height);
+  return dx || dy ? polygon.map(({ x, y }) => ({ x: x + dx, y: y + dy })) : null;
+}
+
 export type BarRect = { mark: Mark; x: number; y: number; width: number; height: number; color: string };
 export function barRectangles(data: ChartData, geometry: ReturnType<typeof chartGeometry>): BarRect[] {
   if (data.kind !== "bar") return [];
@@ -102,6 +118,30 @@ export function hitBarKeys(data: ChartData, geometry: ReturnType<typeof chartGeo
       keys.push([bar.mark.xValue ?? null, bar.mark.group ?? null]);
   }
   return keys;
+}
+
+// Drawing and moving an outline both bind it to the currently plotted axes and category page.
+export function selectionRegion(
+  data: ChartData,
+  geometry: ReturnType<typeof chartGeometry>,
+  polygon: Point[],
+  color: string | null
+) {
+  const region = { x: data.x, y: data.y, polygon };
+  let series: SeriesSelection;
+  if (data.kind === "bar") {
+    series = { kind: "bar", color, stacked: data.stacked, keys: hitBarKeys(data, geometry, polygon) };
+  } else if (data.kind === "line" || data.kind === "scatter") {
+    if (data.kind === "scatter" && data.xKind === "number")
+      return { ...region, version: 1 as const, series: undefined };
+    series =
+      data.xKind === "category"
+        ? { kind: data.kind, xKind: "category", categories: data.categories.map((category) => category.key) }
+        : { kind: data.kind, xKind: data.xKind };
+  } else {
+    throw new Error("This chart does not support selections.");
+  }
+  return { ...region, version: 2 as const, series };
 }
 
 // Shared geometry prototypes. Line and thin-line select plotted observations;

@@ -21,7 +21,7 @@ export function navigateToSelectedArea(editor: Editor, queryId: TLShapeId) {
   if (!chart || chart.type !== "chart-shape") return;
   const bounds = editor.getShapePageBounds(chart.id);
   if (!bounds) return;
-  selectedAreaPreview(editor).set(area);
+  selectedAreaPreview(editor).set(chart.meta.nativeSelection === query?.meta.nativeSelection ? null : area);
   editor.setEditingShape(null);
   editor.select(chart.id);
   editor.zoomToBounds(bounds, { targetZoom: editor.getZoomLevel(), animation: { duration: 200 } });

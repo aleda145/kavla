@@ -1,5 +1,5 @@
 import { quadtree } from "d3";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { useValue, type Editor, type TLShapeId } from "tldraw";
 import { pointStyle, groupColor } from "./appearance";
 import { barRectangles, type chartGeometry } from "./geometry";
@@ -23,6 +23,7 @@ export const ScatterTooltip = memo(function ScatterTooltip({
   xLabel,
   yLabel,
   data,
+  children,
 }: {
   editor: Editor;
   shapeId: TLShapeId;
@@ -35,6 +36,7 @@ export const ScatterTooltip = memo(function ScatterTooltip({
   xLabel: string;
   yLabel: string;
   data?: ChartData;
+  children?: ReactNode;
 }) {
   const enabled = useValue("scatter hover enabled", () => editor.isIn("select.idle"), [editor]);
   const view = useValue(
@@ -135,9 +137,10 @@ export const ScatterTooltip = memo(function ScatterTooltip({
       style={{ position: "absolute", inset: 0 }}
       onPointerMove={move}
       onPointerLeave={() => setHover(null)}
-      onPointerDown={() => setHover(null)}
+      onPointerDownCapture={() => setHover(null)}
       onPointerCancel={() => setHover(null)}
     >
+      {children}
       {mark && (
         <>
           <svg

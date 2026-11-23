@@ -1,6 +1,6 @@
 import type { chartGeometry } from "./geometry";
 import type { OutlineStyle, Point } from "./selection";
-import { memo, useId } from "react";
+import { memo, useId, type SVGProps } from "react";
 import { scaleUtc } from "d3";
 import type { XKind } from "./chart-data";
 
@@ -12,6 +12,7 @@ export const ScatterAxes = memo(function ScatterAxes({
   yLabel,
   polygon,
   outline,
+  dragHandlers,
   previewSide = false,
   xKind = "number",
   categories = [],
@@ -23,6 +24,7 @@ export const ScatterAxes = memo(function ScatterAxes({
   yLabel: string;
   polygon: Point[] | null;
   outline?: OutlineStyle;
+  dragHandlers?: SVGProps<SVGPolygonElement>;
   previewSide?: boolean;
   xKind?: XKind;
   categories?: { value: number; label: string }[];
@@ -57,6 +59,7 @@ export const ScatterAxes = memo(function ScatterAxes({
       </defs>
       {polygon && (
         <polygon
+          {...dragHandlers}
           clipPath={`url(#${clipId})`}
           points={polygon
             .map((p) => {
@@ -81,7 +84,9 @@ export const ScatterAxes = memo(function ScatterAxes({
           }
           strokeLinecap="round"
           strokeLinejoin="round"
-        />
+        >
+          {dragHandlers && <title>Drag to move selection</title>}
+        </polygon>
       )}
       <path
         d={`M${plot.left},${plot.top}V${bottom}H${plot.left + plot.width}`}

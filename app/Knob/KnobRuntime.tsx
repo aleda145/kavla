@@ -2,6 +2,11 @@ import { useEffect, useRef } from "react";
 import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useData } from "../client/useLocalServer";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
+import {
+  getSelectedAreaReferences,
+  hasSelectedAreaBinding,
+  syncMovedSelectedAreas,
+} from "../SQLTextArea/selected-area";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
 import { connectShapes, disconnectShapes } from "../util/shapeConnections";
@@ -26,7 +31,7 @@ export function KnobRuntime() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let knobsChanged = false;
     const signatures = new Map<TLShapeId, string>();
-    const pending = new Set<TLShapeId>();
+    const pending = new Map<TLShapeId, "knob" | "area">();
     const running = new Map<TLShapeId, AbortController>();
     const inferences = new Map<TLShapeId, { key: string; controller: AbortController }>();
     const inferred = new Map<TLShapeId, string>();
@@ -208,7 +213,7 @@ export function KnobRuntime() {
         const previous = signatures.get(query.id);
         signatures.set(query.id, signature);
         if (rerun && previous !== undefined && previous !== signature) {
-          pending.add(query.id);
+          pending.set(query.id, "knob");
         }
       }
     };
@@ -218,13 +223,20 @@ export function KnobRuntime() {
       const rerun = knobsChanged;
       knobsChanged = false;
       reconcile(rerun);
-      for (const id of pending) {
+      for (const [id, input] of pending) {
         const query = editor.getShape<SQLTextAreaShape>(id);
         if (!query || query.type !== "sql-text-area") {
           pending.delete(id);
           continue;
         }
-        // Finish the current run, then execute only the latest slider value.
+        if (
+          input === "area" &&
+          (!hasSelectedAreaBinding(query) || !getSelectedAreaReferences(query.props.text).length)
+        ) {
+          pending.delete(id);
+          continue;
+        }
+        // Finish the current run, then execute with the latest input.
         if (query.props.isRunning || running.has(id)) continue;
         const dependencies = getOrderedDependenciesForSQL(editor, query.props.text, query.id).orderedDependencies;
         if (creationTimers.has(id) || dependencies.some((dependency) => creationTimers.has(dependency.id))) continue;
@@ -239,19 +251,22 @@ export function KnobRuntime() {
         pending.delete(id);
         const controller = new AbortController();
         running.set(id, controller);
+        const history = input === "area" ? "ignore" : undefined;
         void executeSQLShape(editor, dataRef.current, id, query.props.text, controller.signal, {
           createMissingKnobs: false,
+          history,
         })
           .catch((error: unknown) => {
             if (disposed || controller.signal.aborted || !editor.getShape(id)) return;
-            editor.updateShape<SQLTextAreaShape>({
-              id,
-              type: "sql-text-area",
-              props: {
-                error: error instanceof Error ? error.message : String(error),
-                isDirty: true,
-              },
-            });
+            editor.run(
+              () =>
+                editor.updateShape<SQLTextAreaShape>({
+                  id,
+                  type: "sql-text-area",
+                  props: { error: error instanceof Error ? error.message : String(error), isDirty: true },
+                }),
+              { history }
+            );
           })
           .finally(() => {
             running.delete(id);
@@ -309,6 +324,10 @@ export function KnobRuntime() {
           if (before.type === "sql-text-area" && after.type === "sql-text-area") {
             const a = before as SQLTextAreaShape;
             const b = after as SQLTextAreaShape;
+            if (a.meta.nativeSelection !== b.meta.nativeSelection && hasSelectedAreaBinding(b)) {
+              if (!pending.has(b.id)) pending.set(b.id, "area");
+              relevant = true;
+            }
             if (a.props.text !== b.props.text) {
               scheduleCreation(b.id);
               relevant = true;
@@ -325,6 +344,7 @@ export function KnobRuntime() {
       },
       { scope: "document" }
     );
+    const stopSyncingAreas = syncMovedSelectedAreas(editor);
     const refreshInference = (event: Event) => {
       const id = (event as CustomEvent<{ shapeId?: TLShapeId }>).detail?.shapeId;
       for (const [knobId, request] of inferences) {
@@ -345,6 +365,7 @@ export function KnobRuntime() {
       clearTimeout(timer);
       for (const creationTimer of creationTimers.values()) clearTimeout(creationTimer);
       unlisten();
+      stopSyncingAreas();
       window.removeEventListener("kavla:infer-knob", refreshInference);
       window.removeEventListener("kavla:uploads-changed", refreshInference);
       window.removeEventListener("kavla:backend-reset", refreshInference);

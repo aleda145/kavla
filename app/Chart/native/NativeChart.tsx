@@ -42,7 +42,8 @@ import { getColumnTypeColor } from "../../util/column-colors";
 import { connectShapes } from "../../util/shapeConnections";
 import { chartSlice, type SliceSide } from "./chart-slice";
 import { registerChartLasso } from "./chart-lasso";
-import { chartGeometry, drawingToPlotPoints, firstPlotEntry, hitBarKeys } from "./geometry";
+import { chartGeometry, drawingToPlotPoints, firstPlotEntry, selectionRegion } from "./geometry";
+import { useSelectionDrag } from "./useSelectionDrag";
 import {
   loadChartData,
   isNumericColumn,
@@ -54,15 +55,9 @@ import {
 import { SeriesMarks } from "./SeriesMarks";
 import { restoreRemoteQueryView } from "../../SQLTextArea/restoreRemoteQueryView";
 import { exportNativeChart } from "./export-chart";
-import {
-  readSelection,
-  selectionSQL,
-  validatePolygon,
-  type ChartSelection,
-  type Point,
-  type SeriesSelection,
-} from "./selection";
+import { readSelection, selectionSQL, validatePolygon, type ChartSelection, type Point } from "./selection";
 import { selectedAreaPreview } from "../../SQLTextArea/selected-area-navigation";
+import { getSelectedAreaReferences, queriesForSelectedArea } from "../../SQLTextArea/selected-area";
 import { scatterSource } from "./source";
 import { ScatterMarks } from "./ScatterMarks";
 import { ScatterAxes } from "./ScatterAxes";
@@ -135,6 +130,16 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     }
   }, [shape.meta.nativeSelection]);
   const selection = saved.selection;
+  const exploredId = useValue(
+    "chart selection query",
+    () =>
+      selection
+        ? queriesForSelectedArea(editor, shape.id, selection).find(
+            (query) => getSelectedAreaReferences(query.props.text).length
+          )?.id
+        : undefined,
+    [editor, shape.id, selection]
+  );
   const preview = useValue(
     "linked selected area",
     () => {
@@ -342,21 +347,50 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   }, [pendingSlice, slice]);
   const hoveredSelection = slice?.choices.find((choice) => choice.label === hoveredSide)?.selection;
   const savedDisplay = preview ? (matchesPlot(preview) ? preview : null) : selectionCurrent ? selection : null;
-  const displayed = slice ? (hoveredSelection ?? null) : savedDisplay;
+  const placed = slice ? (hoveredSelection ?? null) : savedDisplay;
   // Category indices are stable within a source revision. A linked bar preview
   // can still highlight its saved keys after a refresh, even if they moved.
-  const visiblePolygon = useMemo(() => {
-    if (!displayed || !geometry || !currentPlot) return null;
+  const placedPolygon = useMemo(() => {
+    if (!placed || !geometry || !currentPlot) return null;
     if (
       currentPlot.page &&
-      (displayed.sourceRevision !== source?.revision ||
-        displayed.x.domain[1] <= currentPlot.x.domain[0] ||
-        displayed.x.domain[0] >= currentPlot.x.domain[1])
+      (placed.sourceRevision !== source?.revision ||
+        placed.x.domain[1] <= currentPlot.x.domain[0] ||
+        placed.x.domain[0] >= currentPlot.x.domain[1])
     )
       return null;
-    const original = chartGeometry(width, height, displayed.x, displayed.y);
-    return displayed.polygon.map((p) => geometry.normalize(original.unproject(original.fromAnalytical(p))));
-  }, [displayed, geometry, currentPlot, source?.revision, width, height]);
+    const original = chartGeometry(width, height, placed.x, placed.y);
+    return placed.polygon.map((p) => geometry.normalize(original.unproject(original.fromAnalytical(p))));
+  }, [placed, geometry, currentPlot, source?.revision, width, height]);
+  const canMove = useValue(
+    "move chart selection",
+    () => editor.isIn("select.idle") && !editor.getIsReadonly() && !editor.isShapeOrAncestorLocked(shape.id),
+    [editor, shape.id]
+  );
+  const drag = useSelectionDrag(
+    editor,
+    canMove && !slice && !preview && !settingsOpen && selectionCurrent ? selection : null,
+    placedPolygon,
+    geometry,
+    currentPlot,
+    shape.props.color,
+    (next) => {
+      if (
+        editor.getIsReadonly() ||
+        editor.isShapeOrAncestorLocked(shape.id) ||
+        editor.getShape(shape.id)?.meta.nativeSelection !== shape.meta.nativeSelection
+      )
+        return;
+      editor.markHistoryStoppingPoint("move chart selection");
+      setCount(null);
+      setSelectionError(null);
+      const nativeSelection = JSON.stringify({ ...next, chartId: shape.id });
+      setMeta({ nativeSelection, nativeLassoError: null, nativeLassoDrawing: null });
+      editor.markHistoryStoppingPoint("chart selection moved");
+    }
+  );
+  const displayed = drag.draft ?? placed;
+  const visiblePolygon = drag.draft?.polygon ?? placedPolygon;
 
   function commitSelection(next: ChartSelection, drawing: TLDrawShape, separateHistory: boolean) {
     if (
@@ -428,31 +462,10 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         };
         const makeSelection = (region: Point[]): ChartSelection => {
           const validatedPolygon = validatePolygon(region);
-          let series: SeriesSelection | undefined;
-          if (currentPlot.kind === "bar") {
-            series = {
-              kind: "bar",
-              color: shape.props.color,
-              stacked,
-              keys: hitBarKeys(currentPlot, geometry, validatedPolygon),
-            };
-          } else if (
-            currentPlot.kind === "line" ||
-            (currentPlot.kind === "scatter" && currentPlot.xKind !== "number")
-          ) {
-            series =
-              currentPlot.xKind === "category"
-                ? {
-                    kind: currentPlot.kind,
-                    xKind: "category",
-                    categories: currentPlot.categories.map((category) => category.key),
-                  }
-                : { kind: currentPlot.kind, xKind: currentPlot.xKind };
-          }
           return legacy
             ? { ...selection, chartId: shape.id, outline }
             : {
-                ...(series ? { version: 2 as const, series } : { version: 1 as const }),
+                ...selectionRegion(currentPlot, geometry, validatedPolygon, shape.props.color),
                 semantics: "observations",
                 policy: "live",
                 sourceId: source.id,
@@ -460,9 +473,6 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 sourceSQL: source.sql,
                 chartId: shape.id,
                 drawingId: drawing.id,
-                x: currentPlot.x,
-                y: currentPlot.y,
-                polygon: validatedPolygon,
                 outline,
               };
         };
@@ -528,6 +538,12 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   const branchController = useRef<AbortController | null>(null);
   useEffect(() => () => branchController.current?.abort(), []);
   const explore = async () => {
+    if (exploredId && editor.getShape(exploredId)) {
+      editor.select(exploredId);
+      const bounds = editor.getShapePageBounds(exploredId);
+      if (bounds) editor.zoomToBounds(bounds, { targetZoom: editor.getZoomLevel(), animation: { duration: 200 } });
+      return;
+    }
     if (!selection || !source || count === null || !selectionCurrent) return;
     setExploring(true);
     try {
@@ -543,7 +559,10 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         x: bounds.maxX + 60,
         y: bounds.y,
         props: { name: getUniqueName(editor, `${latest.name}_selected`), text, isDirty: true, showTable: true },
-        meta: { nativeSelection: JSON.stringify(selection), selectedAreaLimit: shape.props.limit },
+        meta: {
+          nativeSelection: JSON.stringify({ ...selection, chartId: shape.id }),
+          selectedAreaLimit: shape.props.limit,
+        },
       });
       connectShapes(editor, latest.id, id);
       const controller = new AbortController();
@@ -628,6 +647,21 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     setMeta({ nativeSelection: null, nativeLassoError: null, nativeLassoDrawing: null });
     editor.markHistoryStoppingPoint("chart outline cleared");
   };
+  const axes = geometry && currentPlot && (
+    <ScatterAxes
+      geometry={geometry}
+      width={width}
+      height={height}
+      xLabel={currentPlot.x.field + (xLog ? " · log" : "")}
+      yLabel={currentPlot.y.field + (yLog ? " · log" : "")}
+      polygon={visiblePolygon}
+      outline={displayed?.outline}
+      previewSide={Boolean(hoveredSelection)}
+      xKind={currentPlot.xKind}
+      categories={currentPlot.categories}
+      dragHandlers={drag.handlers}
+    />
+  );
   const slicePrompt = slice && (
     <div
       className="kavla-scatter__actions kavla-chart__slice-choice"
@@ -718,19 +752,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                     pixelRatio={pixelRatio}
                   />
                 )}
-                <ScatterAxes
-                  geometry={geometry}
-                  width={width}
-                  height={height}
-                  xLabel={currentPlot.x.field + (xLog ? " · log" : "")}
-                  yLabel={currentPlot.y.field + (yLog ? " · log" : "")}
-                  polygon={visiblePolygon}
-                  outline={displayed?.outline}
-                  previewSide={Boolean(hoveredSelection)}
-                  xKind={currentPlot.xKind}
-                  categories={currentPlot.categories}
-                />
-                {!errorText && !settingsOpen && !slice && (
+                {!errorText && !settingsOpen && !slice ? (
                   <ScatterTooltip
                     editor={editor}
                     shapeId={shape.id}
@@ -743,7 +765,11 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                     xLabel={currentPlot.x.field}
                     yLabel={currentPlot.y.field}
                     data={currentPlot}
-                  />
+                  >
+                    {axes}
+                  </ScatterTooltip>
+                ) : (
+                  axes
                 )}
               </>
             )}
@@ -877,21 +903,27 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                             : "Exact count from the original observations inside the outline."
                         }
                       >
-                        {selectionCurrent
-                          ? count === null
-                            ? "Counting…"
-                            : `${count.toLocaleString()} selected`
-                          : "Selection out of date"}
+                        {drag.draft
+                          ? "Moving selection…"
+                          : !selectionCurrent
+                            ? "Selection out of date"
+                            : count === null
+                              ? "Counting…"
+                              : `${count.toLocaleString()} selected`}
                       </span>
                       {selectionCurrent && (
                         <button
                           type="button"
                           className="kavla-scatter__button kavla-scatter__button--primary"
-                          title="Explore selected rows in a new SQL query"
-                          disabled={count === null || exploring}
+                          title={
+                            exploredId
+                              ? "Open the query for this selection"
+                              : "Explore selected rows in a new SQL query"
+                          }
+                          disabled={(!exploredId && count === null) || exploring || Boolean(drag.draft)}
                           onClick={() => void explore()}
                         >
-                          {exploring ? "Running…" : "Explore"}
+                          {exploring ? "Running…" : exploredId ? "Open query" : "Explore"}
                           <ArrowUpRight size={14} />
                         </button>
                       )}
