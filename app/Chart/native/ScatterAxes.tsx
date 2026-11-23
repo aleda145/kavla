@@ -12,6 +12,7 @@ export const ScatterAxes = memo(function ScatterAxes({
   yLabel,
   polygon,
   outline,
+  previewSide = false,
   xKind = "number",
   categories = [],
 }: {
@@ -22,6 +23,7 @@ export const ScatterAxes = memo(function ScatterAxes({
   yLabel: string;
   polygon: Point[] | null;
   outline?: OutlineStyle;
+  previewSide?: boolean;
   xKind?: XKind;
   categories?: { value: number; label: string }[];
 }) {
@@ -63,7 +65,7 @@ export const ScatterAxes = memo(function ScatterAxes({
             })
             .join(" ")}
           fill="#fde047"
-          fillOpacity={0.08}
+          fillOpacity={previewSide ? 0.28 : 0.08}
           fillRule="evenodd"
           stroke={outline?.color ?? "#000"}
           strokeWidth={outline?.width ?? 2}

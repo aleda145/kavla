@@ -16,6 +16,24 @@ export function drawingToPlotPoints(
   });
 }
 
+// Parameter interval where a segment passes through the rectangle interior.
+export function clipSegment(start: Point, end: Point, min: Point, max: Point): [number, number] | null {
+  let enter = 0,
+    leave = 1;
+  for (const axis of ["x", "y"] as const) {
+    const delta = end[axis] - start[axis];
+    if (delta === 0) {
+      if (start[axis] <= min[axis] || start[axis] >= max[axis]) return null;
+    } else {
+      const a = (min[axis] - start[axis]) / delta;
+      const b = (max[axis] - start[axis]) / delta;
+      enter = Math.max(enter, Math.min(a, b));
+      leave = Math.min(leave, Math.max(a, b));
+    }
+  }
+  return enter < leave ? [enter, leave] : null;
+}
+
 // Fractional index along the drawn path where it first enters the rectangle.
 // Test whole segments: a fast stroke can cross the plot between sampled points.
 export function firstPlotEntry(
@@ -25,22 +43,8 @@ export function firstPlotEntry(
   max: Point = { x: 1, y: 1 }
 ): number | null {
   for (let i = 1; i < points.length; i++) {
-    const start = points[i - 1],
-      end = points[i];
-    let enter = 0,
-      leave = 1;
-    for (const axis of ["x", "y"] as const) {
-      const delta = end[axis] - start[axis];
-      if (delta === 0) {
-        if (start[axis] <= min[axis] || start[axis] >= max[axis]) leave = 0;
-      } else {
-        const a = (min[axis] - start[axis]) / delta,
-          b = (max[axis] - start[axis]) / delta;
-        enter = Math.max(enter, Math.min(a, b));
-        leave = Math.min(leave, Math.max(a, b));
-      }
-    }
-    if (enter < leave) return i - 1 + enter;
+    const interval = clipSegment(points[i - 1], points[i], min, max);
+    if (interval) return i - 1 + interval[0];
   }
   // A loop can surround the whole plot without crossing its interior.
   return closed && containsPoint({ x: (min.x + max.x) / 2, y: (min.y + max.y) / 2 }, points) ? points.length : null;

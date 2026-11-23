@@ -33,6 +33,7 @@
   min-height: 0;
 }
 .kavla-chart__content {
+  position: relative;
   flex-shrink: 0;
   min-width: 0;
 }
@@ -181,6 +182,29 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+.kavla-chart__choice-footer {
+  justify-content: flex-end;
+  padding-block: 0;
+}
+.kavla-chart__choice-footer > .kavla-scatter__status,
+.kavla-chart__choice-footer > .kavla-chart__legend {
+  display: none;
+}
+.kavla-chart__compact-footer {
+  position: absolute;
+  inset: auto 0 0;
+  background: white;
+}
+.kavla-chart__slice-choice .kavla-scatter__button {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+}
+@container (max-width: 340px) {
+  .kavla-chart__slice-choice .kavla-control-label {
+    display: none;
+  }
 }
 .kavla-scatter__status {
   font-size: 10px;

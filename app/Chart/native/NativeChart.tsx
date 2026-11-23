@@ -11,6 +11,13 @@ import {
 } from "tldraw";
 import {
   ArrowUpRight,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpLeft,
+  ArrowDownRight,
+  ArrowDownLeft,
   CircleAlert,
   Lasso,
   RefreshCw,
@@ -33,6 +40,7 @@ import { executeSQLShape } from "../../SQLTextArea/executeSQLShape";
 import { getUniqueName } from "../../util/getUniqueName";
 import { getColumnTypeColor } from "../../util/column-colors";
 import { connectShapes } from "../../util/shapeConnections";
+import { chartSlice, type SliceSide } from "./chart-slice";
 import { registerChartLasso } from "./chart-lasso";
 import { chartGeometry, drawingToPlotPoints, firstPlotEntry, hitBarKeys } from "./geometry";
 import {
@@ -46,7 +54,14 @@ import {
 import { SeriesMarks } from "./SeriesMarks";
 import { restoreRemoteQueryView } from "../../SQLTextArea/restoreRemoteQueryView";
 import { exportNativeChart } from "./export-chart";
-import { readSelection, selectionSQL, validatePolygon, type ChartSelection, type SeriesSelection } from "./selection";
+import {
+  readSelection,
+  selectionSQL,
+  validatePolygon,
+  type ChartSelection,
+  type Point,
+  type SeriesSelection,
+} from "./selection";
 import { selectedAreaPreview } from "../../SQLTextArea/selected-area-navigation";
 import { scatterSource } from "./source";
 import { ScatterMarks } from "./ScatterMarks";
@@ -59,6 +74,28 @@ const axisBarHeight = 64;
 const actionBarWidth = 48;
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 type Loaded = ChartData & { revision: string };
+
+const sideIcons = {
+  Above: ArrowUp,
+  Below: ArrowDown,
+  Left: ArrowLeft,
+  Right: ArrowRight,
+  "Upper left": ArrowUpLeft,
+  "Upper right": ArrowUpRight,
+  "Lower left": ArrowDownLeft,
+  "Lower right": ArrowDownRight,
+};
+
+type PendingSlice = {
+  drawing: TLDrawShape;
+  chartTransform: string;
+  drawingTransform: string;
+  requestKey: string;
+  width: number;
+  height: number;
+  previousSelection: ChartSelection | null;
+  choices: { label: SliceSide; selection: ChartSelection }[];
+};
 
 export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartShape }) {
   const { coordinator } = useVisualizationSession();
@@ -106,6 +143,27 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       return area?.chartId === shape.id && editor.getSelectedShapeIds().includes(shape.id) ? area : null;
     },
     [editor, shape.id]
+  );
+  const [pendingSlice, setPendingSlice] = useState<PendingSlice | null>(null);
+  const [hoveredSide, setHoveredSide] = useState<SliceSide | null>(null);
+  const sliceDrawingCurrent = useValue(
+    "chart slice drawing",
+    () => {
+      if (
+        !pendingSlice ||
+        editor.getShape(pendingSlice.drawing.id) !== pendingSlice.drawing ||
+        !editor.getShape(shape.id)
+      )
+        return false;
+      return (
+        !editor.getIsReadonly() &&
+        !editor.isShapeOrAncestorLocked(shape.id) &&
+        !editor.isShapeOrAncestorLocked(pendingSlice.drawing.id) &&
+        editor.getShapePageTransform(shape.id).toCssString() === pendingSlice.chartTransform &&
+        editor.getShapePageTransform(pendingSlice.drawing.id).toCssString() === pendingSlice.drawingTransform
+      );
+    },
+    [editor, shape.id, pendingSlice]
   );
   const currentTool = useValue("chart outline tool", () => editor.getCurrentToolId(), [editor]);
   const capturing = currentTool === "draw" && canSelect;
@@ -268,7 +326,24 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     selection.x.type === currentPlot?.x.type &&
     selection.y.type === currentPlot?.y.type
   );
-  const displayed = preview ? (matchesPlot(preview) ? preview : null) : selectionCurrent ? selection : null;
+  const slice =
+    pendingSlice &&
+    sliceDrawingCurrent &&
+    !preview &&
+    currentPlot &&
+    pendingSlice.requestKey === requestKey &&
+    pendingSlice.previousSelection === selection &&
+    pendingSlice.width === shape.props.w &&
+    pendingSlice.height === shape.props.h &&
+    pendingSlice.choices[0].selection.sourceId === source?.id
+      ? pendingSlice
+      : null;
+  useEffect(() => {
+    if (pendingSlice && !slice) setPendingSlice(null);
+  }, [pendingSlice, slice]);
+  const hoveredSelection = slice?.choices.find((choice) => choice.label === hoveredSide)?.selection;
+  const savedDisplay = preview ? (matchesPlot(preview) ? preview : null) : selectionCurrent ? selection : null;
+  const displayed = slice ? (hoveredSelection ?? null) : savedDisplay;
   // Category indices are stable within a source revision. A linked bar preview
   // can still highlight its saved keys after a refresh, even if they moved.
   const visiblePolygon = useMemo(() => {
@@ -283,6 +358,29 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     const original = chartGeometry(width, height, displayed.x, displayed.y);
     return displayed.polygon.map((p) => geometry.normalize(original.unproject(original.fromAnalytical(p))));
   }, [displayed, geometry, currentPlot, source?.revision, width, height]);
+
+  function commitSelection(next: ChartSelection, drawing: TLDrawShape, separateHistory: boolean) {
+    if (
+      editor.getShape(drawing.id) !== drawing ||
+      editor.getIsReadonly() ||
+      editor.isShapeOrAncestorLocked(shape.id) ||
+      editor.isShapeOrAncestorLocked(drawing.id)
+    )
+      return;
+    setCount(null);
+    setSelectionError(null);
+    setPendingSlice(null);
+    setHoveredSide(null);
+    // Automatic lasso capture joins the drawing gesture. A later side choice or
+    // explicit attachment has its own undo boundary and restores the original pen stroke.
+    if (separateHistory) editor.markHistoryStoppingPoint("attach chart outline");
+    editor.run(() => {
+      selectedAreaPreview(editor).set(null);
+      setMeta({ nativeSelection: JSON.stringify(next), nativeLassoError: null, nativeLassoDrawing: null });
+      editor.deleteShapes([drawing.id]);
+    });
+    editor.markHistoryStoppingPoint("chart outline attached");
+  }
 
   function getLassoTarget(drawing: TLDrawShape, explicit = false) {
     if (!canSelect || !geometry || !source || !currentPlot) {
@@ -319,57 +417,71 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         )
           throw new Error("Unlock the chart and drawing before attaching an outline.");
         if (!drawing.props.isComplete) throw new Error("Finish the drawing before selecting.");
+        const regions = closed ? null : chartSlice(polygon, geometry.plot.width, geometry.plot.height);
         const crossesEdge = polygon.some(({ x, y }) => x <= 0 || x >= 1 || y <= 0 || y >= 1);
-        if (!closed && !crossesEdge)
-          throw new Error("Close the freehand outline (end within 12 chart pixels of the start), then retry.");
-        const validatedPolygon = validatePolygon(polygon);
+        if (!closed && !regions && !crossesEdge)
+          throw new Error("Close the outline or draw a slice from one edge of the plot to another.");
         const outline = {
           color: getDefaultColorTheme({ isDarkMode: false })[drawing.props.color].solid,
           width: (STROKE_SIZES[drawing.props.size] + 1) * drawing.props.scale,
           opacity: drawing.opacity,
           dash: drawing.props.dash,
         };
-        let series: SeriesSelection | undefined;
-        if (currentPlot.kind === "bar") {
-          series = {
-            kind: "bar",
-            color: shape.props.color,
-            stacked,
-            keys: hitBarKeys(currentPlot, geometry, validatedPolygon),
-          };
-        } else if (currentPlot.kind === "line") {
-          series =
-            currentPlot.xKind === "category"
-              ? { kind: "line", xKind: "category", categories: currentPlot.categories.map((category) => category.key) }
-              : { kind: "line", xKind: currentPlot.xKind };
-        }
-        const next: ChartSelection = legacy
-          ? { ...selection, chartId: shape.id, outline }
-          : {
-              ...(series ? { version: 2 as const, series } : { version: 1 as const }),
-              semantics: "observations",
-              policy: "live",
-              sourceId: source.id,
-              sourceRevision: source.revision,
-              sourceSQL: source.sql,
-              chartId: shape.id,
-              drawingId: drawing.id,
-              x: currentPlot.x,
-              y: currentPlot.y,
-              polygon: validatedPolygon,
-              outline,
+        const makeSelection = (region: Point[]): ChartSelection => {
+          const validatedPolygon = validatePolygon(region);
+          let series: SeriesSelection | undefined;
+          if (currentPlot.kind === "bar") {
+            series = {
+              kind: "bar",
+              color: shape.props.color,
+              stacked,
+              keys: hitBarKeys(currentPlot, geometry, validatedPolygon),
             };
-        setCount(null);
-        setSelectionError(null);
-        // Automatic capture joins the draw gesture's history entry. An explicit
-        // transfer has its own boundary so undo restores the original stroke.
-        if (explicit) editor.markHistoryStoppingPoint("attach chart outline");
-        editor.run(() => {
+          } else if (currentPlot.kind === "line") {
+            series =
+              currentPlot.xKind === "category"
+                ? {
+                    kind: "line",
+                    xKind: "category",
+                    categories: currentPlot.categories.map((category) => category.key),
+                  }
+                : { kind: "line", xKind: currentPlot.xKind };
+          }
+          return legacy
+            ? { ...selection, chartId: shape.id, outline }
+            : {
+                ...(series ? { version: 2 as const, series } : { version: 1 as const }),
+                semantics: "observations",
+                policy: "live",
+                sourceId: source.id,
+                sourceRevision: source.revision,
+                sourceSQL: source.sql,
+                chartId: shape.id,
+                drawingId: drawing.id,
+                x: currentPlot.x,
+                y: currentPlot.y,
+                polygon: validatedPolygon,
+                outline,
+              };
+        };
+        if (regions && !legacy) {
+          const choices = regions.map(({ label, polygon }) => ({ label, selection: makeSelection(polygon) }));
           selectedAreaPreview(editor).set(null);
-          setMeta({ nativeSelection: JSON.stringify(next), nativeLassoError: null, nativeLassoDrawing: null });
-          editor.deleteShapes([drawing.id]);
-        });
-        editor.markHistoryStoppingPoint("chart outline attached");
+          setSelectionError(null);
+          setHoveredSide(null);
+          setPendingSlice({
+            drawing,
+            requestKey,
+            choices,
+            width: shape.props.w,
+            height: shape.props.h,
+            previousSelection: selection,
+            drawingTransform: transform.toCssString(),
+            chartTransform: editor.getShapePageTransform(shape.id).toCssString(),
+          });
+        } else {
+          commitSelection(makeSelection(polygon), drawing, explicit);
+        }
         if (!explicit) editor.setCurrentTool("select");
       } catch (error) {
         setCount(null);
@@ -460,7 +572,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     error ||
     saved.error ||
     selectionError ||
-    (typeof shape.meta.nativeLassoError === "string" ? shape.meta.nativeLassoError : null);
+    (!slice && typeof shape.meta.nativeLassoError === "string" ? shape.meta.nativeLassoError : null);
   const renderer =
     shape.meta.nativeRenderer === "svg"
       ? "svg"
@@ -506,6 +618,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   const updateProps = (props: Partial<ChartShape["props"]>) =>
     editor.updateShape<ChartShape>({ id: shape.id, type: "chart-shape", props });
   const clearSelection = () => {
+    setPendingSlice(null);
     selectedAreaPreview(editor).set(null);
     setSelectionError(null);
     setCount(null);
@@ -513,6 +626,49 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     setMeta({ nativeSelection: null, nativeLassoError: null, nativeLassoDrawing: null });
     editor.markHistoryStoppingPoint("chart outline cleared");
   };
+  const slicePrompt = slice && (
+    <div
+      className="kavla-scatter__actions kavla-chart__slice-choice"
+      role="group"
+      aria-label="Choose a side of the slice"
+      onPointerDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") setPendingSlice(null);
+        event.stopPropagation();
+      }}
+    >
+      <span className="kavla-scatter__hint">Select side</span>
+      {slice.choices.map(({ label, selection: side }) => {
+        const Icon = sideIcons[label];
+        return (
+          <button
+            key={label}
+            type="button"
+            className="kavla-scatter__button"
+            title={label}
+            aria-label={label}
+            onPointerEnter={() => setHoveredSide(label)}
+            onPointerLeave={() => setHoveredSide(null)}
+            onFocus={() => setHoveredSide(label)}
+            onBlur={() => setHoveredSide(null)}
+            onClick={() => commitSelection(side, slice.drawing, true)}
+          >
+            <Icon size={14} aria-hidden />
+            <span className="kavla-control-label">{label}</span>
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        className="kavla-scatter__button kavla-scatter__button--icon"
+        aria-label="Cancel slice"
+        title="Cancel slice"
+        onClick={() => setPendingSlice(null)}
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
   return (
     <HTMLContainer
       id={shape.id}
@@ -568,10 +724,11 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                   yLabel={currentPlot.y.field + (yLog ? " · log" : "")}
                   polygon={visiblePolygon}
                   outline={displayed?.outline}
+                  previewSide={Boolean(hoveredSelection)}
                   xKind={currentPlot.xKind}
                   categories={currentPlot.categories}
                 />
-                {!errorText && !settingsOpen && (
+                {!errorText && !settingsOpen && !slice && (
                   <ScatterTooltip
                     editor={editor}
                     shapeId={shape.id}
@@ -611,10 +768,10 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
               </div>
             )}
           </div>
-          {!compact && (
+          {(!compact || slice || preview || (selection && canSelect)) && (
             <div
-              className="kavla-scatter__footer"
-              style={{ height: controlsHeight }}
+              className={`kavla-scatter__footer${slice || compact ? " kavla-chart__choice-footer" : ""}${compact ? " kavla-chart__compact-footer" : ""}`}
+              style={{ height: compact ? undefined : controlsHeight }}
               onPointerDown={(event) => event.stopPropagation()}
             >
               <div className="kavla-scatter__status">
@@ -695,58 +852,59 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                   ))}
                 </div>
               )}
-              {preview ? (
-                <div className="kavla-scatter__actions">
-                  <span className="kavla-scatter__hint kavla-scatter__selection" role="status">
-                    {displayed ? "selected_area" : `Area uses ${preview.x.field} / ${preview.y.field}`}
-                  </span>
-                  <button className="kavla-scatter__button" onClick={() => selectedAreaPreview(editor).set(null)}>
-                    Back to current selection
-                  </button>
-                </div>
-              ) : (
-                selection &&
-                canSelect && (
+              {slicePrompt ??
+                (preview ? (
                   <div className="kavla-scatter__actions">
-                    <span
-                      className="kavla-scatter__hint kavla-scatter__selection"
-                      role="status"
-                      title={
-                        kind === "bar"
-                          ? "One plotted row per selected category and series."
-                          : "Exact count from the original observations inside the outline."
-                      }
-                    >
-                      {selectionCurrent
-                        ? count === null
-                          ? "Counting…"
-                          : `${count.toLocaleString()} selected`
-                        : "Selection out of date"}
+                    <span className="kavla-scatter__hint kavla-scatter__selection" role="status">
+                      {displayed ? "selected_area" : `Area uses ${preview.x.field} / ${preview.y.field}`}
                     </span>
-                    {selectionCurrent && (
-                      <button
-                        type="button"
-                        className="kavla-scatter__button kavla-scatter__button--primary"
-                        title="Explore selected rows in a new SQL query"
-                        disabled={count === null || exploring}
-                        onClick={() => void explore()}
-                      >
-                        {exploring ? "Running…" : "Explore"}
-                        <ArrowUpRight size={14} />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="kavla-scatter__button kavla-scatter__button--icon"
-                      title="Clear selection"
-                      aria-label="Clear selection"
-                      onClick={clearSelection}
-                    >
-                      <X size={14} />
+                    <button className="kavla-scatter__button" onClick={() => selectedAreaPreview(editor).set(null)}>
+                      Back to current selection
                     </button>
                   </div>
-                )
-              )}
+                ) : (
+                  selection &&
+                  canSelect && (
+                    <div className="kavla-scatter__actions">
+                      <span
+                        className="kavla-scatter__hint kavla-scatter__selection"
+                        role="status"
+                        title={
+                          kind === "bar"
+                            ? "One plotted row per selected category and series."
+                            : "Exact count from the original observations inside the outline."
+                        }
+                      >
+                        {selectionCurrent
+                          ? count === null
+                            ? "Counting…"
+                            : `${count.toLocaleString()} selected`
+                          : "Selection out of date"}
+                      </span>
+                      {selectionCurrent && (
+                        <button
+                          type="button"
+                          className="kavla-scatter__button kavla-scatter__button--primary"
+                          title="Explore selected rows in a new SQL query"
+                          disabled={count === null || exploring}
+                          onClick={() => void explore()}
+                        >
+                          {exploring ? "Running…" : "Explore"}
+                          <ArrowUpRight size={14} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="kavla-scatter__button kavla-scatter__button--icon"
+                        title="Clear selection"
+                        aria-label="Clear selection"
+                        onClick={clearSelection}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )
+                ))}
             </div>
           )}
         </div>
@@ -785,7 +943,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 type="button"
                 className="kavla-scatter__button kavla-scatter__button--icon"
                 disabled={!currentPlot}
-                title={capturing ? "Cancel drawing an outline" : "Draw around the rows to select"}
+                title={capturing ? "Cancel drawing" : "Draw around rows or slice across the plot"}
                 aria-label={selection ? "Redraw selection" : "Select rows"}
                 aria-pressed={capturing}
                 onClick={() => {
