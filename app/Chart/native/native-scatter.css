@@ -237,9 +237,12 @@
 }
 .kavla-scatter__status .kavla-scatter__button {
   box-sizing: border-box;
-  width: 20px;
   height: 20px;
   box-shadow: none;
+  white-space: nowrap;
+}
+.kavla-scatter__status .kavla-scatter__button--icon {
+  width: 20px;
 }
 .kavla-scatter__rows {
   flex: 1;

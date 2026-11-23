@@ -178,9 +178,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   );
   const currentTool = useValue("chart outline tool", () => editor.getCurrentToolId(), [editor]);
   const capturing = currentTool === "draw" && canSelect;
-  const controlsHeight = compact
-    ? 0
-    : 28 + (shape.props.color ? 24 : 0) + ((firstRegion || exploredId) && canSelect ? 34 : 0);
+  const controlsHeight = compact ? 0 : 28 + (shape.props.color ? 24 : 0);
   const [exporting, setExporting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsId = useId();
@@ -1075,7 +1073,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
           </div>
           {(!compact || slice || ((firstRegion || exploredId) && canSelect)) && (
             <div
-              className={`kavla-scatter__footer${slice || compact ? " kavla-chart__choice-footer" : ""}${compact ? " kavla-chart__compact-footer" : ""}`}
+              className={`kavla-scatter__footer${slice ? " kavla-chart__choice-footer" : ""}${compact ? " kavla-chart__compact-footer" : ""}`}
               style={{ height: compact ? undefined : controlsHeight }}
               onPointerDown={(event) => event.stopPropagation()}
             >
@@ -1091,6 +1089,31 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                   {currentPlot ? (
                     <>
                       <b>{currentPlot.total.toLocaleString()}</b> rows
+                      {(firstRegion || exploredId) && canSelect && (
+                        <span
+                          className="kavla-scatter__selection"
+                          role="status"
+                          title={
+                            kind === "bar"
+                              ? "One plotted row per selected category and series."
+                              : "Exact selected count from the original observations."
+                          }
+                        >
+                          {" ("}
+                          {drag.draft
+                            ? drag.resizing
+                              ? "Resizing selection…"
+                              : "Moving selection…"
+                            : !firstRegion
+                              ? "0 selected"
+                              : !selectionCurrent
+                                ? "Selection out of date"
+                                : count === null
+                                  ? "Counting…"
+                                  : `${count.toLocaleString()} selected`}
+                          {")"}
+                        </span>
+                      )}
                       {excluded > 0 && (
                         <span className="kavla-scatter__notice"> · {excluded.toLocaleString()} excluded</span>
                       )}
@@ -1100,7 +1123,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                   )}
                   {busy && " · Updating…"}
                 </span>
-                {currentPlot?.plan.mode === "density" && (
+                {!compact && currentPlot?.plan.mode === "density" && (
                   <span
                     className="kavla-scatter__legend"
                     title={`Rows per bin, logarithmic ${shape.props.color ? "opacity" : "color"} scale from 1 to ${maximum.toLocaleString()}. ${shape.props.color ? "Colored strips show each group's share of the bin. " : ""}Yellow bins preview the selection; the selected row count is exact.`}
@@ -1117,7 +1140,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                     )}
                   </span>
                 )}
-                {currentPlot?.page && currentPlot.page.total > currentPlot.page.size && (
+                {!compact && currentPlot?.page && currentPlot.page.total > currentPlot.page.size && (
                   <div className="kavla-chart__pages">
                     <button
                       className="kavla-scatter__button kavla-scatter__button--icon"
@@ -1142,8 +1165,22 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                     </button>
                   </div>
                 )}
+                {(selectionCurrent || exploredId) && canSelect && (
+                  <button
+                    type="button"
+                    className="kavla-scatter__button kavla-scatter__button--primary"
+                    title={
+                      exploredId ? "Open the query for this selection" : "Explore selected rows in a new SQL query"
+                    }
+                    disabled={(!exploredId && count === null) || exploring || Boolean(drag.draft)}
+                    onClick={() => void explore()}
+                  >
+                    {exploring ? "Running…" : exploredId ? "Open query" : "Explore"}
+                    <ArrowUpRight size={14} />
+                  </button>
+                )}
               </div>
-              {shape.props.color && (
+              {!compact && shape.props.color && (
                 <div
                   className="kavla-chart__legend"
                   onWheel={(event) => event.stopPropagation()}
@@ -1157,46 +1194,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                   ))}
                 </div>
               )}
-              {slicePrompt ??
-                ((firstRegion || exploredId) && canSelect && (
-                  <div className="kavla-scatter__actions">
-                    <span
-                      className="kavla-scatter__hint kavla-scatter__selection"
-                      role="status"
-                      title={
-                        kind === "bar"
-                          ? "One plotted row per selected category and series."
-                          : "Exact count from the original observations inside any drawing."
-                      }
-                    >
-                      {drag.draft
-                        ? drag.resizing
-                          ? "Resizing selection…"
-                          : "Moving selection…"
-                        : !firstRegion
-                          ? "0 selected"
-                          : !selectionCurrent
-                            ? "Selection out of date"
-                            : count === null
-                              ? "Counting…"
-                              : `${count.toLocaleString()} selected`}
-                    </span>
-                    {(selectionCurrent || exploredId) && (
-                      <button
-                        type="button"
-                        className="kavla-scatter__button kavla-scatter__button--primary"
-                        title={
-                          exploredId ? "Open the query for this selection" : "Explore selected rows in a new SQL query"
-                        }
-                        disabled={(!exploredId && count === null) || exploring || Boolean(drag.draft)}
-                        onClick={() => void explore()}
-                      >
-                        {exploring ? "Running…" : exploredId ? "Open query" : "Explore"}
-                        <ArrowUpRight size={14} />
-                      </button>
-                    )}
-                  </div>
-                ))}
+              {slicePrompt}
             </div>
           )}
         </div>

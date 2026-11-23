@@ -129,7 +129,7 @@ function lassoPagePoints() {
   const shape = editor.getShape<ChartShape>(chartId)!;
   const geometry = chartGeometry(
     shape.props.w - 56,
-    shape.props.h - 142 - (shape.props.color ? 24 : 0) - (chartAreaValue(editor, shape) ? 34 : 0),
+    shape.props.h - 142 - (shape.props.color ? 24 : 0),
     { field: "x", type: "linear", domain: [0, 0.999] },
     { field: "y", type: "linear", domain: [0, 0.99] }
   );
