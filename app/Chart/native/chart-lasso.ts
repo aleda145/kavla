@@ -31,12 +31,26 @@ function observeDrawings(editor: Editor) {
       if (drawing?.type !== "draw" || !drawing.props.isComplete) return;
       const bounds = editor.getShapePageBounds(drawing);
       if (!bounds) return;
+      // The final stroke can sit outside the frame while closing an outline that surrounds the plot.
+      const nearby = bounds.clone().expandBy(12);
+      const openCharts = new Set<TLShapeId>();
+      for (const stroke of editor.getCurrentPageShapes()) {
+        if (
+          stroke.type !== "draw" ||
+          typeof stroke.meta.nativeOpenOutlineChart !== "string" ||
+          editor.isShapeOrAncestorLocked(stroke.id)
+        )
+          continue;
+        const strokeBounds = editor.getShapeMaskedPageBounds(stroke);
+        if (strokeBounds && nearby.collides(strokeBounds))
+          openCharts.add(stroke.meta.nativeOpenOutlineChart as TLShapeId);
+      }
       let best: ReturnType<LassoTarget> = null;
       // Visit back to front so the top chart wins when the pen enters both at once.
       for (const shape of editor.getCurrentPageRenderingShapesSorted()) {
         const target = targets.get(shape.id);
         if (!target || editor.isShapeOrAncestorLocked(shape.id)) continue;
-        if (!editor.getShapeMaskedPageBounds(shape)?.collides(bounds)) continue;
+        if (!openCharts.has(shape.id) && !editor.getShapeMaskedPageBounds(shape)?.collides(bounds)) continue;
         const candidate = target(drawing);
         if (candidate && (!best || candidate.entry <= best.entry)) best = candidate;
       }

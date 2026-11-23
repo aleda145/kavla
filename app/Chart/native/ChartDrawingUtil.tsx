@@ -7,6 +7,7 @@ export class ChartDrawingUtil extends DrawShapeUtil {
     const error = shape.meta.nativeLassoError;
     const tip = shape.props.segments.at(-1)?.points.at(-1);
     if (typeof error !== "string" || !tip) return stroke;
+    const label = shape.meta.nativeOpenOutlineChart ? "Open outline" : "No selection";
     return (
       <>
         {stroke}
@@ -15,9 +16,9 @@ export class ChartDrawingUtil extends DrawShapeUtil {
           style={{ left: tip.x + 6, top: tip.y + 6 }}
           role="status"
           title={error}
-          aria-label={`No selection. ${error}`}
+          aria-label={`${label}. ${error}`}
         >
-          <CircleAlert size={13} aria-hidden /> No selection
+          <CircleAlert size={13} aria-hidden /> {label}
         </span>
       </>
     );

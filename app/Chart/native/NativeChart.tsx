@@ -43,6 +43,7 @@ import { connectShapes } from "../../util/shapeConnections";
 import { chartSlice, type SliceSide } from "./chart-slice";
 import { registerChartLasso } from "./chart-lasso";
 import { lassoLoop } from "./lasso-loop";
+import { joinLassoStrokes } from "./join-lasso-strokes";
 import { chartGeometry, drawingToPlotPoints, firstPlotEntry, selectionBounds, selectionRegion } from "./geometry";
 import { useSelectionDrag } from "./useSelectionDrag";
 import {
@@ -58,6 +59,7 @@ import { restoreRemoteQueryView } from "../../SQLTextArea/restoreRemoteQueryView
 import { exportNativeChart } from "./export-chart";
 import {
   containsPoint,
+  hasSelectableArea,
   readSelections,
   serializeSelections,
   selectionSQL,
@@ -503,38 +505,42 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     return () => document.removeEventListener("pointerdown", dismiss, true);
   }, [focusedId, shape.id]);
 
-  function commitSelection(next: ChartSelection, drawing: TLDrawShape, separateHistory: boolean) {
+  function commitSelection(next: ChartSelection, drawings: TLDrawShape[], separateHistory: boolean) {
     if (
       !currentPlot ||
       !geometry ||
       !source ||
-      editor.getShape(drawing.id) !== drawing ||
       editor.getIsReadonly() ||
       editor.isShapeOrAncestorLocked(shape.id) ||
-      editor.isShapeOrAncestorLocked(drawing.id)
+      drawings.some((d) => editor.getShape(d.id) !== d || editor.isShapeOrAncestorLocked(d.id))
     )
       return;
     setCount(null);
     setSelectionError(null);
-    setSlices((pending) => pending.filter((s) => s.drawing.id !== drawing.id));
+    const drawingIds = drawings.map((d) => d.id);
+    setSlices((pending) => pending.filter((s) => !drawingIds.includes(s.drawing.id)));
     setFocusedId(null);
     setHoveredSide(null);
     const previous = (regionsToCarry() ?? []).filter((r) => r.drawingId !== next.drawingId);
     const areas = [...previous, next].map((r) => areaOnPlot(r, shape, currentPlot, geometry, source));
     // Automatic lasso capture joins the drawing gesture. A later side choice or
     // explicit attachment has its own undo boundary and restores the original pen stroke.
-    if (separateHistory) editor.markHistoryStoppingPoint("attach chart outline");
+    if (separateHistory || drawings.length > 1) editor.markHistoryStoppingPoint("attach chart outline");
     editor.run(() => {
       setGlobalArea(editor, shape.id, areas);
       setMeta({ nativeLassoError: null, nativeLassoDrawing: null });
-      editor.deleteShapes([drawing.id]);
+      editor.deleteShapes(drawingIds);
     });
     editor.markHistoryStoppingPoint("chart outline attached");
   }
 
-  function markDrawingError(drawing: TLDrawShape, reason: string) {
+  function markDrawingError(drawing: TLDrawShape, reason: string, open = false) {
     if (editor.getIsReadonly()) return;
-    editor.updateShape({ id: drawing.id, type: drawing.type, meta: { ...drawing.meta, nativeLassoError: reason } });
+    editor.updateShape({
+      id: drawing.id,
+      type: drawing.type,
+      meta: { ...drawing.meta, nativeLassoError: reason, nativeOpenOutlineChart: open ? shape.id : null },
+    });
     setMeta({ nativeLassoDrawing: drawing.id, nativeLassoError: null });
   }
 
@@ -545,14 +551,17 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     }
     const transform = editor.getShapePageTransform(drawing);
     const pageToChart = editor.getShapePageTransform(shape.id).clone().invert();
-    const rawPoints = drawing.props.segments.flatMap((segment) => segment.points);
-    if (!rawPoints.length) return null;
-    const points = drawingToPlotPoints(
-      rawPoints,
-      (p) => transform.applyToPoint(p),
-      (p) => pageToChart.applyToPoint(p),
-      { x: 4, y: 4 + headerHeight }
-    );
+    const plotPoints = (stroke: TLDrawShape) => {
+      const strokeToPage = editor.getShapePageTransform(stroke);
+      return drawingToPlotPoints(
+        stroke.props.segments.flatMap((segment) => segment.points),
+        (p) => strokeToPage.applyToPoint(p),
+        (p) => pageToChart.applyToPoint(p),
+        { x: 4, y: 4 + headerHeight }
+      );
+    };
+    const points = plotPoints(drawing);
+    if (!points.length) return null;
     const polygon = points.map(geometry.toAnalytical);
     const start = points[0];
     // A tap can pick an outline while the pen is active. Longer strokes can start inside any outline.
@@ -577,7 +586,41 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         };
       }
     }
-    const loop = lassoLoop(points, drawing.props.isClosed)?.map(geometry.toAnalytical);
+    const solo = lassoLoop(points, drawing.props.isClosed)?.map(geometry.toAnalytical);
+    let loop = solo && hasSelectableArea(solo) ? solo : null;
+    let drawings = [drawing];
+    if (!loop && points.length >= 2) {
+      const chartBounds = editor.getShapeMaskedPageBounds(shape);
+      const others = editor.getCurrentPageShapes().filter((s): s is TLDrawShape => {
+        if (
+          !editor.isShapeOfType<TLDrawShape>(s, "draw") ||
+          s.id === drawing.id ||
+          !s.props.isComplete ||
+          s.props.isClosed ||
+          editor.isShapeOrAncestorLocked(s.id)
+        )
+          return false;
+        if (s.meta.nativeOpenOutlineChart === shape.id) return true;
+        const bounds = editor.getShapeMaskedPageBounds(s);
+        if (!bounds || !chartBounds?.collides(bounds)) return false;
+        if (typeof s.meta.nativeOpenOutlineChart === "string") {
+          const owner = editor.getShape(s.meta.nativeOpenOutlineChart as TLShapeId);
+          if (owner && editor.getShapeMaskedPageBounds(owner)?.collides(bounds)) return false;
+        }
+        return true;
+      });
+      const joined = joinLassoStrokes(
+        { drawing, points },
+        others.map((d) => ({ drawing: d, points: plotPoints(d) }))
+      );
+      if (joined) {
+        const joinedLoop = joined.polygon.map(geometry.toAnalytical);
+        if (firstPlotEntry(joinedLoop, true) !== null) {
+          loop = joinedLoop;
+          drawings = joined.drawings;
+        }
+      }
+    }
     // A loose tail alone must not give its chart ownership of a loop drawn on another chart.
     const loopEntry = loop ? firstPlotEntry(loop, true) : null;
     const entry = loop && loopEntry === null ? null : (firstPlotEntry(polygon, false) ?? loopEntry);
@@ -598,8 +641,14 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         if (!drawing.props.isComplete) throw new Error("Finish the drawing before selecting.");
         const sides = loop ? null : chartSlice(polygon, geometry.plot.width, geometry.plot.height);
         const crossesEdge = polygon.some(({ x, y }) => x <= 0 || x >= 1 || y <= 0 || y >= 1);
-        if (!loop && !sides && !crossesEdge && !legacy)
-          throw new Error("Close the outline or draw a slice from one edge of the plot to another.");
+        if (!loop && !sides && !legacy && (!crossesEdge || !hasSelectableArea(polygon))) {
+          markDrawingError(
+            drawing,
+            "Continue from an end with another stroke to close the outline.",
+            points.length >= 2
+          );
+          return;
+        }
         const outline = {
           color: getDefaultColorTheme({ isDarkMode: false })[drawing.props.color].solid,
           width: (STROKE_SIZES[drawing.props.size] + 1) * drawing.props.scale,
@@ -628,7 +677,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
             editor.updateShape({
               id: drawing.id,
               type: drawing.type,
-              meta: { ...drawing.meta, nativeLassoError: null },
+              meta: { ...drawing.meta, nativeLassoError: null, nativeOpenOutlineChart: null },
             });
           }
           setSelectionError(null);
@@ -646,7 +695,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
             },
           ]);
         } else {
-          commitSelection(makeSelection(loop ?? polygon), drawing, explicit);
+          commitSelection(makeSelection(loop ?? polygon), drawings, explicit);
         }
       } catch (error) {
         markDrawingError(drawing, message(error));
@@ -844,7 +893,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
             onPointerLeave={() => setHoveredSide(null)}
             onFocus={() => setHoveredSide(label)}
             onBlur={() => setHoveredSide(null)}
-            onClick={() => commitSelection(side, slice.drawing, true)}
+            onClick={() => commitSelection(side, [slice.drawing], true)}
           >
             <Icon size={14} aria-hidden />
             <span className="kavla-control-label">{label}</span>

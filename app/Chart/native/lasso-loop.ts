@@ -64,10 +64,11 @@ export function lassoLoop(points: Point[], isClosed: boolean): Point[] | null {
       }
     }
   }
-  // Preserve the existing stored-polygon limit for densely sampled freehand circles.
-  if (loop && loop.length > 512) {
-    const dense = loop;
-    return Array.from({ length: 512 }, (_, i) => dense[Math.round((i * (dense.length - 1)) / 511)]);
-  }
-  return loop;
+  return loop && limitLassoVertices(loop);
+}
+
+// Preserve the existing stored-polygon limit for densely sampled freehand circles.
+export function limitLassoVertices(points: Point[]) {
+  if (points.length <= 512) return points;
+  return Array.from({ length: 512 }, (_, i) => points[Math.round((i * (points.length - 1)) / 511)]);
 }
