@@ -283,7 +283,7 @@ export const LiveCodeMirror = ({
   const editor = useEditor();
   const hasArea = useValue(
     "SQL selected area",
-    () => hasSelectedAreaBinding(editor.getShape<SQLTextAreaShape>(shapeId)),
+    () => hasSelectedAreaBinding(editor, editor.getShape<SQLTextAreaShape>(shapeId)),
     [editor, shapeId]
   );
   const { runRemoteQuery, cancelRemoteQuery } = useData();

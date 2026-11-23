@@ -53,7 +53,7 @@ export const StaticSQLHighlighter = memo(
     const editor = useEditor();
     const hasArea = useValue(
       "static SQL selected area",
-      () => hasSelectedAreaBinding(shapeId ? editor.getShape<SQLTextAreaShape>(shapeId) : undefined),
+      () => hasSelectedAreaBinding(editor, shapeId ? editor.getShape<SQLTextAreaShape>(shapeId) : undefined),
       [editor, shapeId]
     );
     const spansByLine = useMemo(() => {
@@ -136,12 +136,12 @@ export const StaticSQLHighlighter = memo(
               lineNodes.push(
                 <span
                   key={intersectionStart}
-                  title="Ctrl/Cmd+click to go to selected area"
+                  title="Ctrl/Cmd+click to go to the source chart"
                   style={{
                     fontFamily: "monospace",
-                    backgroundColor: "#27272a",
-                    color: "#fafafa",
-                    borderBottom: "2px solid #09090b",
+                    backgroundColor: "#fce7f3",
+                    color: "#831843",
+                    borderBottom: "2px solid #db2777",
                     borderRadius: 3,
                     cursor: "pointer",
                   }}

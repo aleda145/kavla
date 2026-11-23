@@ -45,6 +45,8 @@ import { getKnobNames, getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
 import { ensureQueryKnobs } from "../Knob/createKnobs";
 import { useBizMode } from "../client/canvas/bizMode";
 import { SQLQueryEstimate } from "./SQLQueryEstimate";
+import { getSelectedAreaSource } from "./selected-area";
+import type { ChartShape } from "../Chart/chart-shape-types";
 import type { QueryScan } from "../client/localServer/types";
 
 export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
@@ -185,6 +187,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     };
 
     const { text } = shape.props;
+    const area = getSelectedAreaSource(this.editor, text, shape);
     const getOrderedDependencies = (currentText: string) =>
       getOrderedDependenciesForSQL(this.editor, currentText, shape.id);
     const currentPlan = walkSQLDag(this.editor, text, shape.id);
@@ -507,6 +510,41 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
             }
           />
 
+          {area && !area.chart && (
+            <label
+              className="flex items-center gap-2 bg-pink-100 px-2 py-1 text-xs font-bold"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              selected_area
+              <select
+                aria-label="Source chart for selected_area"
+                value=""
+                className="min-w-0 flex-1 rounded border-2 border-black bg-white"
+                onChange={(event) => connectShapes(this.editor, event.target.value as TLShapeId, shape.id)}
+              >
+                <option value="" disabled>
+                  Choose source chart
+                </option>
+                {this.editor
+                  .getCurrentPageShapes()
+                  .filter(
+                    (node): node is ChartShape =>
+                      node.type === "chart-shape" && (node as ChartShape).props.sourceShapeId !== shape.id
+                  )
+                  .map((chart) => {
+                    const source = chart.props.sourceShapeId
+                      ? this.editor.getShape<SQLTextAreaShape>(chart.props.sourceShapeId as TLShapeId)
+                      : undefined;
+                    return (
+                      <option key={chart.id} value={chart.id}>
+                        {source?.props.name ?? chart.props.name} · {chart.props.chartType} ({chart.props.x},{" "}
+                        {chart.props.y})
+                      </option>
+                    );
+                  })}
+              </select>
+            </label>
+          )}
           <SQLTextAreaBody
             bizMode={bizMode}
             hasFooter={hasFooter}

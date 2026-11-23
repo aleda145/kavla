@@ -170,6 +170,8 @@ export function walkSQLDag(editor: Editor, sqlText: string, shapeId?: TLShapeId)
   let dependencies: ReturnType<typeof getOrderedDependenciesForSQL>;
   try {
     dependencies = getOrderedDependenciesForSQL(editor, sqlText, shapeId);
+    if (dependencies.orderedDependencies.some((shape) => shape.id === shapeId))
+      throw new Error("A query cannot read its own output, including through a chart selection.");
     resolveSelectedAreaSQL(editor, sqlText, shapeId);
     for (const dependency of dependencies.orderedDependencies) {
       if (dependency.type === "sql-text-area") resolveSelectedAreaSQL(editor, dependency.props.text, dependency.id);

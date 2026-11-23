@@ -85,20 +85,30 @@ export function connectShapes(editor: Editor, upstreamShapeId: TLShapeId, downst
 
   const upstreamShape = editor.getShape(upstreamShapeId);
   const downstreamShape = editor.getShape(downstreamShapeId);
-  if (!isConnectionShape(upstreamShape)) {
+  if (!isConnectionShape(upstreamShape) && upstreamShape?.type !== "chart-shape") {
     throw new Error(`Shape ${upstreamShapeId} cannot have downstream connections.`);
   }
   if (!downstreamShape) {
     throw new Error(`Downstream shape ${downstreamShapeId} does not exist.`);
   }
+  if (upstreamShape.type === "chart-shape" && downstreamShape.type !== "sql-text-area")
+    throw new Error("Chart selections connect to SQL queries.");
   if (downstreamShape.type === "knob" || (upstreamShape.type === "knob" && downstreamShape.type !== "sql-text-area")) {
     throw new Error("Knobs can only connect to SQL queries, as inputs.");
   }
 
   editor.run(() => {
-    const downstreamShapeIds = addId(upstreamShape.props.downstreamShapeIds, downstreamShapeId);
-    if (downstreamShapeIds !== upstreamShape.props.downstreamShapeIds) {
-      updateConnectionProps(editor, upstreamShape, { downstreamShapeIds });
+    if (isConnectionShape(upstreamShape)) {
+      const downstreamShapeIds = addId(upstreamShape.props.downstreamShapeIds, downstreamShapeId);
+      if (downstreamShapeIds !== upstreamShape.props.downstreamShapeIds) {
+        updateConnectionProps(editor, upstreamShape, { downstreamShapeIds });
+      }
+    } else if (downstreamShape.meta.selectedAreaChartId !== upstreamShapeId) {
+      editor.updateShape({
+        id: downstreamShape.id,
+        type: downstreamShape.type,
+        meta: { ...downstreamShape.meta, selectedAreaChartId: upstreamShapeId },
+      });
     }
 
     if (isConnectionShape(downstreamShape)) {

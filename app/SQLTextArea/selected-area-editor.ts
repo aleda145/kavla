@@ -19,7 +19,7 @@ export function createSelectedAreaEditorExtensions(editor: Editor, shapeId: TLSh
             getSelectedAreaReferences(view.state.doc.toString()).map(({ from, to }) =>
               Decoration.mark({
                 class: "cm-selected-area",
-                attributes: { title: "Ctrl/Cmd+click to go to selected area" },
+                attributes: { title: "Ctrl/Cmd+click to go to the source chart" },
               }).range(from, to)
             )
           );
@@ -41,9 +41,9 @@ export function createSelectedAreaEditorExtensions(editor: Editor, shapeId: TLSh
     ),
     EditorView.baseTheme({
       ".cm-selected-area": {
-        backgroundColor: "#27272a",
-        color: "#fafafa !important",
-        borderBottom: "2px solid #09090b",
+        backgroundColor: "#fce7f3",
+        color: "#831843 !important",
+        borderBottom: "2px solid #db2777",
         borderRadius: "3px",
       },
       ".cm-selected-area *": { color: "inherit !important", backgroundColor: "transparent", borderBottom: "none" },

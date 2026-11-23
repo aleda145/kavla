@@ -2,14 +2,11 @@ import { useEffect, useRef } from "react";
 import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useData } from "../client/useLocalServer";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
-import {
-  getSelectedAreaReferences,
-  hasSelectedAreaBinding,
-  syncMovedSelectedAreas,
-} from "../SQLTextArea/selected-area";
+import { getSelectedAreaReferences, getSelectedAreaSource, selectedAreaChartId } from "../SQLTextArea/selected-area";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
-import { connectShapes, disconnectShapes } from "../util/shapeConnections";
+import { connectShapes, disconnectShapes, setShapeUpstreamConnections } from "../util/shapeConnections";
+import type { ChartShape } from "../Chart/chart-shape-types";
 import { getKnobNames, getSQLKnobs } from "./knobSQL";
 import type { KnobShape } from "./knob-types";
 import { ensureQueryKnobs } from "./createKnobs";
@@ -32,6 +29,7 @@ export function KnobRuntime() {
     let knobsChanged = false;
     const signatures = new Map<TLShapeId, string>();
     const pending = new Map<TLShapeId, "knob" | "area">();
+    const changedCharts = new Set<TLShapeId>();
     const running = new Map<TLShapeId, AbortController>();
     const inferences = new Map<TLShapeId, { key: string; controller: AbortController }>();
     const inferred = new Map<TLShapeId, string>();
@@ -171,6 +169,39 @@ export function KnobRuntime() {
           running.get(id)?.abort();
         }
       }
+      // Pin handwritten references as soon as their chart is unambiguous. Older documents
+      // also need their snapshot and direct source arrow replaced with the chart link.
+      for (const query of queries) {
+        if (typeof query.meta.selectedAreaChartId === "string") continue;
+        const chartId = selectedAreaChartId(query);
+        const area = getSelectedAreaSource(editor, query.props.text, query);
+        const chart = chartId ? editor.getShape<ChartShape>(chartId) : area?.chart;
+        if (chart?.type !== "chart-shape") continue;
+        if (!chartId && chart.props.sourceShapeId === query.id) continue;
+        if (
+          chartId &&
+          area &&
+          (query.meta.nativeSelection !== chart.meta.nativeSelection ||
+            query.meta.selectedAreaLimit !== chart.props.limit)
+        ) {
+          changedCharts.add(chart.id);
+        }
+        editor.run(
+          () => {
+            editor.updateShape({
+              id: query.id,
+              type: query.type,
+              meta: { ...query.meta, selectedAreaChartId: chart.id, nativeSelection: null, selectedAreaLimit: null },
+            });
+            if (area) {
+              const { immediateUpstreamIds } = getOrderedDependenciesForSQL(editor, query.props.text, query.id);
+              const knobs = getSQLKnobs(editor, query.props.text);
+              setShapeUpstreamConnections(editor, query.id, [...immediateUpstreamIds, ...knobs.map((knob) => knob.id)]);
+            }
+          },
+          { history: "ignore", ignoreShapeLock: true }
+        );
+      }
       for (const query of queries) {
         const directKnobs = getSQLKnobs(editor, query.props.text);
         const directIds = new Set(directKnobs.map((knob) => knob.id));
@@ -186,6 +217,16 @@ export function KnobRuntime() {
           { history: "ignore" }
         );
         const { orderedDependencies } = getOrderedDependenciesForSQL(editor, query.props.text, query.id);
+        const inputs = [query, ...orderedDependencies];
+        if (
+          changedCharts.size &&
+          inputs.some((node) => {
+            if (node.type !== "sql-text-area") return false;
+            const chartId = selectedAreaChartId(node);
+            return chartId && changedCharts.has(chartId) && getSelectedAreaReferences(node.props.text).length > 0;
+          })
+        )
+          pending.set(query.id, "area");
         const names = [
           ...new Set(
             [query, ...orderedDependencies].flatMap((dependency) =>
@@ -216,6 +257,7 @@ export function KnobRuntime() {
           pending.set(query.id, "knob");
         }
       }
+      changedCharts.clear();
     };
     function flush() {
       timer = undefined;
@@ -229,16 +271,18 @@ export function KnobRuntime() {
           pending.delete(id);
           continue;
         }
+        // Finish the current run, then execute with the latest input.
+        if (query.props.isRunning || running.has(id)) continue;
+        const dependencies = getOrderedDependenciesForSQL(editor, query.props.text, query.id).orderedDependencies;
         if (
           input === "area" &&
-          (!hasSelectedAreaBinding(query) || !getSelectedAreaReferences(query.props.text).length)
+          ![query, ...dependencies].some(
+            (node) => node.type === "sql-text-area" && getSelectedAreaSource(editor, node.props.text, node)
+          )
         ) {
           pending.delete(id);
           continue;
         }
-        // Finish the current run, then execute with the latest input.
-        if (query.props.isRunning || running.has(id)) continue;
-        const dependencies = getOrderedDependenciesForSQL(editor, query.props.text, query.id).orderedDependencies;
         if (creationTimers.has(id) || dependencies.some((dependency) => creationTimers.has(dependency.id))) continue;
         if (
           [query, ...dependencies].some(
@@ -282,6 +326,10 @@ export function KnobRuntime() {
         let relevant = false;
         for (const record of [...Object.values(changes.added), ...Object.values(changes.removed)]) {
           if (record.typeName !== "shape") continue;
+          if (record.type === "chart-shape") {
+            changedCharts.add(record.id);
+            relevant = true;
+          }
           if (record.type === "knob") {
             knobsChanged = true;
             relevant = true;
@@ -298,6 +346,18 @@ export function KnobRuntime() {
         }
         for (const [before, after] of Object.values(changes.updated)) {
           if (before.typeName !== "shape" || after.typeName !== "shape") continue;
+          if (before.type === "chart-shape" && after.type === "chart-shape") {
+            const a = before as ChartShape;
+            const b = after as ChartShape;
+            if (
+              a.meta.nativeSelection !== b.meta.nativeSelection ||
+              a.props.sourceShapeId !== b.props.sourceShapeId ||
+              a.props.limit !== b.props.limit
+            ) {
+              changedCharts.add(b.id);
+              relevant = true;
+            }
+          }
           if (before.type === "knob" && after.type === "knob") {
             const a = before as KnobShape;
             const b = after as KnobShape;
@@ -324,7 +384,9 @@ export function KnobRuntime() {
           if (before.type === "sql-text-area" && after.type === "sql-text-area") {
             const a = before as SQLTextAreaShape;
             const b = after as SQLTextAreaShape;
-            if (a.meta.nativeSelection !== b.meta.nativeSelection && hasSelectedAreaBinding(b)) {
+            const oldChartId = selectedAreaChartId(a);
+            const chartId = selectedAreaChartId(b);
+            if (chartId && chartId !== oldChartId && (oldChartId || (b.props.lastRunStats && !b.props.isRunning))) {
               if (!pending.has(b.id)) pending.set(b.id, "area");
               relevant = true;
             }
@@ -344,7 +406,7 @@ export function KnobRuntime() {
       },
       { scope: "document" }
     );
-    const stopSyncingAreas = syncMovedSelectedAreas(editor);
+    if (pending.size) schedule();
     const refreshInference = (event: Event) => {
       const id = (event as CustomEvent<{ shapeId?: TLShapeId }>).detail?.shapeId;
       for (const [knobId, request] of inferences) {
@@ -365,7 +427,6 @@ export function KnobRuntime() {
       clearTimeout(timer);
       for (const creationTimer of creationTimers.values()) clearTimeout(creationTimer);
       unlisten();
-      stopSyncingAreas();
       window.removeEventListener("kavla:infer-knob", refreshInference);
       window.removeEventListener("kavla:uploads-changed", refreshInference);
       window.removeEventListener("kavla:backend-reset", refreshInference);

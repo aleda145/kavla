@@ -56,7 +56,6 @@ import { SeriesMarks } from "./SeriesMarks";
 import { restoreRemoteQueryView } from "../../SQLTextArea/restoreRemoteQueryView";
 import { exportNativeChart } from "./export-chart";
 import { readSelection, selectionSQL, validatePolygon, type ChartSelection, type Point } from "./selection";
-import { selectedAreaPreview } from "../../SQLTextArea/selected-area-navigation";
 import { getSelectedAreaReferences, queriesForSelectedArea } from "../../SQLTextArea/selected-area";
 import { scatterSource } from "./source";
 import { ScatterMarks } from "./ScatterMarks";
@@ -133,19 +132,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   const exploredId = useValue(
     "chart selection query",
     () =>
-      selection
-        ? queriesForSelectedArea(editor, shape.id, selection).find(
-            (query) => getSelectedAreaReferences(query.props.text).length
-          )?.id
-        : undefined,
-    [editor, shape.id, selection]
-  );
-  const preview = useValue(
-    "linked selected area",
-    () => {
-      const area = selectedAreaPreview(editor).get();
-      return area?.chartId === shape.id && editor.getSelectedShapeIds().includes(shape.id) ? area : null;
-    },
+      queriesForSelectedArea(editor, shape.id).find((query) => getSelectedAreaReferences(query.props.text).length)?.id,
     [editor, shape.id]
   );
   const [pendingSlice, setPendingSlice] = useState<PendingSlice | null>(null);
@@ -173,7 +160,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   const capturing = currentTool === "draw" && canSelect;
   const controlsHeight = compact
     ? 0
-    : 28 + (shape.props.color ? 24 : 0) + (preview || (selection && canSelect) ? 34 : 0);
+    : 28 + (shape.props.color ? 24 : 0) + ((selection || exploredId) && canSelect ? 34 : 0);
   const [exporting, setExporting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsId = useId();
@@ -333,7 +320,6 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   const slice =
     pendingSlice &&
     sliceDrawingCurrent &&
-    !preview &&
     currentPlot &&
     pendingSlice.requestKey === requestKey &&
     pendingSlice.previousSelection === selection &&
@@ -346,10 +332,9 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     if (pendingSlice && !slice) setPendingSlice(null);
   }, [pendingSlice, slice]);
   const hoveredSelection = slice?.choices.find((choice) => choice.label === hoveredSide)?.selection;
-  const savedDisplay = preview ? (matchesPlot(preview) ? preview : null) : selectionCurrent ? selection : null;
+  const savedDisplay = selectionCurrent ? selection : null;
   const placed = slice ? (hoveredSelection ?? null) : savedDisplay;
-  // Category indices are stable within a source revision. A linked bar preview
-  // can still highlight its saved keys after a refresh, even if they moved.
+  // Category indices are stable within a source revision.
   const placedPolygon = useMemo(() => {
     if (!placed || !geometry || !currentPlot) return null;
     if (
@@ -369,7 +354,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   );
   const drag = useSelectionDrag(
     editor,
-    canMove && !slice && !preview && !settingsOpen && selectionCurrent ? selection : null,
+    canMove && !slice && !settingsOpen && selectionCurrent ? selection : null,
     placedPolygon,
     geometry,
     currentPlot,
@@ -408,7 +393,6 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     // explicit attachment has its own undo boundary and restores the original pen stroke.
     if (separateHistory) editor.markHistoryStoppingPoint("attach chart outline");
     editor.run(() => {
-      selectedAreaPreview(editor).set(null);
       setMeta({ nativeSelection: JSON.stringify(next), nativeLassoError: null, nativeLassoDrawing: null });
       editor.deleteShapes([drawing.id]);
     });
@@ -478,7 +462,6 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         };
         if (regions && !legacy) {
           const choices = regions.map(({ label, polygon }) => ({ label, selection: makeSelection(polygon) }));
-          selectedAreaPreview(editor).set(null);
           setSelectionError(null);
           setHoveredSide(null);
           setPendingSlice({
@@ -559,12 +542,9 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         x: bounds.maxX + 60,
         y: bounds.y,
         props: { name: getUniqueName(editor, `${latest.name}_selected`), text, isDirty: true, showTable: true },
-        meta: {
-          nativeSelection: JSON.stringify({ ...selection, chartId: shape.id }),
-          selectedAreaLimit: shape.props.limit,
-        },
+        meta: { selectedAreaChartId: shape.id },
       });
-      connectShapes(editor, latest.id, id);
+      connectShapes(editor, shape.id, id);
       const controller = new AbortController();
       branchController.current = controller;
       const result = await executeSQLShape(editor, data, id, text, controller.signal, { createMissingKnobs: false });
@@ -640,7 +620,6 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     editor.updateShape<ChartShape>({ id: shape.id, type: "chart-shape", props });
   const clearSelection = () => {
     setPendingSlice(null);
-    selectedAreaPreview(editor).set(null);
     setSelectionError(null);
     setCount(null);
     editor.markHistoryStoppingPoint("clear chart outline");
@@ -796,7 +775,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
               </div>
             )}
           </div>
-          {(!compact || slice || preview || (selection && canSelect)) && (
+          {(!compact || slice || ((selection || exploredId) && canSelect)) && (
             <div
               className={`kavla-scatter__footer${slice || compact ? " kavla-chart__choice-footer" : ""}${compact ? " kavla-chart__compact-footer" : ""}`}
               style={{ height: compact ? undefined : controlsHeight }}
@@ -881,52 +860,42 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 </div>
               )}
               {slicePrompt ??
-                (preview ? (
+                ((selection || exploredId) && canSelect && (
                   <div className="kavla-scatter__actions">
-                    <span className="kavla-scatter__hint kavla-scatter__selection" role="status">
-                      {displayed ? "selected_area" : `Area uses ${preview.x.field} / ${preview.y.field}`}
-                    </span>
-                    <button className="kavla-scatter__button" onClick={() => selectedAreaPreview(editor).set(null)}>
-                      Back to current selection
-                    </button>
-                  </div>
-                ) : (
-                  selection &&
-                  canSelect && (
-                    <div className="kavla-scatter__actions">
-                      <span
-                        className="kavla-scatter__hint kavla-scatter__selection"
-                        role="status"
-                        title={
-                          kind === "bar"
-                            ? "One plotted row per selected category and series."
-                            : "Exact count from the original observations inside the outline."
-                        }
-                      >
-                        {drag.draft
-                          ? "Moving selection…"
+                    <span
+                      className="kavla-scatter__hint kavla-scatter__selection"
+                      role="status"
+                      title={
+                        kind === "bar"
+                          ? "One plotted row per selected category and series."
+                          : "Exact count from the original observations inside the outline."
+                      }
+                    >
+                      {drag.draft
+                        ? "Moving selection…"
+                        : !selection
+                          ? "0 selected"
                           : !selectionCurrent
                             ? "Selection out of date"
                             : count === null
                               ? "Counting…"
                               : `${count.toLocaleString()} selected`}
-                      </span>
-                      {selectionCurrent && (
-                        <button
-                          type="button"
-                          className="kavla-scatter__button kavla-scatter__button--primary"
-                          title={
-                            exploredId
-                              ? "Open the query for this selection"
-                              : "Explore selected rows in a new SQL query"
-                          }
-                          disabled={(!exploredId && count === null) || exploring || Boolean(drag.draft)}
-                          onClick={() => void explore()}
-                        >
-                          {exploring ? "Running…" : exploredId ? "Open query" : "Explore"}
-                          <ArrowUpRight size={14} />
-                        </button>
-                      )}
+                    </span>
+                    {(selectionCurrent || exploredId) && (
+                      <button
+                        type="button"
+                        className="kavla-scatter__button kavla-scatter__button--primary"
+                        title={
+                          exploredId ? "Open the query for this selection" : "Explore selected rows in a new SQL query"
+                        }
+                        disabled={(!exploredId && count === null) || exploring || Boolean(drag.draft)}
+                        onClick={() => void explore()}
+                      >
+                        {exploring ? "Running…" : exploredId ? "Open query" : "Explore"}
+                        <ArrowUpRight size={14} />
+                      </button>
+                    )}
+                    {selection && (
                       <button
                         type="button"
                         className="kavla-scatter__button kavla-scatter__button--icon"
@@ -936,8 +905,8 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                       >
                         <X size={14} />
                       </button>
-                    </div>
-                  )
+                    )}
+                  </div>
                 ))}
             </div>
           )}
