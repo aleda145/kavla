@@ -13,6 +13,7 @@ import { SQLTextAreaMigrations } from "./sql-text-area-migrations";
 import { SQLTextAreaProps } from "./sql-text-area-props";
 import { SQLTextAreaShape } from "./sql-text-area-types";
 import { connectShapes, disconnectShapes, setShapeUpstreamConnections } from "../util/shapeConnections";
+import { createLinkedQuery } from "./createLinkedQuery";
 import { getFallbackNodePosition } from "../client/canvas/fallbackNodePosition";
 
 import { getUniqueName } from "../util/getUniqueName";
@@ -361,22 +362,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     };
 
     const handleChainQuery = () => {
-      const newShapeId = createShapeId();
-
-      this.editor.createShape({
-        type: "sql-text-area",
-        id: newShapeId,
-        ...getFallbackNodePosition(this.editor, shape.id),
-        props: {
-          text: `SELECT\n  *\nFROM\n  ${shape.props.name}`,
-        },
-      });
-      connectShapes(this.editor, shape.id, newShapeId);
-
-      setTimeout(() => {
-        this.editor.select(newShapeId);
-        this.editor.zoomToSelection({ animation: { duration: 250 } });
-      }, 50);
+      createLinkedQuery(this.editor, shape.id, { text: `SELECT\n  *\nFROM\n  ${shape.props.name}` });
     };
 
     const handleCreateChart = async () => {

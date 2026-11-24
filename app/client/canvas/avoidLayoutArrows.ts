@@ -12,7 +12,8 @@ export function avoidLayoutArrows(
   editor: Editor,
   queryByView: Map<TLShapeId, TLShapeId>,
   nodeIds: Set<TLShapeId>,
-  groups: Map<TLShapeId, { direction: LayoutDirection; members: TLShapeId[] }>
+  groups: Map<TLShapeId, { direction: LayoutDirection; members: TLShapeId[] }>,
+  branchNodeIds: ReadonlySet<TLShapeId>
 ): void {
   const canContinue = createLayoutBudget(50, 100_000);
   const shapes = editor.getCurrentPageShapes();
@@ -115,9 +116,9 @@ export function avoidLayoutArrows(
         }
       }
       const vertical = unit.direction === "DOWN" || unit.direction === "UP";
-      const isQueryGroup = editor.getShape(unit.id)!.type === "sql-text-area";
+      const isBranchNode = branchNodeIds.has(unit.id);
       const nearby = (values: Set<number>) => [...values].sort((a, b) => Math.abs(a) - Math.abs(b)).slice(0, 18);
-      const candidates = isQueryGroup
+      const candidates = isBranchNode
         ? nearby(vertical ? xs : ys).map((value) => (vertical ? { x: value, y: 0 } : { x: 0, y: value }))
         : nearby(xs).flatMap((x) => nearby(ys).map((y) => ({ x, y })));
       const overlapsNode = (delta: Point) =>

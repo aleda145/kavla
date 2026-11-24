@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import {
   HTMLContainer,
-  createShapeId,
   getDefaultColorTheme,
   STROKE_SIZES,
   useValue,
@@ -41,7 +40,7 @@ import { useData } from "../../client/useLocalServer";
 import { executeSQLShape } from "../../SQLTextArea/executeSQLShape";
 import { getUniqueName } from "../../util/getUniqueName";
 import { getColumnTypeColor } from "../../util/column-colors";
-import { connectShapes } from "../../util/shapeConnections";
+import { createLinkedQuery } from "../../SQLTextArea/createLinkedQuery";
 import { chartSlice, type SliceSide } from "./chart-slice";
 import { registerChartLasso } from "./chart-lasso";
 import { lassoLoop } from "./lasso-loop";
@@ -232,7 +231,6 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [count, setCount] = useState<number | null>(null);
-  const [exploring, setExploring] = useState(false);
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const setMeta = useCallback(
     (patch: Record<string, string | boolean | null>) => {
@@ -744,69 +742,40 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
 
   const branchController = useRef<AbortController | null>(null);
   useEffect(() => () => branchController.current?.abort(), []);
-  function createDrawingQuery(name: string, relation: ChartRowsRelation) {
+  function createDrawingQuery(name: string, relation: ChartRowsRelation, focus = true) {
     const grouped = relation === "clustered_rows";
-    const bounds = editor.getShapePageBounds(shape.id)!;
-    const otherId = grouped ? exploredId : groupedId;
-    const other = otherId && editor.getShapePageBounds(otherId);
-    const id = createShapeId();
-    const text = `SELECT * FROM ${relation}`;
-    editor.createShape<SQLTextAreaShape>({
-      id,
-      type: "sql-text-area",
-      x: bounds.maxX + 60,
-      y: other ? Math.max(bounds.y, other.maxY + 36) : bounds.y,
-      props: {
+    const text = `SELECT\n  *\nFROM\n  ${relation}`;
+    const id = createLinkedQuery(
+      editor,
+      shape.id,
+      {
         name: getUniqueName(editor, `${name}_${grouped ? "clustered" : "selected"}`),
         text,
-        isDirty: true,
-        showTable: true,
       },
-      meta: { selectedAreaChartId: shape.id, ...(grouped ? { clusterQuery: true } : {}) },
-    });
-    connectShapes(editor, shape.id, id);
+      {
+        focus,
+        meta: { selectedAreaChartId: shape.id, ...(grouped ? { clusterQuery: true } : {}) },
+      }
+    );
     return { id, text };
   }
-  function openQuery(id: TLShapeId) {
-    editor.select(id);
-    const bounds = editor.getShapePageBounds(id);
-    if (bounds) editor.zoomToBounds(bounds, { targetZoom: editor.getZoomLevel(), animation: { duration: 200 } });
-  }
-  const explore = async (relation: ChartRowsRelation = "selected_area") => {
-    const existing = relation === "selected_area" ? exploredId : groupedId;
-    if (existing && editor.getShape(existing)) {
-      openQuery(existing);
+  async function openGroupedRows() {
+    if (groupedId && editor.getShape(groupedId)) {
+      editor.select(groupedId);
+      editor.zoomToSelection({ animation: { duration: 250 } });
       return;
     }
-    if (!firstRegion || !source || !selectionCurrent || (relation === "selected_area" && count === null)) return;
-    setExploring(true);
+    if (!source || !selectionCurrent) return;
     try {
-      const latest = scatterSource(editor, shape);
-      if (latest.revision !== firstRegion.sourceRevision)
-        throw new Error("The upstream query changed. Draw a new selection.");
-      const { id, text } = createDrawingQuery(latest.name, relation);
+      const { id, text } = createDrawingQuery(source.name, "clustered_rows");
       const controller = new AbortController();
       branchController.current = controller;
       const result = await executeSQLShape(editor, data, id, text, controller.signal, { createMissingKnobs: false });
-      if (!result.success) throw new Error(result.error ?? "The selected query failed. Retry from the new SQL shape.");
-      try {
-        if (scatterSource(editor, shape).revision !== firstRegion.sourceRevision)
-          throw new Error("The upstream query changed while the branch ran. Run this SQL shape again.");
-      } catch (error) {
-        editor.updateShape<SQLTextAreaShape>({
-          id,
-          type: "sql-text-area",
-          props: { isDirty: true, error: message(error) },
-        });
-        throw error;
-      }
-      editor.select(id);
+      if (!result.success) throw new Error(result.error ?? "The grouped query failed.");
     } catch (error) {
       setSelectionError(message(error));
-    } finally {
-      setExploring(false);
     }
-  };
+  }
 
   const errorText = sourceInfo.error || error;
   const chartNotice = selectionError || saved.error || (currentPlot?.valid ? errorText : null);
@@ -872,7 +841,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     if (groupName === groupDrawing.groupName) return;
     editor.markHistoryStoppingPoint("name chart group");
     editor.run(() => {
-      if (groupName && !groupedId) createDrawingQuery(source.name, "clustered_rows");
+      if (groupName && !groupedId) createDrawingQuery(source.name, "clustered_rows", false);
       // Updating the page schedules the linked query and its dependents, including on undo.
       setGlobalArea(
         editor,
@@ -1107,7 +1076,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                 drawing={groupDrawing}
                 regions={regions}
                 save={nameDrawing}
-                open={groupDrawing.groupName || groupedId ? () => void explore("clustered_rows") : undefined}
+                open={groupDrawing.groupName || groupedId ? () => void openGroupedRows() : undefined}
                 dismiss={() => setFocusedId(null)}
               />
             )}
@@ -1232,13 +1201,11 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                   <button
                     type="button"
                     className="kavla-scatter__button kavla-scatter__button--primary"
-                    title={
-                      exploredId ? "Open the query for this selection" : "Explore selected rows in a new SQL query"
-                    }
-                    disabled={(!exploredId && count === null) || exploring || Boolean(drag.draft)}
-                    onClick={() => void explore()}
+                    title="Create a query from selected rows"
+                    disabled={!source || Boolean(drag.draft)}
+                    onClick={() => source && createDrawingQuery(source.name, "selected_area")}
                   >
-                    {exploring ? "Running…" : exploredId ? "Open query" : "Explore"}
+                    Query
                     <ArrowUpRight size={14} />
                   </button>
                 )}

@@ -51,12 +51,40 @@ export async function layoutKavlaNodes(editor: Editor, selection = editor.getSel
     if (tableId) queryByTable.set(tableId as TLShapeId, shape.id);
   }
 
-  const getQueryForView = (view: TLShape): TLShapeId | undefined => {
+  const upstreamCharts = new Set<TLShapeId>();
+  const shapeEdges: LayoutConnection[] = [];
+  function recordEdge(from: string, to: string) {
+    shapeEdges.push({ from, to });
+    const parent = shapesById.get(from as TLShapeId);
+    if (parent?.type === "chart-shape" && shapesById.get(to as TLShapeId)?.type === "sql-text-area")
+      upstreamCharts.add(parent.id);
+  }
+  for (const shape of shapes) {
+    if (shape.type === "arrow") {
+      const { start, end } = getArrowBindings(editor, shape as TLArrowShape);
+      if (start && end) recordEdge(start.toId, end.toId);
+    } else if (shape.type === "data-source" || shape.type === "sql-text-area" || shape.type === "knob") {
+      const props = (shape as DataSourceShape | SQLTextAreaShape | KnobShape).props;
+      for (const id of props.upstreamShapeIds ?? []) recordEdge(id, shape.id);
+      for (const id of props.downstreamShapeIds ?? []) recordEdge(shape.id, id);
+      if (shape.type === "sql-text-area") {
+        const resultId = (shape as SQLTextAreaShape).props.linkedTableId;
+        if (resultId) recordEdge(shape.id, resultId);
+      }
+    } else if (isQueryView(shape)) {
+      const { sourceShapeId } = shape.props;
+      if (sourceShapeId) recordEdge(sourceShapeId, shape.id);
+    } else if (shape.type === "summary-shape") {
+      for (const artifact of (shape as SummaryShape).props.artifacts) recordEdge(artifact.shapeId, shape.id);
+    }
+  }
+
+  const getLayoutOwner = (view: TLShape): TLShapeId | undefined => {
     let current: TLShape | undefined = view;
     const visited = new Set<TLShapeId>();
     while (current && !visited.has(current.id)) {
       visited.add(current.id);
-      if (current.type === "sql-text-area") return current.id;
+      if (current.type === "sql-text-area" || upstreamCharts.has(current.id)) return current.id;
       if (!isQueryView(current)) return;
       const source: string | null = current.props.sourceShapeId;
       // Some older documents only have the query's linkedTableId reference.
@@ -74,16 +102,19 @@ export async function layoutKavlaNodes(editor: Editor, selection = editor.getSel
   const groupByShape = new Map<TLShapeId, TLShapeId>();
   const membersByGroup = new Map<TLShapeId, TLShape[]>();
   for (const shape of nodes) {
-    const queryId = isQueryView(shape) ? getQueryForView(shape) : undefined;
+    const ownerId = isQueryView(shape) ? getLayoutOwner(shape) : undefined;
     // Queries outside the movable selection stay put, so their selected views
     // remain standalone layout nodes.
-    const groupId = queryId && bounds.has(queryId) ? queryId : shape.id;
+    const groupId = ownerId && bounds.has(ownerId) ? ownerId : shape.id;
     groupByShape.set(shape.id, groupId);
     const members = membersByGroup.get(groupId) ?? [];
     members.push(shape);
     membersByGroup.set(groupId, members);
   }
 
+  const branchNodeIds = new Set(
+    [...membersByGroup.keys()].filter((id) => shapesById.get(id)?.type === "sql-text-area" || upstreamCharts.has(id))
+  );
   const groups = new Map<TLShapeId, LayoutGroup>();
   const viewGap = 40;
   const makeGroupNode = (id: string, direction: LayoutDirection): ElkNode => {
@@ -154,25 +185,7 @@ export async function layoutKavlaNodes(editor: Editor, selection = editor.getSel
     edges.set(id, { id, sources: [fromGroup], targets: [toGroup] });
   };
 
-  for (const shape of shapes) {
-    if (shape.type === "arrow") {
-      const { start, end } = getArrowBindings(editor, shape as TLArrowShape);
-      if (start && end) addEdge(start.toId, end.toId);
-    } else if (shape.type === "data-source" || shape.type === "sql-text-area" || shape.type === "knob") {
-      const props = (shape as DataSourceShape | SQLTextAreaShape | KnobShape).props;
-      for (const id of props.upstreamShapeIds ?? []) addEdge(id, shape.id);
-      for (const id of props.downstreamShapeIds ?? []) addEdge(shape.id, id);
-      if (shape.type === "sql-text-area") {
-        const resultId = (shape as SQLTextAreaShape).props.linkedTableId;
-        if (resultId) addEdge(shape.id, resultId);
-      }
-    } else if (isQueryView(shape)) {
-      const { sourceShapeId } = shape.props;
-      if (sourceShapeId) addEdge(sourceShapeId, shape.id);
-    } else if (shape.type === "summary-shape") {
-      for (const artifact of (shape as SummaryShape).props.artifacts) addEdge(artifact.shapeId, shape.id);
-    }
-  }
+  for (const { from, to } of shapeEdges) addEdge(from, to);
 
   const graph: ElkNode = {
     id: "kavla-layout",
@@ -200,7 +213,8 @@ export async function layoutKavlaNodes(editor: Editor, selection = editor.getSel
         graph,
         [...connections.values()],
         new Map(shapes.map((shape) => [shape.id, shape.type])),
-        makeGroupNode
+        makeGroupNode,
+        branchNodeIds
       ),
       new Promise<never>((_, reject) => {
         worker.addEventListener("error", (event) => reject(new Error(event.message || "Layout worker failed.")), {
@@ -319,7 +333,7 @@ export async function layoutKavlaNodes(editor: Editor, selection = editor.getSel
         if (
           !source ||
           target?.type !== "sql-text-area" ||
-          !["sql-text-area", "data-source", "knob"].includes(source.type)
+          !["sql-text-area", "data-source", "knob", "chart-shape"].includes(source.type)
         )
           continue;
         editor.updateBindings(
@@ -348,7 +362,8 @@ export async function layoutKavlaNodes(editor: Editor, selection = editor.getSel
           ),
           new Map(
             [...groups].map(([id, group]) => [id, { direction: group.direction, members: [...group.offsets.keys()] }])
-          )
+          ),
+          branchNodeIds
         );
         moveAnnotations();
       } finally {

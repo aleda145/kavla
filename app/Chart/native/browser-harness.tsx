@@ -89,13 +89,6 @@ async function waitUntil(check: () => boolean, label: string) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
-function click(text: string) {
-  const button = [...document.querySelectorAll("button")].find(
-    (b) => b.textContent === text || b.getAttribute("aria-label") === text
-  );
-  if (!button || button.disabled) throw new Error(`Button unavailable: ${text}`);
-  button.click();
-}
 async function setup(n = 1000000) {
   await waitUntil(() => Boolean(editor), "editor");
   editor.deleteShapes([...editor.getCurrentPageShapeIds()]);
@@ -157,22 +150,20 @@ async function programmaticLasso() {
   });
   editor.updateShape<TLDrawShape>({ id, type: "draw", props: { isComplete: true } });
   await waitUntil(() => document.body.textContent?.includes("128,010 selected") ?? false, "exact count");
-  click("Explore");
-  await waitUntil(
-    () =>
-      editor
-        .getCurrentPageShapes()
-        .some(
-          (s) =>
-            s.type === "sql-text-area" &&
-            s.id !== sourceId &&
-            (s as SQLTextAreaShape).props.lastRunStats?.rowCount === 128010
-        ),
-    "executed SQL branch"
-  );
-  const branch = editor
-    .getCurrentPageShapes()
-    .find((s) => s.type === "sql-text-area" && s.id !== sourceId) as SQLTextAreaShape;
+  const queryButton = document
+    .getElementById(chartId)
+    ?.querySelector<HTMLButtonElement>('button[title="Create a query from selected rows"]');
+  if (!queryButton || queryButton.disabled) throw new Error("Chart Query action unavailable.");
+  queryButton.click();
+  await waitUntil(() => {
+    const selected = editor.getOnlySelectedShape();
+    return selected?.type === "sql-text-area" && selected.id !== sourceId;
+  }, "focused SQL branch");
+  const draft = editor.getOnlySelectedShape() as SQLTextAreaShape;
+  const run = await executeSQLShape(editor, data, draft.id, draft.props.text, new AbortController().signal);
+  if (!run.success) throw new Error(run.error ?? "The selected rows query failed.");
+  const branch = editor.getShape<SQLTextAreaShape>(draft.id)!;
+  if (branch.props.lastRunStats?.rowCount !== 128010) throw new Error("Unexpected selected row count.");
   const tail = await data.getQueryResultPage({ shapeId: branch.id, offset: 128000, limit: 10 });
   if (tail.rows.length !== 10) throw new Error("Selected result was truncated.");
   if (editor.getShape(id) || !editor.getShape(chartId) || !editor.getShape(sourceId))
