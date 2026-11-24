@@ -2,9 +2,12 @@ import { useEffect, useRef } from "react";
 import { useEditor, useValue, type TLShapeId } from "tldraw";
 import { useData } from "../client/useLocalServer";
 import { executeSQLShape } from "../SQLTextArea/executeSQLShape";
+import { getSelectedAreaSource, selectedAreaChartId } from "../SQLTextArea/selected-area";
 import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
-import { connectShapes, disconnectShapes } from "../util/shapeConnections";
+import { connectShapes, disconnectShapes, setShapeUpstreamConnections } from "../util/shapeConnections";
+import type { ChartShape } from "../Chart/chart-shape-types";
+import { chartAreaValue } from "../Chart/native/chart-selection";
 import { getKnobNames, getSQLKnobs } from "./knobSQL";
 import type { KnobShape } from "./knob-types";
 import { ensureQueryKnobs } from "./createKnobs";
@@ -26,7 +29,8 @@ export function KnobRuntime() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let knobsChanged = false;
     const signatures = new Map<TLShapeId, string>();
-    const pending = new Set<TLShapeId>();
+    const pending = new Map<TLShapeId, "knob" | "area">();
+    const changedCharts = new Set<TLShapeId>();
     const running = new Map<TLShapeId, AbortController>();
     const inferences = new Map<TLShapeId, { key: string; controller: AbortController }>();
     const inferred = new Map<TLShapeId, string>();
@@ -80,7 +84,7 @@ export function KnobRuntime() {
             editor.updateShape<KnobShape>({ id: knob.id, type: "knob", props: { inferenceStatus: "ready" } });
           continue;
         }
-        const dependencies = getOrderedDependenciesForSQL(editor, context.sql).orderedDependencies;
+        const dependencies = getOrderedDependenciesForSQL(editor, context.sql, context.query.id).orderedDependencies;
         const key = JSON.stringify([
           context.query.id,
           context.sql,
@@ -99,7 +103,7 @@ export function KnobRuntime() {
           type: "knob",
           props: { inferenceStatus: "loading", inferenceError: null },
         });
-        void inferKnob(editor, dataRef.current, knob, context.sql, controller.signal)
+        void inferKnob(editor, dataRef.current, knob, context.sql, controller.signal, context.query.id)
           .then((props) => {
             const current = editor.getShape<KnobShape>(knob.id);
             if (disposed || controller.signal.aborted || !current || current.props.inferFromColumn === false) return;
@@ -166,6 +170,57 @@ export function KnobRuntime() {
           running.get(id)?.abort();
         }
       }
+      // Pin handwritten references as soon as their chart is unambiguous. Older documents
+      // also need their snapshot and direct source arrow replaced with the chart link.
+      for (const query of queries) {
+        if (typeof query.meta.selectedAreaChartId === "string") {
+          // A page-wide selection could leave a materialized result linked to another chart.
+          const upstream = query.props.upstreamShapeIds;
+          if (
+            query.props.lastRunStats &&
+            upstream &&
+            !upstream.includes(query.meta.selectedAreaChartId) &&
+            upstream.some((id) => editor.getShape(id as TLShapeId)?.type === "chart-shape") &&
+            getSelectedAreaSource(editor, query.props.text, query)
+          ) {
+            changedCharts.add(query.meta.selectedAreaChartId as TLShapeId);
+          }
+          continue;
+        }
+        const chartId = selectedAreaChartId(query);
+        const area = getSelectedAreaSource(editor, query.props.text, query);
+        const chart = area?.chart ?? (chartId ? editor.getShape<ChartShape>(chartId) : undefined);
+        if (chart?.type !== "chart-shape") continue;
+        if (!chartId && chart.props.sourceShapeId === query.id) continue;
+        if (
+          chartId &&
+          area &&
+          (query.meta.nativeSelection !== chartAreaValue(editor, chart) ||
+            query.meta.selectedAreaLimit !== chart.props.limit)
+        ) {
+          changedCharts.add(chart.id);
+        }
+        editor.run(
+          () => {
+            editor.updateShape({
+              id: query.id,
+              type: query.type,
+              meta: {
+                ...query.meta,
+                selectedAreaChartId: chartId ?? chart.id,
+                nativeSelection: null,
+                selectedAreaLimit: null,
+              },
+            });
+            if (area) {
+              const { immediateUpstreamIds } = getOrderedDependenciesForSQL(editor, query.props.text, query.id);
+              const knobs = getSQLKnobs(editor, query.props.text);
+              setShapeUpstreamConnections(editor, query.id, [...immediateUpstreamIds, ...knobs.map((knob) => knob.id)]);
+            }
+          },
+          { history: "ignore", ignoreShapeLock: true }
+        );
+      }
       for (const query of queries) {
         const directKnobs = getSQLKnobs(editor, query.props.text);
         const directIds = new Set(directKnobs.map((knob) => knob.id));
@@ -180,7 +235,32 @@ export function KnobRuntime() {
           },
           { history: "ignore" }
         );
-        const { orderedDependencies } = getOrderedDependenciesForSQL(editor, query.props.text);
+        const { orderedDependencies, immediateUpstreamIds } = getOrderedDependenciesForSQL(
+          editor,
+          query.props.text,
+          query.id
+        );
+        const area = getSelectedAreaSource(editor, query.props.text, query);
+        if (
+          area?.chart &&
+          area.source?.id !== query.id &&
+          !editor.getShape<SQLTextAreaShape>(query.id)?.props.upstreamShapeIds?.includes(area.chart.id)
+        ) {
+          editor.run(() => setShapeUpstreamConnections(editor, query.id, [...immediateUpstreamIds, ...directIds]), {
+            history: "ignore",
+            ignoreShapeLock: true,
+          });
+        }
+        const inputs = [query, ...orderedDependencies];
+        if (
+          changedCharts.size &&
+          inputs.some((node) => {
+            if (node.type !== "sql-text-area") return false;
+            const chartId = getSelectedAreaSource(editor, node.props.text, node)?.chartId;
+            return chartId && changedCharts.has(chartId);
+          })
+        )
+          pending.set(query.id, "area");
         const names = [
           ...new Set(
             [query, ...orderedDependencies].flatMap((dependency) =>
@@ -208,9 +288,10 @@ export function KnobRuntime() {
         const previous = signatures.get(query.id);
         signatures.set(query.id, signature);
         if (rerun && previous !== undefined && previous !== signature) {
-          pending.add(query.id);
+          pending.set(query.id, "knob");
         }
       }
+      changedCharts.clear();
     };
     function flush() {
       timer = undefined;
@@ -218,15 +299,24 @@ export function KnobRuntime() {
       const rerun = knobsChanged;
       knobsChanged = false;
       reconcile(rerun);
-      for (const id of pending) {
+      for (const [id, input] of pending) {
         const query = editor.getShape<SQLTextAreaShape>(id);
         if (!query || query.type !== "sql-text-area") {
           pending.delete(id);
           continue;
         }
-        // Finish the current run, then execute only the latest slider value.
+        // Finish the current run, then execute with the latest input.
         if (query.props.isRunning || running.has(id)) continue;
-        const dependencies = getOrderedDependenciesForSQL(editor, query.props.text).orderedDependencies;
+        const dependencies = getOrderedDependenciesForSQL(editor, query.props.text, query.id).orderedDependencies;
+        if (
+          input === "area" &&
+          ![query, ...dependencies].some(
+            (node) => node.type === "sql-text-area" && getSelectedAreaSource(editor, node.props.text, node)
+          )
+        ) {
+          pending.delete(id);
+          continue;
+        }
         if (creationTimers.has(id) || dependencies.some((dependency) => creationTimers.has(dependency.id))) continue;
         if (
           [query, ...dependencies].some(
@@ -239,19 +329,22 @@ export function KnobRuntime() {
         pending.delete(id);
         const controller = new AbortController();
         running.set(id, controller);
+        const history = input === "area" ? "ignore" : undefined;
         void executeSQLShape(editor, dataRef.current, id, query.props.text, controller.signal, {
           createMissingKnobs: false,
+          history,
         })
           .catch((error: unknown) => {
             if (disposed || controller.signal.aborted || !editor.getShape(id)) return;
-            editor.updateShape<SQLTextAreaShape>({
-              id,
-              type: "sql-text-area",
-              props: {
-                error: error instanceof Error ? error.message : String(error),
-                isDirty: true,
-              },
-            });
+            editor.run(
+              () =>
+                editor.updateShape<SQLTextAreaShape>({
+                  id,
+                  type: "sql-text-area",
+                  props: { error: error instanceof Error ? error.message : String(error), isDirty: true },
+                }),
+              { history }
+            );
           })
           .finally(() => {
             running.delete(id);
@@ -267,6 +360,10 @@ export function KnobRuntime() {
         let relevant = false;
         for (const record of [...Object.values(changes.added), ...Object.values(changes.removed)]) {
           if (record.typeName !== "shape") continue;
+          if (record.type === "chart-shape") {
+            changedCharts.add(record.id);
+            relevant = true;
+          }
           if (record.type === "knob") {
             knobsChanged = true;
             relevant = true;
@@ -282,7 +379,32 @@ export function KnobRuntime() {
           if (record.type === "data-source") relevant = true;
         }
         for (const [before, after] of Object.values(changes.updated)) {
+          // Undo can restore the old page-level representation. Refresh only its recorded owners.
+          if (
+            before.typeName === "page" &&
+            after.typeName === "page" &&
+            after.id === pageId &&
+            (before.meta.selectedAreaChartId !== after.meta.selectedAreaChartId ||
+              before.meta.nativeSelection !== after.meta.nativeSelection)
+          ) {
+            for (const id of [before.meta.selectedAreaChartId, after.meta.selectedAreaChartId]) {
+              if (typeof id === "string") changedCharts.add(id as TLShapeId);
+            }
+            relevant ||= changedCharts.size > 0;
+          }
           if (before.typeName !== "shape" || after.typeName !== "shape") continue;
+          if (before.type === "chart-shape" && after.type === "chart-shape") {
+            const a = before as ChartShape;
+            const b = after as ChartShape;
+            if (
+              a.meta.nativeSelection !== b.meta.nativeSelection ||
+              a.props.sourceShapeId !== b.props.sourceShapeId ||
+              a.props.limit !== b.props.limit
+            ) {
+              changedCharts.add(b.id);
+              relevant = true;
+            }
+          }
           if (before.type === "knob" && after.type === "knob") {
             const a = before as KnobShape;
             const b = after as KnobShape;
@@ -309,6 +431,12 @@ export function KnobRuntime() {
           if (before.type === "sql-text-area" && after.type === "sql-text-area") {
             const a = before as SQLTextAreaShape;
             const b = after as SQLTextAreaShape;
+            const oldChartId = selectedAreaChartId(a);
+            const chartId = selectedAreaChartId(b);
+            if (chartId && chartId !== oldChartId && (oldChartId || (b.props.lastRunStats && !b.props.isRunning))) {
+              if (!pending.has(b.id)) pending.set(b.id, "area");
+              relevant = true;
+            }
             if (a.props.text !== b.props.text) {
               scheduleCreation(b.id);
               relevant = true;
@@ -325,6 +453,7 @@ export function KnobRuntime() {
       },
       { scope: "document" }
     );
+    if (pending.size) schedule();
     const refreshInference = (event: Event) => {
       const id = (event as CustomEvent<{ shapeId?: TLShapeId }>).detail?.shapeId;
       for (const [knobId, request] of inferences) {

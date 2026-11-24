@@ -1,6 +1,6 @@
 import { track, useEditor, useValue } from "tldraw";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
-import { getAutoPlacementSearch } from "./autoPlacement";
+import { getAutoPlacementSearch, getQueryPlacementObstacles } from "./autoPlacement";
 import { createLayoutBudget } from "./layoutBudget";
 import { getLayoutInProgress } from "./layoutActions";
 
@@ -15,15 +15,10 @@ export const AutoPlacementDebug = track(function AutoPlacementDebug() {
       if (getLayoutInProgress(editor).get()) return [];
       const parents = editor
         .getSelectedShapes()
-        .filter((shape) => shape.type === "data-source" || shape.type === "sql-text-area");
+        .filter((shape) => ["data-source", "sql-text-area", "chart-shape"].includes(shape.type));
       if (!parents.length) return [];
       const child = editor.getShapeUtil<SQLTextAreaShape>("sql-text-area").getDefaultProps();
-      const shapes = editor.getCurrentPageShapes();
-      const obstacles = shapes.flatMap((shape) => {
-        if (["arrow", "group", "frame", "agent-chat", "agent-blob"].includes(shape.type)) return [];
-        const bounds = editor.getShapePageBounds(shape);
-        return bounds ? [bounds] : [];
-      });
+      const obstacles = getQueryPlacementObstacles(editor);
       // The radius expands for node occupancy, not arrow preferences. Finding
       // one free position is enough; share a budget across the entire selection.
       const canContinue = createLayoutBudget(12, 50_000);

@@ -1,7 +1,6 @@
-import { createShapeId, type Editor, useToasts } from "tldraw";
+import { type Editor, useToasts } from "tldraw";
 import { RefreshCw, Search } from "lucide-react";
-import { connectShapes } from "../util/shapeConnections";
-import { getFallbackNodePosition } from "../client/canvas/fallbackNodePosition";
+import { createLinkedQuery } from "../SQLTextArea/createLinkedQuery";
 import { type TableDownloadFormat } from "../util/downloadTable";
 import { TableDownloadButtons } from "@/components/TableDownloadButtons";
 import { useData } from "../client/useLocalServer";
@@ -85,7 +84,6 @@ export function DataSourceActionBar({
   };
 
   const handleQuery = () => {
-    const newShapeId = createShapeId();
     let query = `SELECT\n  *\nFROM\n  ${shape.props.name}`;
     let newWidth = 400;
 
@@ -99,21 +97,7 @@ export function DataSourceActionBar({
       newWidth = Math.min(Math.max(400, longestColumn * 10 + 120), 800);
     }
 
-    editor.createShape({
-      type: "sql-text-area",
-      id: newShapeId,
-      ...getFallbackNodePosition(editor, shape.id),
-      props: {
-        w: newWidth,
-        text: query,
-      },
-    });
-    connectShapes(editor, shape.id, newShapeId);
-
-    window.setTimeout(() => {
-      editor.select(newShapeId);
-      editor.zoomToSelection({ animation: { duration: 250 } });
-    }, 50);
+    createLinkedQuery(editor, shape.id, { w: newWidth, text: query });
     onClearSelectedColumns();
   };
 

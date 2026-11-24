@@ -1,0 +1,520 @@
+.kavla-scatter {
+  color: #000;
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  container-type: inline-size;
+}
+.kavla-scatter button,
+.kavla-scatter select {
+  font-family: inherit;
+  color: inherit;
+}
+.kavla-scatter__header {
+  box-sizing: border-box;
+  border-bottom: 4px solid #000;
+  background: #fce7f3;
+  border-radius: 8px 8px 0 0;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kavla-scatter__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 800;
+}
+.kavla-chart__drawing-warning {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 5px;
+  border: 1px solid #000;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #111;
+  font:
+    600 11px/1.2 Inter,
+    sans-serif;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.kavla-chart__body {
+  display: flex;
+  min-height: 0;
+}
+.kavla-chart__content {
+  position: relative;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.kavla-chart__action-bar {
+  box-sizing: border-box;
+  width: 48px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  border-left: 4px solid #000;
+  background: #f3f4f6;
+}
+.kavla-chart__action-types,
+.kavla-chart__action-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.kavla-chart__action-types {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.kavla-chart__action-tools {
+  margin-top: auto;
+  flex-shrink: 0;
+}
+.kavla-chart__action-bar .kavla-scatter__button {
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  box-shadow: none;
+}
+.kavla-chart__action-types .kavla-scatter__button {
+  border-color: transparent;
+  background: transparent;
+}
+.kavla-chart__action-bar .kavla-scatter__button:hover:not(:disabled),
+.kavla-chart__action-bar .kavla-scatter__button:focus-visible {
+  border-color: #000;
+  background: #fff;
+  box-shadow: none;
+  outline-offset: -3px;
+}
+.kavla-chart__action-bar .kavla-scatter__button[aria-pressed="true"],
+.kavla-chart__action-bar .kavla-scatter__button[aria-expanded="true"] {
+  border-color: #000;
+  background: #dbeafe;
+}
+.kavla-scatter__button {
+  height: 28px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  border: 2px solid #000;
+  border-radius: 4px;
+  background: #fff;
+  font-weight: 750;
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 #0003;
+}
+.kavla-scatter__button:hover:not(:disabled) {
+  box-shadow: 3px 3px 0 #000;
+}
+.kavla-scatter__button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 1px 1px 0 #000;
+}
+.kavla-scatter__button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  box-shadow: none;
+}
+.kavla-scatter__button:focus-visible,
+.kavla-scatter select:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 3px;
+}
+.kavla-chart__drawing-actions {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transform: translateY(-14px);
+  z-index: 2;
+}
+.kavla-scatter__button--icon {
+  width: 28px;
+  padding: 0;
+}
+.kavla-scatter__button--primary {
+  background: #fde047;
+}
+.kavla-scatter__button[aria-expanded="true"],
+.kavla-scatter__button[aria-pressed="true"] {
+  background: #ccfbf1;
+  box-shadow: none;
+}
+.kavla-scatter__footer {
+  box-sizing: border-box;
+  padding: 4px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+  background: #fff;
+}
+.kavla-chart__axis-bar {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-top: 4px solid #000;
+  border-radius: 0 0 8px 8px;
+  background: #f9fafb;
+}
+.kavla-chart__axis-bar > label {
+  flex: 1;
+  gap: 2px;
+}
+.kavla-chart__axis-bar .kavla-chart__axis-select {
+  display: block;
+  border-radius: 4px;
+}
+.kavla-chart__axis-bar .kavla-chart__axis-select select {
+  display: block;
+  box-sizing: border-box;
+  min-width: 0;
+  background: transparent;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  text-transform: none;
+}
+.kavla-chart__axis-bar option {
+  background: #fff;
+  color: #000;
+}
+.kavla-chart__axis-bar select:disabled {
+  opacity: 0.5;
+}
+.kavla-scatter__status,
+.kavla-scatter__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.kavla-chart__choice-footer {
+  justify-content: flex-end;
+  padding-block: 0;
+}
+.kavla-chart__choice-footer > .kavla-scatter__status,
+.kavla-chart__choice-footer > .kavla-chart__legend {
+  display: none;
+}
+.kavla-chart__compact-footer {
+  position: absolute;
+  inset: auto 0 0;
+  background: white;
+}
+.kavla-chart__slice-choice .kavla-scatter__button {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+}
+@container (max-width: 340px) {
+  .kavla-chart__slice-choice .kavla-control-label {
+    display: none;
+  }
+}
+.kavla-scatter__status {
+  font-size: 10px;
+  line-height: 16px;
+  min-height: 20px;
+}
+.kavla-scatter__status .kavla-scatter__button {
+  box-sizing: border-box;
+  height: 20px;
+  box-shadow: none;
+  white-space: nowrap;
+}
+.kavla-scatter__status .kavla-scatter__button--icon {
+  width: 20px;
+}
+.kavla-scatter__rows {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.kavla-scatter__hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  line-height: 14px;
+  color: #52525b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kavla-scatter__selection {
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.kavla-scatter__legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.kavla-scatter__ramp {
+  width: 60px;
+  height: 8px;
+  border: 1px solid #000;
+  border-radius: 2px;
+}
+.kavla-scatter__notice {
+  color: #92400e;
+  font-weight: 700;
+}
+.kavla-scatter__message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  width: min(320px, calc(100% - 40px));
+  padding: 16px;
+  background: #fff;
+  border: 2px solid #000;
+  border-radius: 6px;
+  box-shadow: 4px 4px 0 #000;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.kavla-scatter__message strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-weight: 800;
+}
+.kavla-scatter__message p {
+  margin: 0;
+  color: #52525b;
+  overflow-wrap: anywhere;
+}
+.kavla-scatter__settings {
+  position: absolute;
+  right: 56px;
+  bottom: 72px;
+  z-index: 2;
+  width: min(280px, calc(100% - 68px));
+  max-height: calc(100% - 124px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: #fff;
+  padding: 12px;
+  border: 2px solid #000;
+  border-radius: 6px;
+  box-shadow: 4px 4px 0 #000;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kavla-scatter__settings-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 800;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+.kavla-scatter__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.kavla-scatter__field > span {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.kavla-scatter__field select {
+  width: 100%;
+  height: 32px;
+  background: #fff;
+  border: 2px solid #000;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-weight: 700;
+}
+.kavla-scatter__scales {
+  display: flex;
+  gap: 5px;
+}
+.kavla-scatter__scales button {
+  flex: 1;
+}
+.kavla-scatter__settings-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #52525b;
+}
+@container (max-width: 420px) {
+  .kavla-scatter__optional {
+    display: none;
+  }
+  .kavla-scatter__ramp {
+    width: 36px;
+  }
+  .kavla-scatter__footer {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .kavla-chart__axis-bar {
+    gap: 6px;
+    padding: 0 8px;
+  }
+  .kavla-scatter__status,
+  .kavla-scatter__actions {
+    gap: 6px;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .kavla-scatter__busy {
+    animation: kavla-scatter-spin 1.2s linear infinite;
+  }
+  @keyframes kavla-scatter-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+.kavla-scatter__tooltip {
+  position: absolute;
+  width: min(220px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 2px solid #000;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 4px 4px 0 #000;
+  pointer-events: none;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.kavla-scatter__tooltip > strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+.kavla-scatter__tooltip dl {
+  margin: 0;
+}
+.kavla-scatter__tooltip dt {
+  color: #52525b;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kavla-scatter__tooltip dd {
+  margin: 1px 0 6px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.kavla-scatter__tooltip dd:last-child {
+  margin-bottom: 0;
+}
+.kavla-scatter__tooltip p {
+  margin: 8px 0 0;
+  font-size: 10px;
+  color: #52525b;
+}
+.kavla-chart__legend {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  min-height: 20px;
+  font-size: 10px;
+  scrollbar-width: thin;
+}
+.kavla-chart__legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 180px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.kavla-chart__legend i,
+.kavla-chart__swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 1px solid #000;
+  flex-shrink: 0;
+  margin-right: 3px;
+}
+.kavla-chart__pages {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.kavla-scatter__field input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 32px;
+  border: 2px solid #000;
+  border-radius: 4px;
+  padding: 0 6px;
+  font: inherit;
+}
+.kavla-chart__tooltip-groups p {
+  margin: 3px 0 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.kavla-chart__group-form {
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  max-width: calc(100% - 8px);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  background: white;
+  border: 2px solid black;
+  border-radius: 6px;
+  z-index: 2;
+  pointer-events: auto;
+}
+.kavla-chart__group-form input {
+  width: 10ch;
+  min-width: 0;
+  padding: 2px 4px;
+  font:
+    600 12px Inter,
+    sans-serif;
+  user-select: text;
+}

@@ -18,15 +18,13 @@ export async function layoutQueryBranches(
   graph: ElkNode,
   connections: LayoutConnection[],
   shapeTypes: Map<string, string>,
-  makeGroupNode: (id: string, direction: LayoutDirection) => ElkNode
+  makeGroupNode: (id: string, direction: LayoutDirection) => ElkNode,
+  branchNodeIds: ReadonlySet<string>
 ): Promise<ElkNode> {
   const children = graph.children ?? [];
-  const queryIds = new Set(
-    children.filter((node) => shapeTypes.get(node.id) === "sql-text-area").map((node) => node.id)
-  );
-  const neighbors = new Map([...queryIds].map((id) => [id, new Set<string>()]));
+  const neighbors = new Map([...branchNodeIds].map((id) => [id, new Set<string>()]));
   for (const { from, to } of connections) {
-    if (!queryIds.has(from) || !queryIds.has(to)) continue;
+    if (!branchNodeIds.has(from) || !branchNodeIds.has(to)) continue;
     neighbors.get(from)!.add(to);
     neighbors.get(to)!.add(from);
   }
@@ -34,7 +32,7 @@ export async function layoutQueryBranches(
   // Shared inputs don't make two analyses one branch. Query dependencies do:
   // walking in both directions also keeps branches that merge downstream together.
   const branchByGroup = new Map<string, string>();
-  for (const id of queryIds) {
+  for (const id of branchNodeIds) {
     if (branchByGroup.has(id)) continue;
     const branchId = `branch:${id}`;
     const pending = [id];
@@ -52,7 +50,9 @@ export async function layoutQueryBranches(
   for (const node of children) {
     if (!["data-source", "knob"].includes(shapeTypes.get(node.id) ?? "")) continue;
     const downstreamBranches = new Set(
-      connections.filter(({ from, to }) => from === node.id && queryIds.has(to)).map(({ to }) => branchByGroup.get(to)!)
+      connections
+        .filter(({ from, to }) => from === node.id && branchNodeIds.has(to))
+        .map(({ to }) => branchByGroup.get(to)!)
     );
     if (downstreamBranches.size === 1) {
       // An input used by just one branch belongs in that branch's internal layout.
@@ -138,7 +138,7 @@ export async function layoutQueryBranches(
     requirePosition(branch);
     initial.set(branch.id, branch);
   }
-  const isQueryBranch = (id: string) => branchMembers.get(id)!.some((node) => queryIds.has(node.id));
+  const isQueryBranch = (id: string) => branchMembers.get(id)!.some((node) => branchNodeIds.has(node.id));
   // Shared sources remain fixed while complete query branches are placed.
   const positioned = [...initial.values()].filter((branch) => !isQueryBranch(branch.id));
   const gap = 160;

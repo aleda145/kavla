@@ -33,7 +33,7 @@ import { MissingQueryResultError, type LocalServerContextType, type RunRemoteQue
 import { queryFirstPages, readPagedQuery, setQueryFirstPage } from "./queryFirstPage";
 import { prepareRemoteQuery } from "../queryEstimate";
 
-const LocalServerContext = createContext<LocalServerContextType | null>(null);
+export const LocalServerContext = createContext<LocalServerContextType | null>(null);
 
 export function useLocalServer(): LocalServerContextType {
   const context = useContext(LocalServerContext);

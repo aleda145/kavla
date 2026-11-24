@@ -245,10 +245,10 @@ function ColumnDetails({
     }
     if (shape?.type !== "sql-text-area") return null;
     const query = shape as SQLTextAreaShape;
-    const dag = walkSQLDag(editor, query.props.text);
+    const dag = walkSQLDag(editor, query.props.text, query.id);
     if (!dag.ok) return null;
     const { executionState, orderedDependencies } = dag.plan;
-    const tableSql = buildRemoteSQLFromDag(query.props.text, orderedDependencies, editor);
+    const tableSql = buildRemoteSQLFromDag(query.props.text, orderedDependencies, editor, query.id);
     return {
       sourceName: executionState.sourceName ?? "uploaded_files",
       sourceType: executionState.sourceNativePreview ? executionState.sourceType : "duckdb",

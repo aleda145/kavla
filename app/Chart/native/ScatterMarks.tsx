@@ -1,0 +1,176 @@
+import { memo, useEffect, useId, useMemo, useRef } from "react";
+import { selectsPoint, type ChartSelection, type Point } from "./selection";
+import type { chartGeometry } from "./geometry";
+import type { ScatterPlan } from "./planner";
+import { densityScale, densityOpacity, pointStyle, groupColor } from "./appearance";
+
+export type Mark = Point & {
+  count: number;
+  xValue?: string | null;
+  yValue?: string;
+  group?: string | null;
+  run?: number;
+  y0?: number;
+  groups?: { key: string | null; count: number }[];
+};
+export const ScatterMarks = memo(function ScatterMarks({
+  marks,
+  geometry,
+  plan,
+  selections,
+  width,
+  height,
+  renderer,
+  pixelRatio = 1,
+  colorBy = false,
+}: {
+  marks: Mark[];
+  geometry: ReturnType<typeof chartGeometry>;
+  plan: ScatterPlan;
+  selections: Pick<ChartSelection, "polygon" | "inverted">[];
+  width: number;
+  height: number;
+  renderer: "svg" | "canvas";
+  pixelRatio?: number;
+  colorBy?: boolean;
+}) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const clipId = useId();
+  const maximum = useMemo(() => marks.reduce((max, mark) => Math.max(max, mark.count), 1), [marks]);
+  const color = useMemo(() => densityScale(maximum), [maximum]);
+  const selectedColor = useMemo(() => densityScale(maximum, true), [maximum]);
+  const point = pointStyle(marks.length);
+  useEffect(() => {
+    if (renderer !== "canvas" || !canvas.current) return;
+    const dpr = Math.min(4, (window.devicePixelRatio || 1) * Math.max(1, pixelRatio));
+    const node = canvas.current;
+    node.width = Math.ceil(width * dpr);
+    node.height = Math.ceil(height * dpr);
+    const ctx = node.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D is unavailable.");
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
+    const { plot } = geometry;
+    ctx.beginPath();
+    ctx.rect(
+      plot.left - point.radius,
+      plot.top - point.radius,
+      plot.width + point.radius * 2,
+      plot.height + point.radius * 2
+    );
+    ctx.clip();
+    for (const mark of marks) {
+      const p = geometry.fromAnalytical(mark);
+      const selected = selections.some((r) => selectsPoint(mark, r));
+      if (plan.mode === "density") {
+        ctx.fillStyle = (selected ? selectedColor : color)(mark.count);
+        const cellWidth = plot.width / plan.columns,
+          cellHeight = plot.height / plan.rows;
+        const left = Math.round((p.x - cellWidth / 2) * dpr) / dpr;
+        const top = Math.round((p.y - cellHeight / 2) * dpr) / dpr;
+        const right = Math.round((p.x + cellWidth / 2) * dpr) / dpr;
+        const bottom = Math.round((p.y + cellHeight / 2) * dpr) / dpr;
+        if (colorBy && mark.groups) {
+          ctx.globalAlpha = densityOpacity(mark.count, maximum);
+          let start = left;
+          for (const group of mark.groups) {
+            const end = start + ((right - left) * Number(group.count)) / mark.count;
+            ctx.fillStyle = selected ? "#fde047" : groupColor(group.key);
+            ctx.fillRect(start, top, end - start, bottom - top);
+            start = end;
+          }
+        } else ctx.fillRect(left, top, right - left, bottom - top);
+      } else {
+        ctx.fillStyle = selected ? "#fde047" : colorBy ? groupColor(mark.group) : "#3b82f6";
+        ctx.globalAlpha = selections.length && !selected ? 0.3 : 1;
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = point.stroke;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, point.radius, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+  }, [
+    marks,
+    geometry,
+    plan,
+    selections,
+    width,
+    height,
+    renderer,
+    pixelRatio,
+    colorBy,
+    maximum,
+    color,
+    selectedColor,
+    point.radius,
+    point.stroke,
+  ]);
+  if (renderer === "canvas")
+    return <canvas ref={canvas} style={{ position: "absolute", inset: 0, width, height, pointerEvents: "none" }} />;
+  return (
+    <svg width={width} height={height} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+      <defs>
+        <clipPath id={clipId}>
+          <rect
+            x={geometry.plot.left - point.radius}
+            y={geometry.plot.top - point.radius}
+            width={geometry.plot.width + point.radius * 2}
+            height={geometry.plot.height + point.radius * 2}
+          />
+        </clipPath>
+      </defs>
+      <g clipPath={`url(#${clipId})`}>
+        {marks.map((mark, i) => {
+          const p = geometry.fromAnalytical(mark);
+          const selected = selections.some((r) => selectsPoint(mark, r));
+          if (plan.mode === "density" && colorBy && mark.groups) {
+            let start = p.x - geometry.plot.width / plan.columns / 2;
+            return (
+              <g key={i} opacity={densityOpacity(mark.count, maximum)}>
+                {mark.groups.map((group, j) => {
+                  const cellWidth = ((geometry.plot.width / plan.columns) * Number(group.count)) / mark.count;
+                  const left = start;
+                  start += cellWidth;
+                  return (
+                    <rect
+                      key={j}
+                      x={left}
+                      y={p.y - geometry.plot.height / plan.rows / 2}
+                      width={cellWidth}
+                      height={geometry.plot.height / plan.rows}
+                      fill={selected ? "#fde047" : groupColor(group.key)}
+                    />
+                  );
+                })}
+              </g>
+            );
+          }
+          return plan.mode === "density" ? (
+            <rect
+              key={i}
+              shapeRendering="crispEdges"
+              x={p.x - geometry.plot.width / plan.columns / 2}
+              y={p.y - geometry.plot.height / plan.rows / 2}
+              width={geometry.plot.width / plan.columns}
+              height={geometry.plot.height / plan.rows}
+              fill={(selected ? selectedColor : color)(mark.count)}
+            />
+          ) : (
+            <circle
+              key={i}
+              cx={p.x}
+              cy={p.y}
+              r={point.radius}
+              fill={selected ? "#fde047" : colorBy ? groupColor(mark.group) : "#3b82f6"}
+              stroke="#000"
+              strokeWidth={point.stroke}
+              opacity={selections.length && !selected ? 0.3 : 1}
+            />
+          );
+        })}
+      </g>
+    </svg>
+  );
+});

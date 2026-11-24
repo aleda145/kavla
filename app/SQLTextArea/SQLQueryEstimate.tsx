@@ -11,20 +11,20 @@ export function SQLQueryEstimate({ editor, shape }: { editor: Editor; shape: SQL
     (): { request: QueryEstimateRequest | null; unavailableReason?: string } => {
       const current = editor.getShape<SQLTextAreaShape>(shape.id);
       if (!current) return { request: null };
-      const { orderedDependencies } = getOrderedDependenciesForSQL(editor, current.props.text);
-      const execution = describeQueryExecution(orderedDependencies);
-      if (!execution.tabs.some((tab) => tab.type === "bigquery")) return { request: null };
-      if (!execution.sourceNativePreview) {
-        return { request: null, unavailableReason: "BigQuery scan estimate unavailable for federated queries." };
-      }
       try {
-        const dag = walkSQLDag(editor, current.props.text);
+        const { orderedDependencies } = getOrderedDependenciesForSQL(editor, current.props.text, current.id);
+        const execution = describeQueryExecution(orderedDependencies);
+        if (!execution.tabs.some((tab) => tab.type === "bigquery")) return { request: null };
+        if (!execution.sourceNativePreview) {
+          return { request: null, unavailableReason: "BigQuery scan estimate unavailable for federated queries." };
+        }
+        const dag = walkSQLDag(editor, current.props.text, current.id);
         if (!dag.ok) throw new Error(dag.error.message);
         if (dag.plan.nextUpstreamShapeIds.includes(shape.id))
           throw new Error("A query cannot read from its own output.");
         return {
           request: {
-            sql: buildRemoteSQLFromDag(current.props.text, dag.plan.orderedDependencies, editor),
+            sql: buildRemoteSQLFromDag(current.props.text, dag.plan.orderedDependencies, editor, current.id),
             sourceName: execution.sourceName,
             sourceType: execution.sourceType,
             sourceNative: execution.sourceNativePreview,

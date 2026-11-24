@@ -6,12 +6,14 @@ import {
   resizeBox,
   TLShapeId,
   createShapeId,
+  uniqueId,
   useToasts,
 } from "tldraw";
 import { SQLTextAreaMigrations } from "./sql-text-area-migrations";
 import { SQLTextAreaProps } from "./sql-text-area-props";
 import { SQLTextAreaShape } from "./sql-text-area-types";
 import { connectShapes, disconnectShapes, setShapeUpstreamConnections } from "../util/shapeConnections";
+import { createLinkedQuery } from "./createLinkedQuery";
 import { getFallbackNodePosition } from "../client/canvas/fallbackNodePosition";
 
 import { getUniqueName } from "../util/getUniqueName";
@@ -44,6 +46,8 @@ import { getKnobNames, getSQLKnobs, resolveKnobSQL } from "../Knob/knobSQL";
 import { ensureQueryKnobs } from "../Knob/createKnobs";
 import { useBizMode } from "../client/canvas/bizMode";
 import { SQLQueryEstimate } from "./SQLQueryEstimate";
+import { getSelectedAreaSource } from "./selected-area";
+import type { ChartShape } from "../Chart/chart-shape-types";
 import type { QueryScan } from "../client/localServer/types";
 
 export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
@@ -184,8 +188,11 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     };
 
     const { text } = shape.props;
-    const getOrderedDependencies = (currentText: string) => getOrderedDependenciesForSQL(this.editor, currentText);
-    const { orderedDependencies: currentDependencies } = getOrderedDependencies(text);
+    const area = getSelectedAreaSource(this.editor, text, shape);
+    const getOrderedDependencies = (currentText: string) =>
+      getOrderedDependenciesForSQL(this.editor, currentText, shape.id);
+    const currentPlan = walkSQLDag(this.editor, text, shape.id);
+    const currentDependencies = currentPlan.ok ? currentPlan.plan.orderedDependencies : [];
     const queryExecutionState = describeQueryExecution(currentDependencies);
 
     const handleValidate = async (sql: string): Promise<EditorValidationIssue | null> => {
@@ -210,7 +217,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         if (missingSource) return issueFromMessage(missingSource);
         // Native remote queries retain syntax-only validation; preparing them can contact a paid source.
         if (execution.sourceNativePreview && execution.sourceType !== "duckdb") return null;
-        await validateBackendQuery(buildRemoteSQLFromDag(sql, orderedDependencies, this.editor));
+        await validateBackendQuery(buildRemoteSQLFromDag(sql, orderedDependencies, this.editor, shape.id));
         return null;
       } catch (e: unknown) {
         console.error("Validation error", e);
@@ -226,7 +233,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
       clearRestoredRemoteQueryMetadata(shape.id);
       ensureQueryKnobs(this.editor, shape, sqlText);
 
-      const dagWalk = walkSQLDag(this.editor, sqlText);
+      const dagWalk = walkSQLDag(this.editor, sqlText, shape.id);
       if (!dagWalk.ok) {
         update({ error: dagWalk.error.message, isDirty: true });
         addToast({
@@ -268,7 +275,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
 
         {
           const { sourceName, sourceType, sourceNativePreview } = currentQueryExecutionState;
-          const finalSQL = buildRemoteSQLFromDag(sqlText, orderedDependencies, this.editor);
+          const finalSQL = buildRemoteSQLFromDag(sqlText, orderedDependencies, this.editor, shape.id);
 
           const result = await runRemoteQuery({
             sql: finalSQL,
@@ -288,6 +295,13 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
         }
 
         const executionTime = Date.now() - startTime;
+        const completedShape = this.editor.getShape<SQLTextAreaShape>(shape.id);
+        if (completedShape)
+          this.editor.updateShape({
+            id: shape.id,
+            type: "sql-text-area",
+            meta: { ...completedShape.meta, nativeQueryRevision: uniqueId() },
+          });
         update({
           isRunning: false,
           queryStartTime: null,
@@ -348,22 +362,7 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
     };
 
     const handleChainQuery = () => {
-      const newShapeId = createShapeId();
-
-      this.editor.createShape({
-        type: "sql-text-area",
-        id: newShapeId,
-        ...getFallbackNodePosition(this.editor, shape.id),
-        props: {
-          text: `SELECT\n  *\nFROM\n  ${shape.props.name}`,
-        },
-      });
-      connectShapes(this.editor, shape.id, newShapeId);
-
-      setTimeout(() => {
-        this.editor.select(newShapeId);
-        this.editor.zoomToSelection({ animation: { duration: 250 } });
-      }, 50);
+      createLinkedQuery(this.editor, shape.id, { text: `SELECT\n  *\nFROM\n  ${shape.props.name}` });
     };
 
     const handleCreateChart = async () => {
@@ -497,6 +496,46 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
             }
           />
 
+          {area && !area.chart && (
+            <label
+              className="flex items-center gap-2 bg-pink-100 px-2 py-1 text-xs font-bold"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              {area.relations.join(", ")}
+              <select
+                aria-label={`Source chart for ${area.relations.join(", ")}`}
+                value=""
+                className="min-w-0 flex-1 rounded border-2 border-black bg-white"
+                onChange={(event) => {
+                  const chartId = event.target.value as TLShapeId;
+                  connectShapes(this.editor, chartId, shape.id);
+                  this.editor.select(chartId);
+                  this.editor.zoomToSelection({ animation: { duration: 200 } });
+                }}
+              >
+                <option value="" disabled>
+                  Choose source chart
+                </option>
+                {this.editor
+                  .getCurrentPageShapes()
+                  .filter(
+                    (node): node is ChartShape =>
+                      node.type === "chart-shape" && (node as ChartShape).props.sourceShapeId !== shape.id
+                  )
+                  .map((chart) => {
+                    const source = chart.props.sourceShapeId
+                      ? this.editor.getShape<SQLTextAreaShape>(chart.props.sourceShapeId as TLShapeId)
+                      : undefined;
+                    return (
+                      <option key={chart.id} value={chart.id}>
+                        {source?.props.name ?? chart.props.name} · {chart.props.chartType} ({chart.props.x},{" "}
+                        {chart.props.y})
+                      </option>
+                    );
+                  })}
+              </select>
+            </label>
+          )}
           <SQLTextAreaBody
             bizMode={bizMode}
             hasFooter={hasFooter}

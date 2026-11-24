@@ -76,6 +76,8 @@ import { localAssetStore } from "./localAssetStore";
 import { handleLocalShapeDeleted } from "./handleLocalShapeDeleted";
 import { getUniqueName } from "../../util/getUniqueName";
 import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
+import { VisualizationProvider } from "../../Chart/native/VisualizationProvider";
+import { ChartDrawingUtil } from "../../Chart/native/ChartDrawingUtil";
 
 const customShapeUtils = [
   KnobUtil,
@@ -89,9 +91,13 @@ const customShapeUtils = [
   AgentChatUtil,
   AgentBlobUtil,
   KavlaArrowShapeUtil,
+  ChartDrawingUtil,
 ];
 
-const localShapeUtils = [...customShapeUtils, ...defaultShapeUtils.filter((util) => util.type !== "arrow")];
+const localShapeUtils = [
+  ...customShapeUtils,
+  ...defaultShapeUtils.filter((util) => util.type !== "arrow" && util.type !== "draw"),
+];
 const customTools = [SQLTextAreaTool, SourceTextAreaTool];
 const bundledTldrawAssetUrls = getAssetUrlsByImport();
 const customAssetUrls: TLUiAssetUrlOverrides = {
@@ -847,20 +853,22 @@ function LocalCanvasMount({
 
   return (
     <AgentChatLayout>
-      <Tldraw
-        persistenceKey={canvasPersistenceKey()}
-        onMount={(editor) => void onMount(editor)}
-        shapeUtils={localShapeUtils}
-        bindingUtils={bindingUtils}
-        tools={customTools}
-        overrides={localUiOverrides}
-        components={components}
-        assetUrls={customAssetUrls}
-        assets={localAssetStore}
-        options={{ actionShortcutsLocation: "menu", maxPages: 1 }}
-      >
-        <KnobRuntime />
-      </Tldraw>
+      <VisualizationProvider documentId={session?.documentId ?? null}>
+        <Tldraw
+          persistenceKey={canvasPersistenceKey()}
+          onMount={(editor) => void onMount(editor)}
+          shapeUtils={localShapeUtils}
+          bindingUtils={bindingUtils}
+          tools={customTools}
+          overrides={localUiOverrides}
+          components={components}
+          assetUrls={customAssetUrls}
+          assets={localAssetStore}
+          options={{ actionShortcutsLocation: "menu", maxPages: 1 }}
+        >
+          <KnobRuntime />
+        </Tldraw>
+      </VisualizationProvider>
     </AgentChatLayout>
   );
 }

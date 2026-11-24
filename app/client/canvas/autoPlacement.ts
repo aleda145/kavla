@@ -6,6 +6,8 @@ import {
   type TLShape,
   type TLShapeId,
 } from "tldraw";
+import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
+import { getSelectedAreaSource } from "../../SQLTextArea/selected-area";
 import { extractTableNames } from "../../util/parseSql";
 import { crosses, readRoute, type Bounds, type Route } from "./arrowGeometry";
 import { captureConnectorLanes, resetConnectorLane } from "./connectorLanes";
@@ -100,6 +102,14 @@ export function getAutoPlacementSearch(
   }
 }
 
+export function getQueryPlacementObstacles(editor: Editor) {
+  return editor.getCurrentPageShapes().flatMap((shape) => {
+    if (["arrow", "group", "frame", "agent-chat", "agent-blob"].includes(shape.type)) return [];
+    const bounds = editor.getShapePageBounds(shape);
+    return bounds ? [bounds] : [];
+  });
+}
+
 const autoPlacementEditors = new WeakSet<Editor>();
 export function hasAutoPlacement(editor: Editor): boolean {
   return autoPlacementEditors.has(editor);
@@ -164,12 +174,19 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
       text?: string;
       artifacts?: { shapeId: string }[];
     };
-    const ids = new Set<string>(props.upstreamShapeIds ?? []);
+    const area =
+      shape.type === "sql-text-area" && props.text
+        ? getSelectedAreaSource(editor, props.text, shape as SQLTextAreaShape)
+        : null;
+    // A selection query can also join other tables. Its placement starts at the chart.
+    const ids = new Set<string>(area?.chart ? [area.chart.id] : []);
+    for (const id of props.upstreamShapeIds ?? []) ids.add(id);
     if (props.sourceShapeId) ids.add(props.sourceShapeId);
     if (props.artifacts) props.artifacts.forEach((artifact) => ids.add(artifact.shapeId));
     if (shape.type === "knob") props.downstreamShapeIds?.forEach((id) => ids.add(id));
     if (shape.type === "sql-text-area" && props.text) {
       for (const name of extractTableNames(props.text)) {
+        if (area?.relations.some((relation) => relation === name.toLowerCase())) continue;
         const id = names.get(name.toLowerCase());
         if (id) ids.add(id);
       }
@@ -214,12 +231,13 @@ export function registerAutoPlacement(editor: Editor, canPlace: () => boolean): 
     let anchorId = inputs.find((id) => editor.getShape(id)?.type !== "knob") ?? inputs[0];
     const visited = new Set<TLShapeId>();
     while (anchorId && views.has(editor.getShape(anchorId)!.type) && !visited.has(anchorId)) {
+      if (shape.type === "sql-text-area" && editor.getShape(anchorId)!.type === "chart-shape") break;
       visited.add(anchorId);
       const source = parents(editor.getShape(anchorId)!)[0];
       if (!source) break;
       anchorId = source;
     }
-    const anchor = anchorId && occupied.get(anchorId);
+    const anchor = anchorId && editor.getShapePageBounds(anchorId);
     let preferred = anchorId ? establishedDirection(anchorId) : "RIGHT";
     if (shape.type === "sql-text-area" && anchorId && anchor) {
       const counts = new Map<LayoutDirection, number>();
