@@ -54,6 +54,10 @@ export function firstPlotEntry(
     const interval = clipSegment(points[i - 1], points[i], min, max);
     if (interval) return i - 1 + interval[0];
   }
+  if (closed && points.length > 2) {
+    const interval = clipSegment(points[points.length - 1], points[0], min, max);
+    if (interval) return points.length - 1 + interval[0];
+  }
   // A loop can surround the whole plot without crossing its interior.
   return closed && containsPoint({ x: (min.x + max.x) / 2, y: (min.y + max.y) / 2 }, points) ? points.length : null;
 }

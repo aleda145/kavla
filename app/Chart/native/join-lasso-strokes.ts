@@ -85,8 +85,22 @@ function orient<T>(stroke: Stroke<T>, points: Point[]) {
 
 // Retracing a curved stroke can join both ends without enclosing any space.
 // Check for an interior span under the same even-odd fill used by selected_area.
-function enclosesArea(polygon: Point[]) {
-  const heights = [...new Set(polygon.map((p) => p.y))].sort((a, b) => a - b);
+export function enclosesArea(polygon: Point[], withinPlot = false) {
+  const levels = new Set(polygon.map((p) => p.y).filter((y) => !withinPlot || (y > 0 && y < 1)));
+  if (withinPlot) {
+    levels.add(0).add(1);
+    // A sliver can enter and leave through the side of the plot between two vertex heights.
+    for (let i = 0; i < polygon.length; i++) {
+      const a = polygon[i],
+        b = polygon[(i + 1) % polygon.length];
+      for (const x of [0, 1]) {
+        if (a.x > x === b.x > x) continue;
+        const y = lerp(a.y, b.y, (x - a.x) / (b.x - a.x));
+        if (y > 0 && y < 1) levels.add(y);
+      }
+    }
+  }
+  const heights = [...levels].sort((a, b) => a - b);
   for (let i = 1; i < heights.length; i++) {
     for (const t of [1 / 3, 2 / 3]) {
       const y = lerp(heights[i - 1], heights[i], t);
@@ -98,7 +112,9 @@ function enclosesArea(polygon: Point[]) {
       }
       crossings.sort((a, b) => a - b);
       for (let j = 1; j < crossings.length; j += 2) {
-        if (crossings[j] - crossings[j - 1] > 1e-6) return true;
+        const left = withinPlot ? Math.max(0, crossings[j - 1]) : crossings[j - 1];
+        const right = withinPlot ? Math.min(1, crossings[j]) : crossings[j];
+        if (right - left > (withinPlot ? 1e-12 : 1e-6)) return true;
       }
     }
   }
