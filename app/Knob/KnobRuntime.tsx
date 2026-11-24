@@ -7,7 +7,7 @@ import type { SQLTextAreaShape } from "../SQLTextArea/sql-text-area-types";
 import { getOrderedDependenciesForSQL } from "../SQLTextArea/sqlDependencies";
 import { connectShapes, disconnectShapes, setShapeUpstreamConnections } from "../util/shapeConnections";
 import type { ChartShape } from "../Chart/chart-shape-types";
-import { activeAreaChart, chartAreaValue } from "../Chart/native/global-selection";
+import { chartAreaValue } from "../Chart/native/chart-selection";
 import { getKnobNames, getSQLKnobs } from "./knobSQL";
 import type { KnobShape } from "./knob-types";
 import { ensureQueryKnobs } from "./createKnobs";
@@ -31,7 +31,6 @@ export function KnobRuntime() {
     const signatures = new Map<TLShapeId, string>();
     const pending = new Map<TLShapeId, "knob" | "area">();
     const changedCharts = new Set<TLShapeId>();
-    let areaOwnerChanged = false;
     const running = new Map<TLShapeId, AbortController>();
     const inferences = new Map<TLShapeId, { key: string; controller: AbortController }>();
     const inferred = new Map<TLShapeId, string>();
@@ -174,7 +173,20 @@ export function KnobRuntime() {
       // Pin handwritten references as soon as their chart is unambiguous. Older documents
       // also need their snapshot and direct source arrow replaced with the chart link.
       for (const query of queries) {
-        if (typeof query.meta.selectedAreaChartId === "string") continue;
+        if (typeof query.meta.selectedAreaChartId === "string") {
+          // A page-wide selection could leave a materialized result linked to another chart.
+          const upstream = query.props.upstreamShapeIds;
+          if (
+            query.props.lastRunStats &&
+            upstream &&
+            !upstream.includes(query.meta.selectedAreaChartId) &&
+            upstream.some((id) => editor.getShape(id as TLShapeId)?.type === "chart-shape") &&
+            getSelectedAreaSource(editor, query.props.text, query)
+          ) {
+            changedCharts.add(query.meta.selectedAreaChartId as TLShapeId);
+          }
+          continue;
+        }
         const chartId = selectedAreaChartId(query);
         const area = getSelectedAreaSource(editor, query.props.text, query);
         const chart = area?.chart ?? (chartId ? editor.getShape<ChartShape>(chartId) : undefined);
@@ -241,11 +253,11 @@ export function KnobRuntime() {
         }
         const inputs = [query, ...orderedDependencies];
         if (
-          (areaOwnerChanged || changedCharts.size) &&
+          changedCharts.size &&
           inputs.some((node) => {
             if (node.type !== "sql-text-area") return false;
             const chartId = getSelectedAreaSource(editor, node.props.text, node)?.chartId;
-            return chartId && (areaOwnerChanged || changedCharts.has(chartId));
+            return chartId && changedCharts.has(chartId);
           })
         )
           pending.set(query.id, "area");
@@ -280,7 +292,6 @@ export function KnobRuntime() {
         }
       }
       changedCharts.clear();
-      areaOwnerChanged = false;
     };
     function flush() {
       timer = undefined;
@@ -368,13 +379,18 @@ export function KnobRuntime() {
           if (record.type === "data-source") relevant = true;
         }
         for (const [before, after] of Object.values(changes.updated)) {
-          if (before.typeName === "page" && after.typeName === "page" && after.id === pageId) {
-            if (before.meta.selectedAreaChartId !== after.meta.selectedAreaChartId) areaOwnerChanged = true;
-            if (before.meta.nativeSelection !== after.meta.nativeSelection) {
-              const chartId = activeAreaChart(editor);
-              if (chartId) changedCharts.add(chartId);
+          // Undo can restore the old page-level representation. Refresh only its recorded owners.
+          if (
+            before.typeName === "page" &&
+            after.typeName === "page" &&
+            after.id === pageId &&
+            (before.meta.selectedAreaChartId !== after.meta.selectedAreaChartId ||
+              before.meta.nativeSelection !== after.meta.nativeSelection)
+          ) {
+            for (const id of [before.meta.selectedAreaChartId, after.meta.selectedAreaChartId]) {
+              if (typeof id === "string") changedCharts.add(id as TLShapeId);
             }
-            relevant ||= areaOwnerChanged || changedCharts.size > 0;
+            relevant ||= changedCharts.size > 0;
           }
           if (before.typeName !== "shape" || after.typeName !== "shape") continue;
           if (before.type === "chart-shape" && after.type === "chart-shape") {

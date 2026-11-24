@@ -13,7 +13,7 @@ import { LocalServerContext } from "../../client/localServer/LocalServerProvider
 import type { LocalServerContextType } from "../../client/localServer/types";
 import { VisualizationContext } from "./VisualizationProvider";
 import { createVisualizationSession } from "./coordinator";
-import { chartAreaValue } from "./global-selection";
+import { chartAreaValue } from "./chart-selection";
 import { ChartDrawingUtil } from "./ChartDrawingUtil";
 import { chartGeometry } from "./geometry";
 import { planScatter, statisticsSQL } from "./planner";

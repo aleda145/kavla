@@ -4,7 +4,6 @@ import type { SQLTextAreaShape } from "../../SQLTextArea/sql-text-area-types";
 import { buildRemoteSQLFromDag, walkSQLDag } from "../../SQLTextArea/walkSQLDag";
 import { identifier } from "./selection";
 import { getRemoteSourceMetadata } from "../../DataSource/remote-source-metadata";
-import { getSelectedAreaSource } from "../../SQLTextArea/selected-area";
 
 export function scatterSource(editor: Editor, chart: ChartShape) {
   const source = chart.props.sourceShapeId ? editor.getShape(chart.props.sourceShapeId as TLShapeId) : undefined;
@@ -22,10 +21,9 @@ export function scatterSource(editor: Editor, chart: ChartShape) {
       !["duckdb", "csv", "parquet", "directory"].includes(getRemoteSourceMetadata(d)?.sourceType ?? "")
   );
   for (const dependency of orderedDependencies) {
-    if (
-      dependency.type === "sql-text-area" &&
-      (dependency.props.isDirty || dependency.props.isRunning || !dependency.props.lastRunStats)
-    )
+    if (dependency.type !== "sql-text-area") continue;
+    if (dependency.props.isRunning) return null;
+    if (dependency.props.isDirty || !dependency.props.lastRunStats)
       throw new Error(`Run "${dependency.props.name}" before plotting or selecting its data.`);
   }
   const expanded = buildRemoteSQLFromDag(reference, orderedDependencies, editor);
@@ -39,10 +37,7 @@ export function scatterSource(editor: Editor, chart: ChartShape) {
     id: query.id,
     name: query.props.name,
     sql,
-    canSelect:
-      canSelect &&
-      !/\b(?:bigquery_query|postgres_query)\s*\(/i.test(expanded) &&
-      !orderedDependencies.some((d) => d.type === "sql-text-area" && getSelectedAreaSource(editor, d.props.text, d)),
+    canSelect: canSelect && !/\b(?:bigquery_query|postgres_query)\s*\(/i.test(expanded),
     revision: JSON.stringify([
       expanded,
       orderedDependencies.map((d) => (d.type === "sql-text-area" ? d.props.lastRunStats : getRemoteSourceMetadata(d))),

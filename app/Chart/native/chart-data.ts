@@ -1,8 +1,8 @@
 import type { ChartShape } from "../chart-shape-types";
 import { domain, pointBudget, type ScatterPlan } from "./planner.ts";
-import { chartValueSQL, coordinateSQL, identifier, normalize, type Axis } from "./selection.ts";
+import { chartValueSQL, identifier, normalize, type Axis } from "./selection.ts";
 import type { Mark } from "./ScatterMarks";
-import { Query, bin2d, column, count, cte, m4, max, min, verbatim } from "@uwdata/mosaic-sql";
+import { Query, bin2d, column, count, m4, verbatim } from "@uwdata/mosaic-sql";
 
 export type ChartKind = "scatter" | "line" | "area" | "bar";
 export type XKind = "number" | "time" | "category";
@@ -58,16 +58,14 @@ export async function loadChartData(
     rawY = `s.${identifier(props.y)}`;
   const valueX = chartValueSQL(rawX, xKind === "time" ? "time" : "number");
   const group = props.color ? `CAST(s.${identifier(props.color)} AS VARCHAR)` : "NULL::VARCHAR";
-  const input = Query.from(verbatim(`(${source.sql}) AS s`)).select("*");
-  if (props.limit !== null) input.limit(Math.max(1, Math.floor(props.limit)));
+  const eligible = `isfinite(vx) AND isfinite(vy)${xLog ? " AND vx > 0" : ""}${yLog ? " AND vy > 0" : ""}`;
   const base = `WITH input AS (SELECT * FROM (${source.sql})${limit}),
-    raw AS (SELECT row_number() OVER () AS ord, CAST(${rawX} AS VARCHAR) AS label_x,
+    raw AS MATERIALIZED (SELECT row_number() OVER () AS ord, CAST(${rawX} AS VARCHAR) AS label_x,
       CAST(${rawY} AS VARCHAR) AS label_y, ${valueX} AS value_x, TRY_CAST(${rawY} AS DOUBLE) AS vy, ${group} AS g FROM input s),
     categories AS (SELECT label_x, min(ord) AS first_ord FROM raw GROUP BY label_x),
     category_ids AS (SELECT *, row_number() OVER (ORDER BY first_ord)-1 AS cid FROM categories),
     positioned AS (SELECT raw.*, ${xKind === "category" ? "cid" : "value_x"} AS vx FROM raw
-      ${xKind === "category" ? "JOIN category_ids USING (label_x)" : ""}
-      ${xKind === "category" ? "UNION ALL SELECT raw.*, cid AS vx FROM raw JOIN category_ids ON raw.label_x IS NULL AND category_ids.label_x IS NULL" : ""}),
+      ${xKind === "category" ? "JOIN category_ids ON raw.label_x IS NOT DISTINCT FROM category_ids.label_x" : ""}),
     ranked AS (SELECT *, ${kind === "bar" || stacked ? "row_number() OVER (PARTITION BY vx, g ORDER BY ord)" : "1"} AS duplicate FROM positioned),
     observations AS (SELECT * FROM ranked ${kind === "bar" ? "WHERE duplicate = 1" : ""}),
     baselines AS (SELECT *, ${
@@ -77,62 +75,120 @@ export async function loadChartData(
         : "0::DOUBLE"
     } AS y0 FROM observations),
     plotted_values AS (SELECT *, vy + ${stacked ? "y0" : "0"} AS yt,
-      isfinite(vx) AND isfinite(vy)${xLog ? " AND vx > 0" : ""}${yLog ? " AND vy > 0" : ""} AS eligible FROM baselines),
+      ${eligible} AS eligible FROM baselines),
     runs AS (SELECT *, ${kind === "line" || kind === "area" ? "sum(CASE WHEN eligible THEN 0 ELSE 1 END) OVER (PARTITION BY g ORDER BY ord)" : "0"} AS run FROM plotted_values)`;
-  let statsQuery: Query;
-  if (kind === "scatter" && xKind !== "category") {
-    // A common FROM lets Mosaic combine domains/counts for different charts
-    // into one scan. Color and pixel dimensions do not change these statistics.
-    const valueY = `TRY_CAST(${rawY} AS DOUBLE)`;
-    const eligible = `isfinite(${valueX}) AND isfinite(${valueY})${xLog ? ` AND ${valueX} > 0` : ""}${yLog ? ` AND ${valueY} > 0` : ""}`;
-    statsQuery = Query.from({ s: input }).select({
-      total: count(),
-      valid: count().where(eligible),
-      xmin: min(verbatim(valueX)).where(eligible),
-      xmax: max(verbatim(valueX)).where(eligible),
-      ymin: min(verbatim(valueY)).where(eligible),
-      ymax: max(verbatim(valueY)).where(eligible),
-      categories: verbatim("0"),
-      excluded: count().where(`NOT coalesce(${eligible}, false)`),
-    });
-  } else {
-    statsQuery = Query.from(
-      verbatim(`(${base} SELECT
-      (SELECT count(*) FROM raw) AS total,
-      count(*) FILTER (WHERE eligible) AS valid, min(vx) FILTER (WHERE eligible) AS xmin, max(vx) FILTER (WHERE eligible) AS xmax,
-      min(least(yt, ${stacked ? "y0" : "yt"})) FILTER (WHERE eligible) AS ymin,
-      max(greatest(yt, ${stacked ? "y0" : "yt"})) FILTER (WHERE eligible) AS ymax,
-      ${xKind === "category" ? "(SELECT count(*) FROM category_ids)" : "0"} AS categories,
-      (SELECT count(*) FROM positioned WHERE NOT (coalesce(isfinite(vx) AND isfinite(vy)${xLog ? " AND vx > 0" : ""}${yLog ? " AND vy > 0" : ""}, false))) AS excluded FROM runs) AS chart_stats`)
-    ).select("*");
-  }
-  const stats = (await query(statsQuery)).toArray()[0];
-  const total = Number(stats.total),
-    valid = Number(stats.valid);
   const size = Math.max(12, Math.floor(options.width / (kind === "bar" ? 12 : 6)));
-  const categoryCount = Number(stats.categories);
-  const offset = Math.max(
-    0,
-    Math.min(Math.floor(options.offset / size) * size, Math.floor(Math.max(0, categoryCount - 1) / size) * size)
-  );
-  const page = xKind === "category" ? { offset, size, total: categoryCount } : null;
-  const categories =
-    xKind === "category"
-      ? (
-          await query(
-            Query.from(verbatim(`(${base} SELECT cid, label_x FROM category_ids) AS chart_categories`))
-              .select("cid", "label_x")
-              .where(verbatim(`cid >= ${offset} AND cid < ${offset + size}`))
-              .orderby("cid")
-          )
-        )
-          .toArray()
-          .map((r) => ({
-            value: Number(r.cid),
-            label: r.label_x === null ? "(null)" : String(r.label_x),
-            key: r.label_x === null ? null : String(r.label_x),
-          }))
-      : [];
+  const columns = Math.max(1, Math.min(256, Math.floor(options.width / 4)));
+  const rows = Math.max(1, Math.min(256, Math.floor(options.height / 4)));
+  const includeZero =
+    !yLog && (props.yAxisScale === "zero" || (props.yAxisScale === "default" && (kind === "bar" || kind === "area")));
+  const categorical = xKind === "category";
+  // The result view can contain SAMPLE, LIMIT or volatile expressions. Bounds, category positions,
+  // and both rendering plans must read the very same observations, even if a rerun replaces the view.
+  // Bars discard duplicate representatives before computing their domains. Count their input separately.
+  const totalSQL = kind === "bar" ? "(SELECT count(*) FROM raw)" : "count(*)";
+  const excludedSQL =
+    kind === "bar"
+      ? `(SELECT count(*) FROM positioned WHERE NOT coalesce(${eligible}, false))`
+      : "count(*) FILTER (WHERE NOT coalesce(eligible, false))";
+  const statsSQL = `SELECT
+    ${totalSQL} AS total, count(*) FILTER (WHERE eligible) AS valid,
+    min(vx) FILTER (WHERE eligible) AS xmin, max(vx) FILTER (WHERE eligible) AS xmax,
+    min(least(yt, ${stacked ? "y0" : "yt"})) FILTER (WHERE eligible) AS ymin,
+    max(greatest(yt, ${stacked ? "y0" : "yt"})) FILTER (WHERE eligible) AS ymax,
+    ${categorical ? "(SELECT count(*) FROM category_ids)" : "0"} AS category_count,
+    ${excludedSQL} AS excluded FROM runs`;
+  const offsetSQL = categorical
+    ? `least(${Math.max(0, Math.floor(options.offset / size) * size)}, floor(greatest(category_count - 1, 0) / ${size})::BIGINT * ${size})`
+    : "0";
+  const xlo = categorical ? "page_offset - 0.5" : "xmin";
+  const xhi = categorical ? `greatest(page_offset + 0.5, least(category_count, page_offset + ${size}) - 0.5)` : "xmax";
+  const ylo = includeZero ? "least(0, ymin)" : "ymin";
+  const yhi = includeZero ? "greatest(0, ymax)" : "ymax";
+  const coordinate = (field: string, lo: string, hi: string, log: boolean) => {
+    const scale = (value: string) =>
+      log ? `ln(CASE WHEN ${value} > 0 THEN ${value} END)` : `CAST((${value}) AS DOUBLE)`;
+    // domain() expands a constant axis symmetrically in its scale space.
+    return `CASE WHEN ${lo} = ${hi} THEN 0.5 ELSE (${scale(field)} - ${scale(lo)}) / (${scale(hi)} - ${scale(lo)}) END`;
+  };
+  const common = `${base},
+    stats AS (${statsSQL}),
+    bounds AS (SELECT *, ${offsetSQL} AS page_offset FROM stats),
+    visible AS (SELECT v.*, ${coordinate("vx", xlo, xhi, xLog)} AS nx, ${coordinate("yt", ylo, yhi, yLog)} AS ny,
+      valid > ${pointBudget} AS large FROM runs v CROSS JOIN bounds WHERE eligible
+      ${categorical ? `AND vx >= page_offset AND vx < page_offset + ${size}` : ""})`;
+
+  const markFields = ["ord", "nx", "ny", "label_x", "label_y", "g", "run", "y0"];
+  let marksSQL = String(Query.from("visible").select(...markFields));
+  if (kind !== "bar") {
+    const points = Query.from("visible")
+      .select(...markFields)
+      .where("NOT large");
+    let reduced: Query;
+    if (kind === "scatter") {
+      const cells = bin2d(
+        Query.from("visible").select("g").where("large"),
+        verbatim(`least(${columns - 1}, greatest(0, nx*${columns}))`),
+        verbatim(`least(${rows - 1}, greatest(0, ny*${rows}))`),
+        { n: count() },
+        columns,
+        ["g"]
+      );
+      reduced = Query.from({ cells })
+        .select({
+          nx: verbatim(`((index % ${columns})+0.5)/${columns}`),
+          ny: verbatim(`(floor(index / ${columns})+0.5)/${rows}`),
+          count: verbatim("sum(n)"),
+          groups: verbatim("CAST(to_json(list(struct_pack(key := g, count := n) ORDER BY g NULLS FIRST)) AS VARCHAR)"),
+        })
+        .groupby("index");
+    } else {
+      // M4 bins by display X and preserves source order within each color and null-separated run.
+      // Stacked areas need the extrema of both the top and the baseline.
+      const bin = verbatim(`nx*${Math.max(1, Math.floor(options.width))}`);
+      const keys = [column("g"), column("run")];
+      const upper = Query.from({ upper: m4("large_line", bin, "ord", "yt", keys) }).select("ord");
+      const extrema = stacked
+        ? Query.union(upper, Query.from({ lower: m4("large_line", bin, "ord", "y0", keys) }).select("ord"))
+        : upper;
+      reduced = Query.with({ large_line: Query.from("visible").select("*").where("large") })
+        .from("large_line")
+        .select(...markFields)
+        .where(verbatim(`ord IN (${extrema})`));
+    }
+    marksSQL = `(${points}) UNION ALL BY NAME (${reduced})`;
+  }
+
+  // Separate header and category records keep statistics out of every mark and preserve empty plots.
+  const plotSQL = `${common}, marks AS (${marksSQL}),
+    chart_rows AS (
+      SELECT 0 AS part, * FROM bounds
+      ${
+        categorical
+          ? `UNION ALL BY NAME SELECT 1 AS part, cid AS ord, label_x FROM category_ids CROSS JOIN bounds
+        WHERE cid >= page_offset AND cid < page_offset + ${size}`
+          : ""
+      }
+      UNION ALL BY NAME SELECT 2 AS part, * FROM marks)
+    SELECT * FROM chart_rows`;
+  const plotQuery = Query.from(verbatim(`(${plotSQL}) AS chart_snapshot`))
+    .select("*")
+    .orderby("part", "ord");
+  const records = (await query(plotQuery)).toArray();
+  const stats = records[0];
+  const total = Number(stats.total);
+  const valid = Number(stats.valid);
+  const offset = Number(stats.page_offset);
+  const page = categorical ? { offset, size, total: Number(stats.category_count) } : null;
+  const categories = records
+    .filter((r) => Number(r.part) === 1)
+    .map((r) => ({
+      value: Number(r.ord),
+      label: r.label_x === null ? "(null)" : String(r.label_x),
+      key: r.label_x === null ? null : String(r.label_x),
+    }));
+  const plottedRows = records.filter((r) => Number(r.part) === 2);
+  const density = kind === "scatter" && valid > pointBudget;
   const x: Axis = {
     field: props.x,
     type: xLog ? "log" : "linear",
@@ -147,8 +203,6 @@ export async function loadChartData(
             ? [1, 10]
             : [0, 1],
   };
-  const includeZero =
-    !yLog && (props.yAxisScale === "zero" || (props.yAxisScale === "default" && (kind === "bar" || kind === "area")));
   const y: Axis = {
     field: props.y,
     type: yLog ? "log" : "linear",
@@ -162,92 +216,25 @@ export async function loadChartData(
         ? [1, 10]
         : [0, 1],
   };
-  const columns = Math.max(1, Math.min(256, Math.floor(options.width / 4)));
-  const rows = Math.max(1, Math.min(256, Math.floor(options.height / 4)));
-  const density = kind === "scatter" && valid > pointBudget;
-  const normalizedX = coordinateSQL({ ...x, field: "vx" }, "v"),
-    normalizedY = coordinateSQL({ ...y, field: "yt" }, "v");
-  const visible = `${base}, visible AS (SELECT *, ${normalizedX} AS nx, ${normalizedY} AS ny FROM runs v
-    WHERE eligible ${page ? `AND vx >= ${offset} AND vx < ${offset + size}` : ""})`;
-  const visibleQuery = Query.from(verbatim(`(${visible} SELECT * FROM visible) AS chart_observations`)).select("*");
-  let plotQuery: Query;
-  if (density) {
-    const cells = bin2d(
-      Query.from({ v: visibleQuery }).select("g"),
-      verbatim(`least(${columns - 1}, greatest(0, nx*${columns}))`),
-      verbatim(`least(${rows - 1}, greatest(0, ny*${rows}))`),
-      { n: count(), domain_changed: verbatim("bool_or(nx < -1e-12 OR nx > 1+1e-12 OR ny < -1e-12 OR ny > 1+1e-12)") },
-      columns,
-      ["g"]
-    );
-    plotQuery = Query.from({ cells })
-      .select({
-        nx: verbatim(`((index % ${columns})+0.5)/${columns}`),
-        ny: verbatim(`(floor(index / ${columns})+0.5)/${rows}`),
-        count: verbatim("sum(n)"),
-        groups: verbatim("CAST(to_json(list(struct_pack(key := g, count := n) ORDER BY g NULLS FIRST)) AS VARCHAR)"),
-        domain_changed: verbatim("bool_or(domain_changed)"),
-      })
-      .groupby("index");
-  } else if ((kind === "line" || kind === "area") && valid > pointBudget) {
-    // Preserve source order, null-separated runs, and first/last/min/max of both
-    // boundaries per horizontal pixel. Stacked areas must retain their baseline.
-    const pixels = Math.max(1, Math.floor(options.width));
-    // Bin by display X but use source ordinal as M4's ordering dimension.
-    // Select original rows afterward to retain labels and both area boundaries.
-    const bin = verbatim(`nx*${pixels}`),
-      groups = [column("g"), column("run")];
-    const upper = m4("chart_visible", bin, "ord", "yt", groups);
-    const ordinals = Query.from({ upper }).select("ord");
-    const selected = stacked
-      ? Query.union(ordinals, Query.from({ lower: m4("chart_visible", bin, "ord", "y0", groups) }).select("ord"))
-      : ordinals;
-    plotQuery = Query.with(cte("chart_visible", visibleQuery, true), { chart_extrema: selected })
-      .from("chart_visible")
-      .select("*")
-      .where(verbatim("ord IN (SELECT ord FROM chart_extrema)"))
-      .orderby("ord");
-  } else {
-    plotQuery = visibleQuery.orderby("ord");
-    if (kind === "scatter") plotQuery.limit(pointBudget + 1);
-  }
-  const result = valid ? await query(plotQuery) : null;
-  if (!density && kind === "scatter" && result && result.numRows > pointBudget)
-    throw new Error("The source changed while plotting. Refresh the chart; no partial result is shown.");
-  const plottedRows = result?.toArray() ?? [];
-  if (
-    plottedRows.some(
-      (row) =>
-        row.domain_changed ||
-        Number(row.nx) < -1e-12 ||
-        Number(row.nx) > 1 + 1e-12 ||
-        Number(row.ny) < -1e-12 ||
-        Number(row.ny) > 1 + 1e-12
-    ) ||
-    (!page && density && plottedRows.reduce((count, row) => count + Number(row.count), 0) !== valid) ||
-    (!page && !density && valid <= pointBudget && plottedRows.length !== valid)
-  )
-    throw new Error("The source changed while plotting. Refresh to update the chart bounds and counts.");
-  const marks: Mark[] =
-    plottedRows.map((r) =>
-      density
-        ? {
-            x: Number(r.nx),
-            y: Number(r.ny),
-            count: Number(r.count),
-            ...(props.color ? { groups: JSON.parse(String(r.groups)) as { key: string | null; count: number }[] } : {}),
-          }
-        : {
-            x: Number(r.nx),
-            y: Number(r.ny),
-            count: 1,
-            xValue: r.label_x === null ? null : String(r.label_x),
-            yValue: r.label_y === null ? "(null)" : String(r.label_y),
-            group: r.g === null ? null : String(r.g),
-            run: Number(r.run),
-            y0: normalize(yLog ? Math.max(y.domain[0], Number(r.y0)) : Number(r.y0), y),
-          }
-    ) ?? [];
+  const marks: Mark[] = plottedRows.map((r) =>
+    density
+      ? {
+          x: Number(r.nx),
+          y: Number(r.ny),
+          count: Number(r.count),
+          ...(props.color ? { groups: JSON.parse(String(r.groups)) as { key: string | null; count: number }[] } : {}),
+        }
+      : {
+          x: Number(r.nx),
+          y: Number(r.ny),
+          count: 1,
+          xValue: r.label_x === null ? null : String(r.label_x),
+          yValue: r.label_y === null ? "(null)" : String(r.label_y),
+          group: r.g === null ? null : String(r.g),
+          run: Number(r.run),
+          y0: normalize(yLog ? Math.max(y.domain[0], Number(r.y0)) : Number(r.y0), y),
+        }
+  );
   const groups = props.color
     ? Array.from(new Set(marks.flatMap((mark) => mark.groups?.map((g) => g.key) ?? [mark.group ?? null]))).sort(
         (a, b) => String(a).localeCompare(String(b))
