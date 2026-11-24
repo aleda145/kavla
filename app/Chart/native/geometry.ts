@@ -99,8 +99,12 @@ export function translateSelection(
   return dx || dy ? polygon.map(({ x, y }) => ({ x: x + dx, y: y + dy })) : null;
 }
 
-export const resizeHandles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
-export type ResizeHandle = (typeof resizeHandles)[number];
+export const cornerHandles = ["nw", "ne", "se", "sw"] as const;
+export const edgeHandles = ["n", "e", "s", "w"] as const;
+type CornerHandle = (typeof cornerHandles)[number];
+export type ResizeHandle = CornerHandle | (typeof edgeHandles)[number];
+export type RotationHandle = `rotate-${CornerHandle}`;
+export type SelectionHandle = ResizeHandle | RotationHandle;
 
 export function selectionBounds(polygon: Point[]) {
   // Keep the handles reachable for outlines that extend beyond the plot.
@@ -112,6 +116,46 @@ export function selectionBounds(polygon: Point[]) {
     bottom: Math.max(0, Math.min(...ys)),
     top: Math.min(1, Math.max(...ys)),
   };
+}
+
+// Weight edge midpoints by their length so extra pen samples on one side do not shift the pivot.
+// Use plot pixels throughout the turn to preserve the outline's proportions on rectangular charts.
+export function rotationCenter(polygon: Point[], geometry: ReturnType<typeof chartGeometry>): Point {
+  let previous = geometry.fromAnalytical(polygon[polygon.length - 1]);
+  let x = 0;
+  let y = 0;
+  let perimeter = 0;
+  for (const vertex of polygon) {
+    const next = geometry.fromAnalytical(vertex);
+    const length = Math.hypot(next.x - previous.x, next.y - previous.y);
+    x += ((previous.x + next.x) / 2) * length;
+    y += ((previous.y + next.y) / 2) * length;
+    perimeter += length;
+    previous = next;
+  }
+  const { plot } = geometry;
+  return {
+    x: Math.max(plot.left, Math.min(plot.left + plot.width, x / perimeter)),
+    y: Math.max(plot.top, Math.min(plot.top + plot.height, y / perimeter)),
+  };
+}
+
+export function rotateSelection(
+  polygon: Point[],
+  geometry: ReturnType<typeof chartGeometry>,
+  center: Point,
+  radians: number
+): Point[] | null {
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const rotated = polygon.map((vertex) => {
+    const point = geometry.fromAnalytical(vertex);
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    return geometry.toAnalytical({ x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos });
+  });
+  // Preserve off-plot vertices, but keep the drawing reachable for the next edit.
+  return firstPlotEntry(rotated, true) === null ? null : rotated;
 }
 
 export function resizeSelection(

@@ -1,17 +1,40 @@
 import { useEffect, useState, type PointerEvent, type SVGAttributes } from "react";
-import type { Editor } from "tldraw";
+import { getCursor, type Editor, type TLCursorType } from "tldraw";
 import type { ChartData } from "./chart-data";
 import {
   resizeSelection,
+  rotateSelection,
+  rotationCenter,
   selectionRegion,
   translateSelection,
   type chartGeometry,
   type ResizeHandle,
+  type RotationHandle,
+  type SelectionHandle,
 } from "./geometry";
 import { selectsPoint, type ChartSelection, type Point } from "./selection";
 
 type Geometry = ReturnType<typeof chartGeometry>;
 type DrawingEvent = PointerEvent<SVGGraphicsElement>;
+
+const cursors = {
+  n: "ns-resize",
+  s: "ns-resize",
+  e: "ew-resize",
+  w: "ew-resize",
+  nw: "nwse-resize",
+  se: "nwse-resize",
+  ne: "nesw-resize",
+  sw: "nesw-resize",
+  "rotate-nw": "nwse-rotate",
+  "rotate-ne": "nesw-rotate",
+  "rotate-se": "senw-rotate",
+  "rotate-sw": "swne-rotate",
+} satisfies Record<SelectionHandle, TLCursorType>;
+
+function isRotationHandle(handle?: SelectionHandle): handle is RotationHandle {
+  return handle?.startsWith("rotate-") === true;
+}
 
 function plotPoint(event: DrawingEvent, geometry: Geometry): Point {
   const transform = event.currentTarget.getScreenCTM()!;
@@ -25,6 +48,7 @@ export function useSelectionDrag(
   geometry: Geometry | null,
   data: ChartData | null,
   color: string | null,
+  chartRotation: number,
   focusedId: string | null,
   onFocus: (drawingId: string | null) => void,
   onDelete: (drawingId: string) => void,
@@ -36,11 +60,15 @@ export function useSelectionDrag(
     start: Point;
     screen: Point;
     clickId: string;
-    handle?: ResizeHandle;
+    handle?: SelectionHandle;
+    center?: Point;
     selection: ChartSelection;
     geometry: Geometry;
   } | null>(null);
-  const [draft, setDraft] = useState<{ selection: ChartSelection; handle?: ResizeHandle } | null>(null);
+  const [draft, setDraft] = useState<{
+    selection: ChartSelection;
+    handle?: ResizeHandle;
+  } | null>(null);
   const active = gesture && selections.includes(gesture.selection) && gesture.geometry === geometry ? gesture : null;
 
   function cancel() {
@@ -74,38 +102,57 @@ export function useSelectionDrag(
     if (Math.hypot(event.clientX - active.screen.x, event.clientY - active.screen.y) < 3) return null;
     const selection = active.selection;
     const end = plotPoint(event, geometry);
-    const resize = active.handle
-      ? resizeSelection(
-          selection.polygon,
-          active.handle,
-          { x: end.x - active.start.x, y: end.y - active.start.y },
-          geometry.plot
-        )
-      : null;
-    const polygon = active.handle
-      ? resize?.polygon
-      : translateSelection(selection.polygon, active.start, end, geometry.plot, selection.inverted);
+    let polygon: Point[] | null | undefined;
+    let handle: ResizeHandle | undefined;
+    if (isRotationHandle(active.handle)) {
+      const center = active.center;
+      if (!center) return null;
+      const start = geometry.fromAnalytical(active.start);
+      const pointer = geometry.fromAnalytical(end);
+      const dx = pointer.x - center.x;
+      const dy = pointer.y - center.y;
+      if (Math.hypot(dx, dy) < 1) return null;
+      let angle = Math.atan2(dy, dx) - Math.atan2(start.y - center.y, start.x - center.x);
+      if (event.shiftKey) angle = Math.round(angle / (Math.PI / 12)) * (Math.PI / 12);
+      if (Math.abs(Math.sin(angle / 2)) < 1e-10) return null;
+      polygon = rotateSelection(selection.polygon, geometry, center, angle);
+    } else if (active.handle) {
+      const resize = resizeSelection(
+        selection.polygon,
+        active.handle,
+        { x: end.x - active.start.x, y: end.y - active.start.y },
+        geometry.plot
+      );
+      polygon = resize?.polygon;
+      handle = resize?.handle;
+    } else {
+      polygon = translateSelection(selection.polygon, active.start, end, geometry.plot, selection.inverted);
+    }
     if (!polygon) return null;
     return {
       selection: { ...selection, ...selectionRegion(data, geometry, polygon, color, selection.inverted) },
-      handle: resize?.handle,
+      handle,
     };
   }
 
   function handlersFor(
     selection: ChartSelection,
     index: number,
-    handle?: ResizeHandle
+    handle?: SelectionHandle
   ): SVGAttributes<SVGGraphicsElement> {
     const cursorHandle = active?.handle === handle ? (draft?.handle ?? handle) : handle;
     return {
       tabIndex: 0,
       role: "button",
-      "aria-label": handle ? `Resize drawing ${index + 1} (${handle.toUpperCase()})` : `Select drawing ${index + 1}`,
+      "aria-label": isRotationHandle(handle)
+        ? `Rotate drawing ${index + 1} (${handle.slice(7).toUpperCase()})`
+        : handle
+          ? `Resize drawing ${index + 1} (${handle.toUpperCase()})`
+          : `Select drawing ${index + 1}`,
       style: {
         pointerEvents: "all",
         touchAction: "none",
-        cursor: cursorHandle ? `${cursorHandle}-resize` : active ? "grabbing" : "grab",
+        cursor: cursorHandle ? getCursor(cursors[cursorHandle], chartRotation) : active ? "grabbing" : "grab",
       },
       onFocus: () => onFocus(selection.drawingId),
       onKeyDown(event) {
@@ -113,6 +160,15 @@ export function useSelectionDrag(
           event.preventDefault();
           event.stopPropagation();
           if (active) return;
+          if (isRotationHandle(handle)) {
+            const clockwise = event.key === "ArrowRight" || event.key === "ArrowDown";
+            const angle = ((clockwise ? 1 : -1) * (event.shiftKey ? 15 : 1) * Math.PI) / 180;
+            const center = rotationCenter(selection.polygon, geometry);
+            const polygon = rotateSelection(selection.polygon, geometry, center, angle);
+            if (polygon)
+              onCommit({ ...selection, ...selectionRegion(data, geometry, polygon, color, selection.inverted) });
+            return;
+          }
           const step = event.shiftKey ? 10 : 1;
           const x = event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0;
           const y = event.key === "ArrowUp" ? step : event.key === "ArrowDown" ? -step : 0;
@@ -166,6 +222,7 @@ export function useSelectionDrag(
           start,
           clickId: clicked.drawingId,
           handle,
+          center: isRotationHandle(handle) ? rotationCenter(grabbed.polygon, geometry) : undefined,
           screen: { x: event.clientX, y: event.clientY },
           selection: grabbed,
           geometry,
@@ -195,5 +252,9 @@ export function useSelectionDrag(
       },
     };
   }
-  return { draft: active ? draft?.selection : null, resizing: Boolean(active?.handle), handlersFor };
+  return {
+    draft: active ? draft?.selection : null,
+    action: isRotationHandle(active?.handle) ? "Rotating" : active?.handle ? "Resizing" : "Moving",
+    handlersFor,
+  };
 }

@@ -402,12 +402,18 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     () => editor.isIn("select.idle") && !editor.getIsReadonly() && !editor.isShapeOrAncestorLocked(shape.id),
     [editor, shape.id]
   );
+  const chartRotation = useValue(
+    "chart drawing cursor angle",
+    () => editor.getShapePageTransform(shape.id).rotation(),
+    [editor, shape.id]
+  );
   const drag = useSelectionDrag(
     editor,
     canMove && !slice && !settingsOpen ? placed : [],
     geometry,
     currentPlot,
     shape.props.color,
+    chartRotation,
     focusedId,
     setFocusedId,
     deleteDrawing,
@@ -854,6 +860,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
       selections={displayed}
       previewId={hoveredSelection?.drawingId}
       focusedId={focused?.drawingId}
+      zoom={zoomLevel}
       xKind={currentPlot.xKind}
       categories={currentPlot.categories}
       handlersFor={canMove && !slice && !settingsOpen ? drag.handlersFor : undefined}
@@ -1075,9 +1082,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                         >
                           {" ("}
                           {drag.draft
-                            ? drag.resizing
-                              ? "Resizing selection…"
-                              : "Moving selection…"
+                            ? `${drag.action} selection…`
                             : !firstRegion
                               ? "0 selected"
                               : !selectionCurrent

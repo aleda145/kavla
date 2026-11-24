@@ -1,8 +1,14 @@
-import { resizeHandles, selectionBounds, type chartGeometry, type ResizeHandle } from "./geometry";
-import type { ChartSelection } from "./selection";
+import { cornerHandles, edgeHandles, selectionBounds, type chartGeometry, type SelectionHandle } from "./geometry";
+import type { ChartSelection, Point } from "./selection";
 import { memo, useId, type SVGAttributes } from "react";
 import { scaleUtc } from "d3";
 import type { XKind } from "./chart-data";
+
+type DrawingHandlers = (
+  selection: ChartSelection,
+  index: number,
+  handle?: SelectionHandle
+) => SVGAttributes<SVGGraphicsElement>;
 
 export const ScatterAxes = memo(function ScatterAxes({
   geometry,
@@ -13,6 +19,7 @@ export const ScatterAxes = memo(function ScatterAxes({
   selections,
   handlersFor,
   focusedId,
+  zoom = 1,
   previewId,
   xKind = "number",
   categories = [],
@@ -23,7 +30,8 @@ export const ScatterAxes = memo(function ScatterAxes({
   xLabel: string;
   yLabel: string;
   selections: ChartSelection[];
-  handlersFor?: (selection: ChartSelection, index: number, handle?: ResizeHandle) => SVGAttributes<SVGGraphicsElement>;
+  handlersFor?: DrawingHandlers;
+  zoom?: number;
   focusedId?: string | null;
   previewId?: string;
   xKind?: XKind;
@@ -183,42 +191,106 @@ export const ScatterAxes = memo(function ScatterAxes({
         {shorten(yLabel, plot.height)}
       </text>
       {focused && handlersFor && nw && se && (
-        <g data-chart-drawing={focused.drawingId}>
-          <rect
-            x={nw.x}
-            y={nw.y}
-            width={se.x - nw.x}
-            height={se.y - nw.y}
-            fill="none"
-            stroke="#475569"
-            strokeWidth={1}
-            strokeDasharray="3 3"
-          />
-          {resizeHandles.map((handle) => {
-            const west = handle.includes("w"),
-              east = handle.includes("e");
-            const north = handle.includes("n"),
-              south = handle.includes("s");
-            // Keep small drawings grabbable between their corner handles.
-            if ((!west && !east && se.x - nw.x < 28) || (!north && !south && se.y - nw.y < 28)) return null;
-            const cx = west ? nw.x - 3 : east ? se.x + 3 : (nw.x + se.x) / 2;
-            const cy = north ? nw.y - 3 : south ? se.y + 3 : (nw.y + se.y) / 2;
-            return (
-              <g key={handle}>
-                <rect x={cx - 4} y={cy - 4} width={8} height={8} fill="white" stroke="black" strokeWidth={1.5} />
-                <polygon
-                  {...handlersFor(focused, focusedIndex, handle)}
-                  data-resize-handle={handle}
-                  points={`${cx - 7},${cy - 7} ${cx + 7},${cy - 7} ${cx + 7},${cy + 7} ${cx - 7},${cy + 7}`}
-                  fill="transparent"
-                >
-                  <title>Drag to resize, or use the arrow keys</title>
-                </polygon>
-              </g>
-            );
-          })}
-        </g>
+        <DrawingHandles
+          drawing={focused}
+          index={focusedIndex}
+          handlersFor={handlersFor}
+          nw={nw}
+          se={se}
+          width={width}
+          height={height}
+          zoom={zoom}
+        />
       )}
     </svg>
   );
 });
+
+function DrawingHandles({
+  drawing,
+  index,
+  handlersFor,
+  nw,
+  se,
+  width,
+  height,
+  zoom,
+}: {
+  drawing: ChartSelection;
+  index: number;
+  handlersFor: DrawingHandlers;
+  nw: Point;
+  se: Point;
+  width: number;
+  height: number;
+  zoom: number;
+}) {
+  const boxWidth = se.x - nw.x;
+  const boxHeight = se.y - nw.y;
+  const square = Math.min(8 / zoom, boxWidth / 2, boxHeight / 2);
+  const cornerHit = 7 / zoom;
+  const rotateHit = 18 / zoom;
+  // Leave the middle of a small drawing available for moving it.
+  const insideX = Math.min(cornerHit, boxWidth / 4);
+  const insideY = Math.min(cornerHit, boxHeight / 4);
+  return (
+    <g data-chart-drawing={drawing.drawingId}>
+      <rect className="tl-selection__fg__outline" x={nw.x} y={nw.y} width={boxWidth} height={boxHeight} />
+      {edgeHandles.map((edge) => {
+        const horizontal = edge === "n" || edge === "s";
+        const edgeX = Math.min(4.5 / zoom, insideX);
+        const edgeY = Math.min(4.5 / zoom, insideY);
+        return (
+          <rect
+            key={edge}
+            {...handlersFor(drawing, index, edge)}
+            data-resize-handle={edge}
+            x={horizontal ? nw.x + insideX : (edge === "w" ? nw.x : se.x) - edgeX}
+            y={horizontal ? (edge === "n" ? nw.y : se.y) - edgeY : nw.y + insideY}
+            width={horizontal ? boxWidth - 2 * insideX : 2 * edgeX}
+            height={horizontal ? 2 * edgeY : boxHeight - 2 * insideY}
+            fill="transparent"
+          >
+            <title>Drag the edge to resize</title>
+          </rect>
+        );
+      })}
+      {cornerHandles.map((corner) => {
+        const west = corner.endsWith("w");
+        const north = corner.startsWith("n");
+        const cx = west ? nw.x : se.x;
+        const cy = north ? nw.y : se.y;
+        // Even at the chart boundary, reserve some space outside the square for rotation.
+        const outsideX = Math.min(cornerHit, (west ? cx : width - cx) / 2);
+        const outsideY = Math.min(cornerHit, (north ? cy : height - cy) / 2);
+        return (
+          <g key={corner}>
+            <rect
+              {...handlersFor(drawing, index, `rotate-${corner}`)}
+              data-rotate-handle={corner}
+              x={west ? cx - rotateHit : cx}
+              y={north ? cy - rotateHit : cy}
+              width={rotateHit}
+              height={rotateHit}
+              fill="transparent"
+            >
+              <title>Drag outside the corner to rotate. Hold Shift for 15° steps.</title>
+            </rect>
+            <rect className="tl-corner-handle" x={cx - square / 2} y={cy - square / 2} width={square} height={square} />
+            <rect
+              {...handlersFor(drawing, index, corner)}
+              data-resize-handle={corner}
+              x={cx - (west ? outsideX : insideX)}
+              y={cy - (north ? outsideY : insideY)}
+              width={outsideX + insideX}
+              height={outsideY + insideY}
+              fill="transparent"
+            >
+              <title>Drag the corner to resize, or use the arrow keys</title>
+            </rect>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
