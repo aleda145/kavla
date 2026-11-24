@@ -28,6 +28,7 @@ export type ChartSelection = ({ version: 1; series?: undefined } | { version: 2;
   y: Axis;
   polygon: Point[];
   inverted?: boolean;
+  groupName?: string;
   // Present when the chart owns the stroke. drawingId is provenance only;
   // older saved selections may still refer to a standalone canvas drawing.
   outline?: OutlineStyle;
@@ -131,57 +132,81 @@ export function chartValueSQL(field: string, kind: "number" | "time"): string {
   return kind === "time" ? `epoch_ms(TRY_CAST(${field} AS TIMESTAMP))` : `TRY_CAST(${field} AS DOUBLE)`;
 }
 
-type SQLRegion = SelectionGeometry & { series?: SeriesSelection };
+type SQLRegion = SelectionGeometry & { series?: SeriesSelection; groupName?: string };
 
 export function selectionSQL(sourceSQL: string, area: SQLRegion | SQLRegion[]): string {
-  const regions = Array.isArray(area) ? area : [area];
+  return drawingRowsSQL(sourceSQL, Array.isArray(area) ? area : [area], false);
+}
+
+export function clusteredRowsSQL(sourceSQL: string, regions: SQLRegion[]): string {
+  return drawingRowsSQL(
+    sourceSQL,
+    regions.filter((region) => region.groupName),
+    true
+  );
+}
+
+function drawingRowsSQL(sourceSQL: string, regions: SQLRegion[], grouped: boolean): string {
   const input = `(${sourceSQL.trim().replace(/;+\s*$/, "")})`;
-  const from = `SELECT observation.* FROM ${input} AS observation`;
-  if (!regions.length) return `${from} WHERE FALSE`;
+  function project(columns: string, from: string, predicates: string[]) {
+    if (!grouped) return `SELECT ${columns} FROM ${from} WHERE ${predicates.join(" OR ") || "FALSE"}`;
+    const cases = predicates.map((predicate, i) => `WHEN ${predicate} THEN ${quoteSqlString(regions[i].groupName!)}`);
+    const cluster = cases.length ? `CASE ${cases.join("\n")} ELSE NULL END` : "NULL::VARCHAR";
+    // Put the label first so DuckDB disambiguates an existing input column called cluster.
+    return `SELECT ${cluster} AS cluster, ${columns} FROM ${from}`;
+  }
+  let from = `${input} AS observation`;
+  if (!regions.length) return project("observation.*", from, []);
   // Every outline is bound to the same plot and visible category page.
   const { series, x, y } = regions[0];
-  if (!series) return `${from} WHERE ${regions.map((r) => selectionPredicate(r)).join(" OR ")}`;
+  if (!series)
+    return project(
+      "observation.*",
+      from,
+      regions.map((r) => selectionPredicate(r))
+    );
   const field = identifier(x.field);
   if (series.kind === "bar") {
-    const hits = new Set<string>();
-    for (const region of regions) {
-      if (region.series?.kind !== "bar") throw new Error("Expected a bar selection.");
-      for (const [category, group] of region.series.keys) hits.add(`(${sqlKey(category)}, ${sqlKey(group)})`);
-    }
-    if (!hits.size) return `${from} WHERE FALSE`;
-    const keys = [...hits].join(", ");
     const category = `CAST(numbered.original_row.${field} AS VARCHAR)`;
     const group =
       series.color === null ? "NULL::VARCHAR" : `CAST(numbered.original_row.${identifier(series.color)} AS VARCHAR)`;
-    // Keep the input order before grouping, just as the chart planner does. Pack
-    // the row so user columns can have any name, including our temporary aliases.
-    return `SELECT original_row.* FROM (
-      SELECT numbered.original_row FROM (
-        SELECT struct_pack(*COLUMNS(*)) AS original_row, row_number() OVER () AS ord FROM ${input} AS src
-      ) AS numbered
-      WHERE EXISTS (SELECT 1 FROM (VALUES ${keys}) AS hit(category, series)
-        WHERE hit.category IS NOT DISTINCT FROM ${category} AND hit.series IS NOT DISTINCT FROM ${group})
-      QUALIFY row_number() OVER (PARTITION BY ${category}, ${group} ORDER BY numbered.ord) = 1
-    ) AS chosen WHERE isfinite(TRY_CAST(chosen.original_row.${identifier(y.field)} AS DOUBLE))`;
+    const numbered = `(SELECT struct_pack(*COLUMNS(*)) AS original_row, row_number() OVER () AS ord FROM ${input} AS src) AS numbered`;
+    const rank = `row_number() OVER (PARTITION BY ${category}, ${group} ORDER BY numbered.ord)`;
+    const finite = `isfinite(TRY_CAST(numbered.original_row.${identifier(y.field)} AS DOUBLE))`;
+    function barHit(keys: Set<string>) {
+      if (!keys.size) return "FALSE";
+      return `EXISTS (SELECT 1 FROM (VALUES ${[...keys].join(", ")}) AS hit(category, series)
+        WHERE hit.category IS NOT DISTINCT FROM ${category} AND hit.series IS NOT DISTINCT FROM ${group})`;
+    }
+    const keys = regions.map((region) => {
+      if (region.series?.kind !== "bar") throw new Error("Expected a bar selection.");
+      return region.series.keys.map(([category, group]) => `(${sqlKey(category)}, ${sqlKey(group)})`);
+    });
+    if (!grouped) {
+      return `SELECT original_row.* FROM (SELECT numbered.original_row FROM ${numbered}
+        WHERE ${barHit(new Set(keys.flat()))} QUALIFY ${rank} = 1) AS chosen
+        WHERE isfinite(TRY_CAST(chosen.original_row.${identifier(y.field)} AS DOUBLE))`;
+    }
+    // A bar represents the first source row for its key. Keep duplicates in the output with a NULL label.
+    const ranked = `(SELECT numbered.*, ${rank} AS bar_rank FROM ${numbered}) AS numbered`;
+    const predicates = keys.map((hits) => `bar_rank = 1 AND ${finite} AND ${barHit(new Set(hits))}`);
+    return project("original_row.*", ranked, predicates) + " ORDER BY numbered.ord";
   }
 
-  let relation = from;
   let xValue: string;
   if (series.xKind === "category") {
-    if (!series.categories.length) return `${from} WHERE FALSE`;
+    if (!series.categories.length) return project("observation.*", from, []);
     const offset = x.domain[0] + 0.5;
     const values = series.categories.map((key, i) => `(${sqlKey(key)}, ${literal(offset + i)})`).join(", ");
-    relation += ` JOIN (VALUES ${values}) AS visible_category(label, position)
+    from += ` ${grouped ? "LEFT JOIN" : "JOIN"} (VALUES ${values}) AS visible_category(label, position)
       ON visible_category.label IS NOT DISTINCT FROM CAST(observation.${field} AS VARCHAR)`;
     xValue = "visible_category.position";
   } else {
     xValue = chartValueSQL(`observation.${field}`, series.xKind);
   }
   const yValue = chartValueSQL(`observation.${identifier(y.field)}`, "number");
-  const predicate = regions
-    .map((r) => selectionPredicate(r, normalizedSQL(x, xValue), normalizedSQL(y, yValue)))
-    .join(" OR ");
-  return `${relation} WHERE ${predicate}`;
+  const predicates = regions.map((r) => selectionPredicate(r, normalizedSQL(x, xValue), normalizedSQL(y, yValue)));
+  return project("observation.*", from, predicates);
 }
 
 // Custom Mosaic clients can reuse this predicate with an "observation" alias.
@@ -258,6 +283,7 @@ function validateSelection(s: ChartSelection): ChartSelection {
     typeof s.sourceId !== "string" ||
     typeof s.drawingId !== "string" ||
     typeof s.chartId !== "string" ||
+    (s.groupName !== undefined && (typeof s.groupName !== "string" || !s.groupName.trim())) ||
     (s.inverted !== undefined && typeof s.inverted !== "boolean") ||
     ![s.x, s.y].every(
       (axis) =>

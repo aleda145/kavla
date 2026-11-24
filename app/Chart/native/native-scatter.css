@@ -494,3 +494,27 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.kavla-chart__group-form {
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  max-width: calc(100% - 8px);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  background: white;
+  border: 2px solid black;
+  border-radius: 6px;
+  z-index: 2;
+  pointer-events: auto;
+}
+.kavla-chart__group-form input {
+  width: 10ch;
+  min-width: 0;
+  padding: 2px 4px;
+  font:
+    600 12px Inter,
+    sans-serif;
+  user-select: text;
+}

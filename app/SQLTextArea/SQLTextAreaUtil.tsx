@@ -515,9 +515,9 @@ export class SQLTextAreaUtil extends ShapeUtil<SQLTextAreaShape> {
               className="flex items-center gap-2 bg-pink-100 px-2 py-1 text-xs font-bold"
               onPointerDown={(event) => event.stopPropagation()}
             >
-              selected_area
+              {area.relations.join(", ")}
               <select
-                aria-label="Source chart for selected_area"
+                aria-label={`Source chart for ${area.relations.join(", ")}`}
                 value=""
                 className="min-w-0 flex-1 rounded border-2 border-black bg-white"
                 onChange={(event) => {

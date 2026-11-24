@@ -104,6 +104,28 @@ export const ScatterAxes = memo(function ScatterAxes({
           </path>
         );
       })}
+      {selections.map(({ drawingId, groupName, polygon }) => {
+        if (!groupName) return null;
+        const bounds = selectionBounds(polygon);
+        const anchor = geometry.fromAnalytical({ x: (bounds.left + bounds.right) / 2, y: bounds.top });
+        return (
+          <text
+            key={drawingId}
+            x={anchor.x}
+            y={Math.min(bottom - 2, anchor.y + 14)}
+            clipPath={`url(#${clipId})`}
+            textAnchor="middle"
+            fontSize={12}
+            fontWeight={700}
+            stroke="white"
+            strokeWidth={3}
+            paintOrder="stroke"
+            pointerEvents="none"
+          >
+            {groupName}
+          </text>
+        );
+      })}
       <path
         d={`M${plot.left},${plot.top}V${bottom}H${plot.left + plot.width}`}
         fill="none"

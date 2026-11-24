@@ -42,7 +42,7 @@ import type { SQLTextAreaShape } from "./sql-text-area-types";
 import { buildRemoteSQLFromDag, walkSQLDag } from "./walkSQLDag";
 import { createKnobEditorExtensions, getKnobHoverSource } from "./knob-editor";
 import { getKnobReferences } from "../Knob/knobReferences";
-import { hasSelectedAreaBinding } from "./selected-area";
+import { hasSelectedAreaBinding, isChartRowsRelation } from "./selected-area";
 import { createSelectedAreaEditorExtensions } from "./selected-area-editor";
 
 const spatialMark = Decoration.mark({
@@ -643,7 +643,7 @@ export const LiveCodeMirror = ({
         tables: Array.from(tableNames).map((t) => ({ label: t, type: "table" })),
       }),
       createSpatialPlugin(
-        new Set([...tableNames].filter((name) => !hasArea || name.toLowerCase() !== "selected_area")),
+        new Set([...tableNames].filter((name) => !hasArea || !isChartRowsRelation(name.toLowerCase()))),
         sources,
         queries,
         onNavigate

@@ -23,7 +23,7 @@ export function getOrderedDependenciesForSQL(
   const resolveInputs = (sql: string, context?: SQLTextAreaShape) => {
     const area = getSelectedAreaSource(editor, sql, context);
     const inputs = extractTableNames(sql)
-      .filter((name) => !area || name.toLowerCase() !== "selected_area")
+      .filter((name) => !area?.relations.some((relation) => relation === name.toLowerCase()))
       .map((name) => shapes.find((shape) => shape.props.name.toLowerCase() === name.toLowerCase()))
       .filter((shape): shape is SQLDependencyShape => Boolean(shape));
     const canvasIds = inputs.map((shape) => shape.id);

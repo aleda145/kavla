@@ -20,6 +20,7 @@ import {
   ArrowDownLeft,
   CircleAlert,
   Contrast,
+  Tag,
   Lasso,
   RefreshCw,
   ScatterChart,
@@ -68,7 +69,7 @@ import {
   type ChartSelection,
   type Point,
 } from "./selection";
-import { getSelectedAreaReferences, queriesForSelectedArea } from "../../SQLTextArea/selected-area";
+import { getSelectedAreaSource, queriesForSelectedArea, type ChartRowsRelation } from "../../SQLTextArea/selected-area";
 import { scatterSource } from "./source";
 import { activeAreaChart, areaOnPlot, chartAreaValue, setGlobalArea } from "./global-selection";
 import { ScatterMarks } from "./ScatterMarks";
@@ -144,10 +145,17 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   const { regions } = saved;
   const firstRegion = regions[0];
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const exploredId = useValue(
-    "chart selection query",
-    () =>
-      queriesForSelectedArea(editor, shape.id).find((query) => getSelectedAreaReferences(query.props.text).length)?.id,
+  const { exploredId, groupedId } = useValue(
+    "chart drawing queries",
+    () => {
+      const queries = queriesForSelectedArea(editor, shape.id);
+      const uses = (query: SQLTextAreaShape, name: ChartRowsRelation) =>
+        getSelectedAreaSource(editor, query.props.text, query)?.relations.includes(name);
+      return {
+        exploredId: queries.find((query) => uses(query, "selected_area"))?.id,
+        groupedId: queries.find((query) => query.meta.clusterQuery === true && uses(query, "clustered_rows"))?.id,
+      };
+    },
     [editor, shape.id]
   );
   const [slices, setSlices] = useState<PendingSlice[]>([]);
@@ -518,7 +526,7 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
     setSelectionError(null);
     const drawingIds = drawings.map((d) => d.id);
     setSlices((pending) => pending.filter((s) => !drawingIds.includes(s.drawing.id)));
-    setFocusedId(null);
+    setFocusedId(next.drawingId);
     setHoveredSide(null);
     const previous = (regionsToCarry() ?? []).filter((r) => r.drawingId !== next.drawingId);
     const areas = [...previous, next].map((r) => areaOnPlot(r, shape, currentPlot, geometry, source));
@@ -736,31 +744,47 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
 
   const branchController = useRef<AbortController | null>(null);
   useEffect(() => () => branchController.current?.abort(), []);
-  const explore = async () => {
-    if (exploredId && editor.getShape(exploredId)) {
-      editor.select(exploredId);
-      const bounds = editor.getShapePageBounds(exploredId);
-      if (bounds) editor.zoomToBounds(bounds, { targetZoom: editor.getZoomLevel(), animation: { duration: 200 } });
+  function createDrawingQuery(name: string, relation: ChartRowsRelation) {
+    const grouped = relation === "clustered_rows";
+    const bounds = editor.getShapePageBounds(shape.id)!;
+    const otherId = grouped ? exploredId : groupedId;
+    const other = otherId && editor.getShapePageBounds(otherId);
+    const id = createShapeId();
+    const text = `SELECT * FROM ${relation}`;
+    editor.createShape<SQLTextAreaShape>({
+      id,
+      type: "sql-text-area",
+      x: bounds.maxX + 60,
+      y: other ? Math.max(bounds.y, other.maxY + 36) : bounds.y,
+      props: {
+        name: getUniqueName(editor, `${name}_${grouped ? "clustered" : "selected"}`),
+        text,
+        isDirty: true,
+        showTable: true,
+      },
+      meta: { selectedAreaChartId: shape.id, ...(grouped ? { clusterQuery: true } : {}) },
+    });
+    connectShapes(editor, shape.id, id);
+    return { id, text };
+  }
+  function openQuery(id: TLShapeId) {
+    editor.select(id);
+    const bounds = editor.getShapePageBounds(id);
+    if (bounds) editor.zoomToBounds(bounds, { targetZoom: editor.getZoomLevel(), animation: { duration: 200 } });
+  }
+  const explore = async (relation: ChartRowsRelation = "selected_area") => {
+    const existing = relation === "selected_area" ? exploredId : groupedId;
+    if (existing && editor.getShape(existing)) {
+      openQuery(existing);
       return;
     }
-    if (!firstRegion || !source || count === null || !selectionCurrent) return;
+    if (!firstRegion || !source || !selectionCurrent || (relation === "selected_area" && count === null)) return;
     setExploring(true);
     try {
       const latest = scatterSource(editor, shape);
       if (latest.revision !== firstRegion.sourceRevision)
         throw new Error("The upstream query changed. Draw a new selection.");
-      const text = "SELECT * FROM selected_area";
-      const id = createShapeId();
-      const bounds = editor.getShapePageBounds(shape.id)!;
-      editor.createShape<SQLTextAreaShape>({
-        id,
-        type: "sql-text-area",
-        x: bounds.maxX + 60,
-        y: bounds.y,
-        props: { name: getUniqueName(editor, `${latest.name}_selected`), text, isDirty: true, showTable: true },
-        meta: { selectedAreaChartId: shape.id },
-      });
-      connectShapes(editor, shape.id, id);
+      const { id, text } = createDrawingQuery(latest.name, relation);
       const controller = new AbortController();
       branchController.current = controller;
       const result = await executeSQLShape(editor, data, id, text, controller.signal, { createMissingKnobs: false });
@@ -830,6 +854,35 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
   };
   const updateProps = (props: Partial<ChartShape["props"]>) =>
     editor.updateShape<ChartShape>({ id: shape.id, type: "chart-shape", props });
+  const groupDrawing =
+    !slice && !settingsOpen && !drag.draft && canSelect && (canMove || capturing)
+      ? displayed.find((r) => r.drawingId === focusedId)
+      : undefined;
+  function nameDrawing(value: string) {
+    if (
+      !groupDrawing ||
+      !source ||
+      !selectionCurrent ||
+      editor.getIsReadonly() ||
+      editor.isShapeOrAncestorLocked(shape.id) ||
+      chartAreaValue(editor, shape) !== areaValue
+    )
+      return;
+    const groupName = value.trim() || undefined;
+    if (groupName === groupDrawing.groupName) return;
+    editor.markHistoryStoppingPoint("name chart group");
+    editor.run(() => {
+      if (groupName && !groupedId) createDrawingQuery(source.name, "clustered_rows");
+      // Updating the page schedules the linked query and its dependents, including on undo.
+      setGlobalArea(
+        editor,
+        shape.id,
+        regions.map((region) => (region.drawingId === groupDrawing.drawingId ? { ...region, groupName } : region))
+      );
+    });
+    editor.markHistoryStoppingPoint("chart group named");
+  }
+
   function invertDrawing() {
     if (
       !focused ||
@@ -1047,6 +1100,16 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
                   <Contrast size={14} aria-hidden />
                 </button>
               </div>
+            )}
+            {groupDrawing && (
+              <DrawingGroupForm
+                key={JSON.stringify([groupDrawing.drawingId, groupDrawing.groupName])}
+                drawing={groupDrawing}
+                regions={regions}
+                save={nameDrawing}
+                open={groupDrawing.groupName || groupedId ? () => void explore("clustered_rows") : undefined}
+                dismiss={() => setFocusedId(null)}
+              />
             )}
             {(!currentPlot || !currentPlot.valid) && (
               <div role="status" className="kavla-scatter__message">
@@ -1432,5 +1495,75 @@ export function NativeChart({ editor, shape }: { editor: Editor; shape: ChartSha
         </div>
       )}
     </HTMLContainer>
+  );
+}
+
+function DrawingGroupForm({
+  drawing,
+  regions,
+  save,
+  open,
+  dismiss,
+}: {
+  drawing: ChartSelection;
+  regions: ChartSelection[];
+  save: (name: string) => void;
+  open?: () => void;
+  dismiss: () => void;
+}) {
+  const [name, setName] = useState(() => {
+    if (drawing.groupName) return drawing.groupName;
+    const taken = new Set(regions.map((region) => region.groupName));
+    for (let index = 0; ; index++) {
+      const suffix = index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
+      const candidate = `Cluster ${suffix}`;
+      if (!taken.has(candidate)) return candidate;
+    }
+  });
+  const action = drawing.groupName ? (name.trim() ? "Rename group" : "Ungroup") : "Make group";
+  return (
+    <form
+      className="kavla-chart__group-form"
+      data-chart-drawing={drawing.drawingId}
+      aria-label="Drawing group"
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === "Escape") dismiss();
+      }}
+      onSubmit={(event) => {
+        event.preventDefault();
+        save(name);
+      }}
+    >
+      <input
+        aria-label="Group name"
+        value={name}
+        placeholder="Group name"
+        onChange={(event) => setName(event.target.value)}
+      />
+      <button
+        type="submit"
+        className="kavla-scatter__button"
+        title={action}
+        disabled={name.trim() === (drawing.groupName ?? "")}
+      >
+        <Tag size={14} aria-hidden />
+        <span className="kavla-control-label">{action}</span>
+      </button>
+      {open && (
+        <button
+          type="button"
+          className="kavla-scatter__button kavla-scatter__button--icon"
+          title="Open grouped rows"
+          aria-label="Open grouped rows"
+          onClick={open}
+        >
+          <ArrowUpRight size={14} aria-hidden />
+        </button>
+      )}
+    </form>
   );
 }

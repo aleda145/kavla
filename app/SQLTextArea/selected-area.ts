@@ -1,11 +1,17 @@
 import type { Editor, TLShapeId } from "tldraw";
 import { tokenizeSQL } from "../Knob/knobSQL";
-import { identifier, readSelection, readSelections, selectionSQL } from "../Chart/native/selection";
+import { clusteredRowsSQL, identifier, readSelection, readSelections, selectionSQL } from "../Chart/native/selection";
 import { stripTrailingSemicolons } from "../src/duckdb/sql";
 import type { ChartShape } from "../Chart/chart-shape-types";
 import { activeAreaChart, chartAreaValue } from "../Chart/native/global-selection";
 import { extractTableNames } from "../util/parseSql";
 import type { SQLTextAreaShape } from "./sql-text-area-types";
+
+export type ChartRowsRelation = "selected_area" | "clustered_rows";
+
+export function isChartRowsRelation(name: string): name is ChartRowsRelation {
+  return name === "selected_area" || name === "clustered_rows";
+}
 
 export function getSelectedAreaReferences(sql: string) {
   const tokens = tokenizeSQL(sql).filter((token) => token.kind !== "ignored");
@@ -13,7 +19,7 @@ export function getSelectedAreaReferences(sql: string) {
     const name = token.kind === "identifier" ? token.text.slice(1, -1) : token.text;
     return (
       (token.kind === "code" || token.kind === "identifier") &&
-      name.toLowerCase() === "selected_area" &&
+      isChartRowsRelation(name.toLowerCase()) &&
       tokens[index - 1]?.text !== "."
     );
   });
@@ -41,32 +47,38 @@ export function queriesForSelectedArea(editor: Editor, chartId: TLShapeId) {
 }
 
 export function getSelectedAreaSource(editor: Editor, sql: string, query?: SQLTextAreaShape) {
-  if (!query || !/\bselected_area\b/i.test(sql) || !getSelectedAreaReferences(sql).length) return null;
+  if (!query || !/\b(?:selected_area|clustered_rows)\b/i.test(sql)) return null;
   let chartId = selectedAreaChartId(query);
   const active = activeAreaChart(editor);
   if (chartId && active) chartId = active;
-  if (!chartId) {
-    // A standalone query can use the sole chart. Preserve explicitly named tables and local CTEs.
-    const shapes = editor.getCurrentPageShapes();
-    if (!extractTableNames(sql).some((name) => name.toLowerCase() === "selected_area")) return null;
-    const namedTable = shapes.some(
-      (shape) =>
-        (shape.type === "sql-text-area" || shape.type === "data-source") &&
-        "name" in shape.props &&
-        typeof shape.props.name === "string" &&
-        shape.props.name.toLowerCase() === "selected_area"
-    );
-    if (namedTable) return null;
-    const tokens = tokenizeSQL(sql).filter((token) => token.kind !== "ignored");
+  const shapes = editor.getCurrentPageShapes();
+  // Bound queries can reference either relation anywhere DuckDB accepts a table,
+  // including TABLE name and comma joins. Handwritten queries must first name it as an input.
+  const names = chartId
+    ? getSelectedAreaReferences(sql).map((token) => token.text.replace(/^"|"$/g, "").toLowerCase())
+    : extractTableNames(sql).map((name) => name.toLowerCase());
+  const tokens = tokenizeSQL(sql).filter((token) => token.kind !== "ignored");
+  const relations = [...new Set(names.filter(isChartRowsRelation))].filter((name) => {
     if (
       tokens.some(
         (token, i) =>
-          token.text.replace(/^"|"$/g, "").toLowerCase() === "selected_area" &&
+          token.text.replace(/^"|"$/g, "").toLowerCase() === name &&
           tokens[i + 1]?.text.toLowerCase() === "as" &&
           tokens[i + 2]?.text === "("
       )
     )
-      return null;
+      return false;
+    if (chartId) return true;
+    return !shapes.some(
+      (shape) =>
+        (shape.type === "sql-text-area" || shape.type === "data-source") &&
+        "name" in shape.props &&
+        typeof shape.props.name === "string" &&
+        shape.props.name.toLowerCase() === name
+    );
+  });
+  if (!relations.length) return null;
+  if (!chartId) {
     if (active) chartId = active;
     else {
       const charts = shapes.filter((shape): shape is ChartShape => shape.type === "chart-shape");
@@ -82,6 +94,7 @@ export function getSelectedAreaSource(editor: Editor, sql: string, query?: SQLTe
       ? editor.getShape<SQLTextAreaShape>(chart.props.sourceShapeId as TLShapeId)
       : undefined;
   return {
+    relations,
     chartId,
     chart: chart?.type === "chart-shape" ? chart : undefined,
     source: source?.type === "sql-text-area" ? source : undefined,
@@ -98,13 +111,17 @@ export function resolveSelectedAreaSQL(editor: Editor, sql: string, shapeId?: TL
   const shape = shapeId ? editor.getShape<SQLTextAreaShape>(shapeId) : undefined;
   const area = getSelectedAreaSource(editor, sql, shape);
   if (!area) return sql;
-  if (!area.chartId) throw new Error("Choose a source chart for selected_area in this query.");
-  if (!area.chart) throw new Error("The chart for selected_area no longer exists.");
-  if (!area.source) throw new Error("Connect the selected_area chart to a source query.");
+  const relation = area.relations.join(" and ");
+  if (!area.chartId) throw new Error(`Choose a source chart for ${relation} in this query.`);
+  if (!area.chart) throw new Error(`The chart for ${relation} no longer exists.`);
+  if (!area.source) throw new Error(`Connect the chart for ${relation} to a source query.`);
   const sourceId = area.source.id;
   const regions = readSelections(chartAreaValue(editor, area.chart)).filter((r) => r.sourceId === sourceId);
   const limit = area.chart.props.limit;
   const input = `SELECT * FROM ${identifier(area.source.props.name)}${limit == null ? "" : ` LIMIT ${Math.max(1, Math.floor(limit))}`}`;
-  const rows = selectionSQL(input, regions);
-  return `WITH selected_area AS (${rows})\nSELECT * FROM (${stripTrailingSemicolons(sql)}) AS kavla_area_query`;
+  const tables = area.relations.map((name) => {
+    const rows = name === "clustered_rows" ? clusteredRowsSQL(input, regions) : selectionSQL(input, regions);
+    return `${name} AS (${rows})`;
+  });
+  return `WITH ${tables.join(",\n")}\nSELECT * FROM (${stripTrailingSemicolons(sql)}) AS kavla_area_query`;
 }
